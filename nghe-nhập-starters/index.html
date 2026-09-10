@@ -3,1155 +3,1185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Luyện Nghe Tiếng Anh Starters</title>
+    <title>Luyện Nghe Tiếng Anh - Starters</title>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        /* --- RESET & BASIC STYLES --- */
+        :root {
+            --primary: #4ECDC4;
+            --primary-dark: #3b9b94;
+            --secondary: #FF6B6B;
+            --accent: #FFE66D;
+            --correct: #2ECC71;
+            --incorrect: #E74C3C;
+            --text-dark: #2C3E50;
+            --bg-grad: linear-gradient(135deg, #A8EDEA 0%, #FED6E3 100%);
+            --card-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            user-select: none; /* Anti-cheat: Chống bôi đen */
-            -webkit-user-select: none;
-            -webkit-touch-callout: none;
+            font-family: 'Nunito', sans-serif;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
+            background: var(--bg-grad);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 12px;
-            color: #2c3e50;
-            overflow-x: hidden;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
-        /* Canvas Pháo hoa */
-        #fireworksCanvas {
-            position: fixed;
+        .game-container {
+            width: 100%;
+            max-width: 500px;
+            background: #ffffff;
+            border-radius: 28px;
+            box-shadow: var(--card-shadow);
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            border: 4px solid #ffffff;
+        }
+
+        #confetti-canvas {
+            position: absolute;
             top: 0;
             left: 0;
-            width: 100vw;
-            height: 100vh;
-            pointer-events: none;
-            z-index: 9999;
-        }
-
-        /* --- GAME CONTAINER (Modern Card) --- */
-        .game-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 24px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
             width: 100%;
-            max-width: 480px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            position: relative;
-            backdrop-filter: blur(10px);
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
         }
 
-        /* --- HEADER & STATS BAR --- */
-        .header-bar {
+        /* Settings Bar */
+        .settings-bar {
+            background: #F8F9FA;
+            padding: 10px 14px;
+            border-radius: 16px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px;
+            border: 2px solid #EDF2F7;
+        }
+
+        select {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 12px;
+            border: 2px solid #CBD5E0;
+            background: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-dark);
+            outline: none;
+            cursor: pointer;
+        }
+
+        .btn-mini {
+            padding: 8px 12px;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: 0 4px 0 var(--primary-dark);
+            transition: all 0.1s;
+        }
+
+        .btn-mini:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 var(--primary-dark);
+        }
+
+        /* Stats Bar */
+        .stats-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 8px;
-            background: #f0f4f8;
-            padding: 10px;
-            border-radius: 16px;
-            text-align: center;
+            margin-bottom: 8px;
         }
 
-        .stat-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+        .stat-card {
+            background: #F8F9FA;
+            padding: 8px 4px;
+            border-radius: 16px;
+            text-align: center;
+            border: 2px solid #EDF2F7;
         }
 
         .stat-label {
-            font-size: 0.75rem;
-            color: #7f8c8d;
-            font-weight: 600;
+            font-size: 11px;
+            color: #718096;
+            font-weight: 700;
             text-transform: uppercase;
         }
 
         .stat-value {
-            font-size: 1.1rem;
+            font-size: 18px;
+            font-weight: 900;
+            color: var(--text-dark);
+        }
+
+        .streak-val { color: #FF9F43; }
+        .score-val { color: #10AC84; }
+        .high-val { color: #2E86DE; }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-bottom: 16px;
+        }
+
+        .progress-text-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
             font-weight: 800;
-            color: #2c3e50;
+            color: #718096;
+            margin-bottom: 4px;
         }
 
-        .streak-val { color: #e67e22; }
-        .score-val { color: #27ae60; }
-        .high-val { color: #2980b9; }
-
-        /* --- AUDIO BUTTONS SECTION --- */
-        .audio-section {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 0;
-        }
-
-        .audio-wave-icon {
-            font-size: 2.5rem;
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        .audio-btn-group {
-            display: flex;
-            gap: 12px;
+        .progress-box {
+            background: #EDF2F7;
+            border-radius: 12px;
+            height: 10px;
             width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            background: linear-gradient(90deg, #4ECDC4, #2ECC71);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Audio Section */
+        .audio-section {
+            background: #E0F7FA;
+            border-radius: 20px;
+            padding: 18px;
+            text-align: center;
+            margin-bottom: 16px;
+            border: 2px dashed #4DD0E1;
+        }
+
+        .audio-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: #00838F;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .audio-controls {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
         }
 
         .btn-audio {
             flex: 1;
-            padding: 14px;
+            padding: 12px 8px;
             border: none;
             border-radius: 16px;
-            font-size: 1rem;
-            font-weight: 700;
+            font-weight: 800;
+            font-size: 14px;
+            color: #fff;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            gap: 6px;
+            transition: all 0.1s;
         }
 
-        .btn-audio-normal {
-            background: #4ab8a1;
-            color: white;
+        .btn-normal {
+            background: #FF6B6B;
+            box-shadow: 0 4px 0 #EE5253;
+        }
+        .btn-normal:active {
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 #EE5253;
         }
 
-        .btn-audio-slow {
-            background: #f39c12;
-            color: white;
+        .btn-slow {
+            background: #FF9F43;
+            box-shadow: 0 4px 0 #EE5253;
+        }
+        .btn-slow:active {
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 #EE5253;
         }
 
-        .btn-audio:active {
-            transform: scale(0.96);
-        }
-
-        /* --- TRANSCRIPT & EXPLANATION BOX --- */
-        .explanation-box {
-            background: #e8f4f8;
-            border-left: 5px solid #3498db;
-            padding: 12px 16px;
-            border-radius: 8px;
-            min-height: 80px;
+        /* Options Grid */
+        .options-grid {
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            transition: all 0.3s ease;
+            gap: 10px;
+            margin-bottom: 16px;
         }
 
-        .explanation-box.hidden {
-            visibility: hidden;
-            opacity: 0;
+        .btn-option {
+            background: #FFFFFF;
+            border: 2px solid #E2E8F0;
+            border-radius: 16px;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-dark);
+            cursor: pointer;
+            box-shadow: 0 4px 0 #CBD5E0;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+        }
+
+        .btn-option:active:not(:disabled) {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #CBD5E0;
+        }
+
+        .btn-option.correct {
+            background: #D4EDDA !important;
+            border-color: #28A745 !important;
+            color: #155724 !important;
+            box-shadow: 0 4px 0 #28A745 !important;
+        }
+
+        .btn-option.incorrect {
+            background: #F8D7DA !important;
+            border-color: #DC3545 !important;
+            color: #721C24 !important;
+            box-shadow: 0 4px 0 #DC3545 !important;
+        }
+
+        /* Result Panel */
+        .result-panel {
+            display: none;
+            background: #FFF9DB;
+            border: 2px solid #FFE066;
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 16px;
+            animation: fadeIn 0.3s ease;
         }
 
         .transcript-text {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #2c3e50;
+            font-size: 16px;
+            font-weight: 900;
+            color: #D9480F;
             margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
-        .grammar-text {
-            font-size: 0.85rem;
-            color: #555;
-            line-height: 1.3;
+        .explanation-text {
+            font-size: 13px;
+            font-weight: 700;
+            color: #5C940D;
+            line-height: 1.4;
         }
 
-        /* --- ANSWERS GRID --- */
-        .answers-grid {
-            display: grid;
-            grid-template-columns: 1fr;
+        /* Action Footer */
+        .footer-actions {
+            display: flex;
             gap: 10px;
         }
 
-        .btn-answer {
-            background: #ffffff;
-            border: 2px solid #e2e8f0;
-            padding: 14px;
+        .btn-action {
+            flex: 1;
+            padding: 12px;
+            border: none;
             border-radius: 16px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #334155;
-            text-align: left;
+            font-weight: 800;
+            font-size: 15px;
             cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.03);
-            display: flex;
-            align-items: center;
-        }
-
-        .btn-answer:active:not(:disabled) {
-            transform: scale(0.98);
-        }
-
-        .btn-answer.correct {
-            background: #d1fae5 !important;
-            border-color: #10b981 !important;
-            color: #065f46 !important;
-        }
-
-        .btn-answer.wrong {
-            background: #fee2e2 !important;
-            border-color: #ef4444 !important;
-            color: #991b1b !important;
-        }
-
-        .btn-answer:disabled {
-            cursor: pointer; /* Cho phép click để chuyển câu */
-        }
-
-        /* --- NEXT QUESTION PROMPT & CONTROLS --- */
-        .next-prompt {
             text-align: center;
-            font-size: 0.9rem;
-            font-weight: 700;
-            color: #2563eb;
-            background: #dbeafe;
-            padding: 10px;
-            border-radius: 12px;
-            animation: pulse-border 1.5s infinite;
-            cursor: pointer;
-        }
-
-        @keyframes pulse-border {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-            100% { transform: scale(1); }
-        }
-
-        .control-panel {
-            margin-top: 5px;
-            display: flex;
-            justify-content: flex-end;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.15);
         }
 
         .btn-stop {
-            background: #ef4444;
-            color: white;
-            border: none;
-            padding: 10px 16px;
-            border-radius: 12px;
-            font-weight: 700;
-            font-size: 0.85rem;
-            cursor: pointer;
+            background: #EDF2F7;
+            color: #4A5568;
+            box-shadow: 0 4px 0 #CBD5E0;
+            flex: 0.4;
         }
 
-        /* --- SUMMARY SCREEN --- */
-        .summary-card {
+        .btn-next {
+            background: #10AC84;
+            color: #fff;
+            box-shadow: 0 4px 0 #0E8668;
+            display: none;
+            flex: 1;
+        }
+
+        /* End Screen */
+        .end-screen {
+            display: none;
             text-align: center;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+            padding: 10px 0;
         }
 
-        .summary-title {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: #1e293b;
+        .end-title {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--text-dark);
+            margin-bottom: 12px;
         }
 
-        .summary-stats {
-            background: #f8fafc;
-            border-radius: 16px;
+        .report-card {
+            background: #F8F9FA;
+            border-radius: 20px;
             padding: 16px;
+            border: 2px solid #E2E8F0;
+            margin-bottom: 20px;
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
 
-        .summary-row {
+        .report-item {
             display: flex;
             justify-content: space-between;
-            font-weight: 600;
-            border-bottom: 1px dashed #cbd5e1;
+            font-weight: 800;
+            font-size: 15px;
+            color: #4A5568;
+            border-bottom: 1px dashed #CBD5E0;
             padding-bottom: 6px;
         }
 
-        .summary-row:last-child {
+        .report-item:last-child {
             border-bottom: none;
         }
 
         .btn-restart {
-            background: #10b981;
+            width: 100%;
+            padding: 14px;
+            background: var(--primary);
             color: white;
             border: none;
-            padding: 14px;
             border-radius: 16px;
-            font-size: 1rem;
-            font-weight: 800;
+            font-size: 16px;
+            font-weight: 900;
             cursor: pointer;
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            box-shadow: 0 4px 0 var(--primary-dark);
         }
 
-        .new-record-badge {
-            background: #f59e0b;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            display: inline-block;
-            margin-bottom: 8px;
-            animation: bounce 1s infinite alternate;
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-
-        @keyframes bounce {
-            from { transform: translateY(0); }
-            to { transform: translateY(-5px); }
-        }
-
-        /* Utility */
-        .hide { display: none !important; }
     </style>
 </head>
 <body>
 
-    <canvas id="fireworksCanvas"></canvas>
+<div class="game-container">
+    <canvas id="confetti-canvas"></canvas>
 
-    <div class="game-card" id="gameScreen">
-        <!-- Stats Header -->
-        <div class="header-bar">
-            <div class="stat-item">
-                <span class="stat-label">Điểm</span>
-                <span class="stat-value score-val" id="scoreText">0</span>
+    <!-- MAIN GAME PANEL -->
+    <div id="game-panel">
+        <!-- Settings Bar -->
+        <div class="settings-bar">
+            <select id="voice-select"></select>
+            <button class="btn-mini" onclick="testVoice()">🔊 Thử</button>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Điểm</div>
+                <div class="stat-value score-val" id="score">0</div>
             </div>
-            <div class="stat-item">
-                <span class="stat-label">Streak</span>
-                <span class="stat-value streak-val" id="streakText">🔥 0</span>
+            <div class="stat-card">
+                <div class="stat-label">🔥 Chuỗi</div>
+                <div class="stat-value streak-val" id="streak">0</div>
             </div>
-            <div class="stat-item">
-                <span class="stat-label">Kỷ lục</span>
-                <span class="stat-value high-val" id="highScoreText">0</span>
+            <div class="stat-card">
+                <div class="stat-label">🏆 Kỷ lục</div>
+                <div class="stat-value high-val" id="high-score">0</div>
             </div>
         </div>
 
-        <!-- Audio Section -->
+        <!-- Progress Bar -->
+        <div class="progress-container">
+            <div class="progress-text-info">
+                <span>Tiến trình hoàn thành:</span>
+                <span id="progress-text">0/10 (0%)</span>
+            </div>
+            <div class="progress-box">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
+        <!-- Audio Player -->
         <div class="audio-section">
-            <div class="audio-wave-icon">🎧</div>
-            <div class="audio-btn-group">
-                <button class="btn-audio btn-audio-normal" id="btnPlayNormal">
-                    🔊 Nghe thường
-                </button>
-                <button class="btn-audio btn-audio-slow" id="btnPlaySlow">
-                    🐌 Nghe chậm
-                </button>
+            <div class="audio-title">🎧 Bấm nút để nghe câu hỏi:</div>
+            <div class="audio-controls">
+                <button class="btn-audio btn-normal" onclick="speakCurrent(1.0)">▶ Nghe thường</button>
+                <button class="btn-audio btn-slow" onclick="speakCurrent(0.55)">🐌 Nghe chậm</button>
             </div>
         </div>
 
-        <!-- Explanation & Transcript Area -->
-        <div class="explanation-box hidden" id="explanationBox">
-            <div class="transcript-text" id="transcriptText">---</div>
-            <div class="grammar-text" id="grammarText">---</div>
+        <!-- Options Grid -->
+        <div class="options-grid" id="options-container"></div>
+
+        <!-- Result Box -->
+        <div class="result-panel" id="result-panel">
+            <div class="transcript-text" id="transcript-text"></div>
+            <div class="explanation-text" id="explanation-text"></div>
         </div>
 
-        <!-- Answers Grid -->
-        <div class="answers-grid" id="answersGrid">
-            <button class="btn-answer">A. Đáp án 1</button>
-            <button class="btn-answer">B. Đáp án 2</button>
-            <button class="btn-answer">C. Đáp án 3</button>
-            <button class="btn-answer">D. Đáp án 4</button>
-        </div>
-
-        <!-- Next Question Tap Prompt (Hidden by default) -->
-        <div class="next-prompt hide" id="nextPrompt">
-            👉 Bấm bất kỳ đâu để sang câu tiếp theo
-        </div>
-
-        <!-- Control Panel -->
-        <div class="control-panel">
-            <button class="btn-stop" id="btnStop">Dừng chơi / Tổng kết</button>
+        <!-- Action Buttons -->
+        <div class="footer-actions">
+            <button class="btn-action btn-stop" onclick="endGame()">Dừng</button>
+            <button class="btn-action btn-next" id="btn-next" onclick="nextQuestion()">Câu tiếp theo ➔</button>
         </div>
     </div>
 
-    <!-- SUMMARY SCREEN -->
-    <div class="game-card hide" id="summaryScreen">
-        <div class="summary-card">
-            <div id="newRecordContainer"></div>
-            <div class="summary-title">🎉 KẾT QUẢ PHIÊN CHƠI</div>
-            
-            <div class="summary-stats">
-                <div class="summary-row">
-                    <span>Tổng điểm:</span>
-                    <span id="sumScore" style="color: #27ae60;">0</span>
-                </div>
-                <div class="summary-row">
-                    <span>Kỷ lục cao nhất:</span>
-                    <span id="sumHighScore" style="color: #2980b9;">0</span>
-                </div>
-                <div class="summary-row">
-                    <span>Số câu đã làm:</span>
-                    <span id="sumTotal">0</span>
-                </div>
-                <div class="summary-row">
-                    <span>Tỷ lệ chính xác:</span>
-                    <span id="sumAccuracy">0%</span>
-                </div>
-                <div class="summary-row">
-                    <span>Streak dài nhất:</span>
-                    <span id="sumMaxStreak" style="color: #e67e22;">🔥 0</span>
-                </div>
-            </div>
-
-            <button class="btn-restart" id="btnRestart">🎮 CHƠI LƯỢT MỚI</button>
+    <!-- END SUMMARY PANEL -->
+    <div class="end-screen" id="end-screen">
+        <div class="end-title">🎉 KẾT QUẢ CHƠI</div>
+        <div class="report-card">
+            <div class="report-item"><span>Tổng điểm đạt được:</span> <span id="rep-score" style="color:#10AC84">0</span></div>
+            <div class="report-item"><span>Điểm kỷ lục:</span> <span id="rep-high" style="color:#2E86DE">0</span></div>
+            <div class="report-item"><span>Số câu đã trả lời:</span> <span id="rep-total">0</span></div>
+            <div class="report-item"><span>Tỷ lệ chính xác:</span> <span id="rep-acc" style="color:#FF9F43">0%</span></div>
+            <div class="report-item"><span>Chuỗi đúng dài nhất:</span> <span id="rep-maxstreak" style="color:#FF6B6B">0</span></div>
         </div>
+        <button class="btn-restart" onclick="restartGame()">🔄 CHƠI LẠI LƯỢT MỚI</button>
     </div>
+</div>
 
-    <script>
-        /* --- 1. DỮ LIỆU CÂU HỎI (10 CÂU STARTERS) --- */
-        const QUESTION_DATABASE =
-[
+<script>
+    // --- CHỐNG GIAN LẬN ---
+    document.addEventListener('contextmenu', e => e.preventDefault());
+
+    // --- CƠ SỞ DỮ LIỆU CÂU HỎI (BẠN CÓ THỂ THÊM/SỬA Ở ĐÂY) ---
+    const RAW_QUESTIONS = [
   {
-    "audio": "He plays football in the afternoon.",
-    "options": [
-      { "text": "Anh ấy chơi bóng đá ở trong cái buổi chiều.", "correct": true },
-      { "text": "Anh ấy đang chơi bóng đá ở trong cái buổi chiều.", "correct": false },
-      { "text": "Anh ấy đã chơi bóng đá ở trong cái buổi chiều.", "correct": false },
-      { "text": "Anh ấy chơi bóng đá ở trên cái buổi chiều.", "correct": false }
+    id: 1,
+    text: "This is a foot.",
+    correct: "Đây là một bàn chân.",
+    options: [
+      "Đây là những bàn chân.",
+      "Đây là một bàn chân.",
+      "Đó không phải là một bàn chân.",
+      "Có một bàn chân ở đây."
     ],
-    "grammar": "Thì Hiện tại đơn 'plays' chỉ thói quen; 'in the afternoon' có 'the' nên dịch là 'cái buổi chiều'."
+    explain: "Cấu trúc 'This is + danh từ số ít' dùng để chỉ một vật/bộ phận ở gần."
   },
   {
-    "audio": "The bus is red.",
-    "options": [
-      { "text": "Cái xe buýt thì có màu đỏ.", "correct": true },
-      { "text": "Xe buýt thì có màu đỏ.", "correct": false },
-      { "text": "Cái xe buýt lúc đó thì có màu đỏ.", "correct": false },
-      { "text": "Những cái xe buýt thì có màu đỏ.", "correct": false }
+    id: 2,
+    text: "These are pianos.",
+    correct: "Đây là những chiếc đàn piano.",
+    options: [
+      "Đây là một chiếc đàn piano.",
+      "Đó là những chiếc đàn piano.",
+      "Đây là những chiếc đàn piano.",
+      "Không có chiếc đàn piano nào ở đây."
     ],
-    "grammar": "'The bus' có mạo từ 'the' bắt buộc dịch là 'cái xe buýt'; To Be 'is' dịch là 'thì'."
+    explain: "Cấu trúc 'These are + danh từ số nhiều' dùng để chỉ nhiều vật ở gần."
   },
   {
-    "audio": "She is eating a cake.",
-    "options": [
-      { "text": "Cô ấy thì đang ăn một chiếc bánh ngọt.", "correct": true },
-      { "text": "Cô ấy thì đang ăn một cái chiếc bánh ngọt.", "correct": false },
-      { "text": "Cô ấy thì ăn một chiếc bánh ngọt.", "correct": false },
-      { "text": "Cô ấy đã ăn một chiếc bánh ngọt.", "correct": false }
+    id: 3,
+    text: "This is a train.",
+    correct: "Đây là một đoàn tàu.",
+    options: [
+      "Đây là những đoàn tàu.",
+      "Đó là một đoàn tàu.",
+      "Đây không phải là một đoàn tàu.",
+      "Đây là một đoàn tàu."
     ],
-    "grammar": "'is eating' là thì Hiện tại tiếp diễn ('thì đang ăn'); 'a cake' không có 'the' nên không có từ 'cái'."
+    explain: "Cấu trúc 'This is a + danh từ số ít' giới thiệu một vật số ít ở gần."
   },
   {
-    "audio": "This is the camera.",
-    "options": [
-      { "text": "Cái này thì là cái chiếc máy ảnh.", "correct": true },
-      { "text": "Cái kìa thì là cái chiếc máy ảnh.", "correct": false },
-      { "text": "Cái này thì là chiếc máy ảnh.", "correct": false },
-      { "text": "Những cái này thì là cái chiếc máy ảnh.", "correct": false }
+    id: 4,
+    text: "These are sausages.",
+    correct: "Đây là những cây xúc xích.",
+    options: [
+      "Đây là những cây xúc xích.",
+      "Đây là một cây xúc xích.",
+      "Đó là những cây xúc xích.",
+      "Đây đã là những cây xúc xích."
     ],
-    "grammar": "'this' là 'cái này'; 'the camera' có 'the' nên dịch 'cái chiếc máy ảnh'."
+    explain: "Cấu trúc 'These are + danh từ số nhiều' chỉ nhiều đồ vật ở vị trí gần."
   },
   {
-    "audio": "An alien is drawing a picture.",
-    "options": [
-      { "text": "Một người ngoài hành tinh thì đang vẽ một bức tranh.", "correct": true },
-      { "text": "Một cái người ngoài hành tinh thì đang vẽ một bức tranh.", "correct": false },
-      { "text": "Một người ngoài hành tinh thì vẽ một bức tranh.", "correct": false },
-      { "text": "Một người ngoài hành tinh đã vẽ một bức tranh.", "correct": false }
+    id: 5,
+    text: "This is a lamp.",
+    correct: "Đây là một cái đèn.",
+    options: [
+      "Đây là những cái đèn.",
+      "Đây là một cái đèn.",
+      "Kia là một cái đèn.",
+      "Đây sẽ là một cái đèn."
     ],
-    "grammar": "'An alien' không có 'the' nên không dịch 'cái'; 'is drawing' là Hiện tại tiếp diễn."
+    explain: "Đại từ chỉ định 'This is' đi với danh từ số ít 'a lamp' để chỉ vật ở gần."
   },
   {
-    "audio": "I like candy.",
-    "options": [
-      { "text": "Tôi thích kẹo.", "correct": true },
-      { "text": "Tôi đang thích kẹo.", "correct": false },
-      { "text": "Tôi đã thích kẹo.", "correct": false },
-      { "text": "Cái tôi thích kẹo.", "correct": false }
+    id: 6,
+    text: "This is a watch.",
+    correct: "Đây là một chiếc đồng hồ đeo tay.",
+    options: [
+      "Đây là những chiếc đồng hồ đeo tay.",
+      "Đó là một chiếc đồng hồ đeo tay.",
+      "Đây là một chiếc đồng hồ đeo tay.",
+      "Đây không phải là chiếc đồng hồ đeo tay."
     ],
-    "grammar": "Thì Hiện tại đơn với 'like' hỏi/nói về sở thích chung."
+    explain: "Dùng 'This is' cho danh từ đếm được số ít ở vị trí gần."
   },
   {
-    "audio": "The children know the alphabet.",
-    "options": [
-      { "text": "Những đứa trẻ biết cái bảng chữ cái.", "correct": true },
-      { "text": "Những đứa trẻ đang biết cái bảng chữ cái.", "correct": false },
-      { "text": "Đứa trẻ biết cái bảng chữ cái.", "correct": false },
-      { "text": "Những đứa trẻ biết bảng chữ cái.", "correct": false }
+    id: 7,
+    text: "A young child is waving.",
+    correct: "Một đứa trẻ nhỏ đang vẫy tay.",
+    options: [
+      "Một đứa trẻ nhỏ đã vẫy tay.",
+      "Một đứa trẻ nhỏ đang vẫy tay.",
+      "Những đứa trẻ nhỏ đang vẫy tay.",
+      "Một đứa trẻ nhỏ sẽ vẫy tay."
     ],
-    "grammar": "'children' là danh từ số nhiều bất quy tắc ('những đứa trẻ'); 'the alphabet' dịch là 'cái bảng chữ cái'."
+    explain: "Thì Hiện tại tiếp diễn (is + V-ing) diễn tả hành động đang diễn ra tại thời điểm nói."
   },
   {
-    "audio": "That is an animal.",
-    "options": [
-      { "text": "Cái kìa thì là một con động vật.", "correct": true },
-      { "text": "Cái này thì là một con động vật.", "correct": false },
-      { "text": "Cái kìa đã là một con động vật.", "correct": false },
-      { "text": "Những cái kìa thì là một con động vật.", "correct": false }
+    id: 8,
+    text: "The woman's bag is in her hand.",
+    correct: "Cái túi của người phụ nữ đang ở trong tay cô ấy.",
+    options: [
+      "Cái túi của người phụ nữ đang ở trên tay cô ấy.",
+      "Cái túi của người phụ nữ đang ở dưới tay cô ấy.",
+      "Cái túi của người phụ nữ đang ở trong tay cô ấy.",
+      "Những cái túi của người phụ nữ đang ở trong tay cô ấy."
     ],
-    "grammar": "'that' là đại từ chỉ định 'cái kìa'; 'is' dịch là 'thì là'."
+    explain: "Sử dụng sở hữu cách ('s), giới từ chỉ vị trí 'in' (trong) và tính từ sở hữu 'her'."
   },
   {
-    "audio": "There are two cars.",
-    "options": [
-      { "text": "Có hai những chiếc ô tô.", "correct": true },
-      { "text": "Có hai chiếc ô tô.", "correct": false },
-      { "text": "Có hai những cái chiếc ô tô.", "correct": false },
-      { "text": "Lúc đó đã có hai những chiếc ô tô.", "correct": false }
+    id: 9,
+    text: "Two people are wearing red shorts.",
+    correct: "Hai người đang mặc quần đùi màu đỏ.",
+    options: [
+      "Hai người đang mặc quần đùi màu đỏ.",
+      "Hai người đã mặc quần đùi màu đỏ.",
+      "Một người đang mặc quần đùi màu đỏ.",
+      "Hai người thường mặc quần đùi màu đỏ."
     ],
-    "grammar": "'There are' đi với danh từ số nhiều; 'cars' đếm được số nhiều có từ 'những'."
+    explain: "Thì Hiện tại tiếp diễn với chủ ngữ số nhiều (are wearing) và tính từ màu sắc đứng trước danh từ (red shorts)."
   },
   {
-    "audio": "The rabbit is eating carrots.",
-    "options": [
-      { "text": "Cái con thỏ thì đang ăn những củ cà rốt.", "correct": true },
-      { "text": "Con thỏ thì đang ăn những củ cà rốt.", "correct": false },
-      { "text": "Cái con thỏ thì ăn những củ cà rốt.", "correct": false },
-      { "text": "Cái con thỏ thì đang ăn củ cà rốt.", "correct": false }
+    id: 10,
+    text: "The door of the house is closed.",
+    correct: "Cánh cửa của ngôi nhà đang đóng.",
+    options: [
+      "Cánh cửa của ngôi nhà đang mở.",
+      "Các cánh cửa của ngôi nhà đang đóng.",
+      "Cánh cửa của ngôi nhà đang đóng.",
+      "Cánh cửa của ngôi nhà sẽ đóng."
     ],
-    "grammar": "'The rabbit' có 'the' dịch 'cái con thỏ'; 'carrots' số nhiều dịch 'những củ cà rốt'."
+    explain: "Cấu trúc miêu tả trạng thái ở hiện tại đơn (S + is + tính từ/quá khứ phân từ làm tính từ)."
   },
   {
-    "audio": "What is the answer?",
-    "options": [
-      { "text": "Cái câu trả lời thì là cái gì?", "correct": true },
-      { "text": "Câu trả lời thì là cái gì?", "correct": false },
-      { "text": "Cái câu trả lời lúc đó thì là cái gì?", "correct": false },
-      { "text": "Những cái câu trả lời thì là cái gì?", "correct": false }
+    id: 11,
+    text: "The dog has brown ears.",
+    correct: "Con chó có đôi tai màu nâu.",
+    options: [
+      "Con chó đang có đôi tai màu nâu.",
+      "Những con chó có đôi tai màu nâu.",
+      "Con chó đã có đôi tai màu nâu.",
+      "Con chó có đôi tai màu nâu."
     ],
-    "grammar": "'What is...' hỏi thông tin; 'the answer' có 'the' nên dịch 'cái câu trả lời'."
+    explain: "Động từ 'has' (thì Hiện tại đơn) diễn tả đặc điểm sở hữu của chủ ngữ số ít."
   },
   {
-    "audio": "Is it a cat?",
-    "options": [
-      { "text": "Nó thì là một con mèo phải không?", "correct": true },
-      { "text": "Nó thì là một cái con mèo phải không?", "correct": false },
-      { "text": "Nó đã là một con mèo phải không?", "correct": false },
-      { "text": "Nó thì đang là một con mèo phải không?", "correct": false }
+    id: 12,
+    text: "The girl in a blue jacket is talking.",
+    correct: "Cô gái mặc áo khoác màu xanh dương đang nói chuyện.",
+    options: [
+      "Cô gái mặc áo khoác màu xanh dương đang nói chuyện.",
+      "Cô gái mặc áo khoác màu xanh dương đã nói chuyện.",
+      "Những cô gái mặc áo khoác màu xanh dương đang nói chuyện.",
+      "Cô gái mặc áo khoác màu xanh dương sắp nói chuyện."
     ],
-    "grammar": "Câu hỏi Yes/No 'Is it a...?' ở thì Hiện tại đơn; 'a cat' không dịch từ 'cái'."
+    explain: "Cụm giới từ bổ nghĩa cho danh từ ('The girl in...') kết hợp thì Hiện tại tiếp diễn ('is talking')."
   },
   {
-    "audio": "They live in the apartment.",
-    "options": [
-      { "text": "Họ sống ở trong cái căn hộ.", "correct": true },
-      { "text": "Họ đang sống ở trong cái căn hộ.", "correct": false },
-      { "text": "Họ đã sống ở trong cái căn hộ.", "correct": false },
-      { "text": "Họ sống ở trên cái căn hộ.", "correct": false }
+    id: 13,
+    text: "The man with black hair is driving.",
+    correct: "Người đàn ông có mái tóc đen đang lái xe.",
+    options: [
+      "Người đàn ông có mái tóc đen đã lái xe.",
+      "Người đàn ông có mái tóc đen đang lái xe.",
+      "Người đàn ông có mái tóc đen muốn lái xe.",
+      "Những người đàn ông có mái tóc đen đang lái xe."
     ],
-    "grammar": "Thì Hiện tại đơn 'live' chỉ nơi ở cố định; 'the apartment' dịch là 'cái căn hộ'."
+    explain: "Giới từ 'with' miêu tả đặc điểm ngoại hình, kết hợp thì Hiện tại tiếp diễn 'is driving'."
   },
   {
-    "audio": "The chicken can run.",
-    "options": [
-      { "text": "Cái con gà có thể chạy.", "correct": true },
-      { "text": "Con gà có thể chạy.", "correct": false },
-      { "text": "Cái con gà đã có thể chạy.", "correct": false },
-      { "text": "Cái con gà thì đang chạy.", "correct": false }
+    id: 14,
+    text: "Chairs have four legs.",
+    correct: "Ghế tựa có bốn cái chân.",
+    options: [
+      "Những cái ghế tựa đang có bốn cái chân.",
+      "Một cái ghế tựa có bốn cái chân.",
+      "Ghế tựa có bốn cái chân.",
+      "Ghế tựa đã có bốn cái chân."
     ],
-    "grammar": "'can + V' chỉ khả năng ở hiện tại; 'the chicken' dịch 'cái con gà'."
+    explain: "Thì Hiện tại đơn tả sự thật khách quan với danh từ số nhiều 'Chairs' và động từ nguyên mẫu 'have'."
   },
   {
-    "audio": "How many apples are there?",
-    "options": [
-      { "text": "Có bao nhiêu những quả táo?", "correct": true },
-      { "text": "Có bao nhiêu quả táo?", "correct": false },
-      { "text": "Có bao nhiêu những cái quả táo?", "correct": false },
-      { "text": "Lúc đó đã có bao nhiêu những quả táo?", "correct": false }
+    id: 15,
+    text: "In Mark's flat there are chairs next to the table in the kitchen.",
+    correct: "Trong căn hộ của Mark có những chiếc ghế ở bên cạnh cái bàn trong nhà bếp.",
+    options: [
+      "Trong căn hộ của Mark có một chiếc ghế ở bên cạnh cái bàn trong nhà bếp.",
+      "Trong căn hộ của Mark có những chiếc ghế ở trên cái bàn trong nhà bếp.",
+      "Trong căn hộ của Mark có những chiếc ghế ở bên cạnh cái bàn trong nhà bếp.",
+      "Trong căn hộ của Mark đã có những chiếc ghế ở bên cạnh cái bàn trong nhà bếp."
     ],
-    "grammar": "'How many' hỏi số lượng danh từ số nhiều ('những quả táo')."
+    explain: "Cấu trúc 'There are + N số nhiều' kết hợp các giới từ chỉ vị trí 'next to' (bên cạnh) và 'in' (trong)."
   },
   {
-    "audio": "Where is the child?",
-    "options": [
-      { "text": "Cái đứa trẻ thì ở đâu?", "correct": true },
-      { "text": "Đứa trẻ thì ở đâu?", "correct": false },
-      { "text": "Những cái đứa trẻ thì ở đâu?", "correct": false },
-      { "text": "Cái đứa trẻ lúc đó thì ở đâu?", "correct": false }
+    id: 16,
+    text: "Mark's family sit and eat their dinner there.",
+    correct: "Gia đình của Mark ngồi và ăn bữa tối của họ ở đó.",
+    options: [
+      "Gia đình của Mark ngồi và ăn bữa tối của họ ở đó.",
+      "Gia đình của Mark đang ngồi và ăn bữa tối của họ ở đó.",
+      "Gia đình của Mark đã ngồi và ăn bữa tối của họ ở đó.",
+      "Gia đình của Mark sẽ ngồi và ăn bữa tối của họ ở đó."
     ],
-    "grammar": "'Where is' hỏi vị trí danh từ số ít; 'the child' dịch 'cái đứa trẻ'."
+    explain: "Thì Hiện tại đơn diễn tả thói quen sinh hoạt gia đình, đi cùng tính từ sở hữu 'their'."
   },
   {
-    "audio": "These are my arms.",
-    "options": [
-      { "text": "Những cái này thì là những cánh tay của tôi.", "correct": true },
-      { "text": "Cái này thì là những cánh tay của tôi.", "correct": false },
-      { "text": "Những cái kìa thì là những cánh tay của tôi.", "correct": false },
-      { "text": "Những cái này đã là những cánh tay của tôi.", "correct": false }
+    id: 17,
+    text: "There's a chair in Mark's bedroom too.",
+    correct: "Cũng có một chiếc ghế ở trong phòng ngủ của Mark.",
+    options: [
+      "Cũng có nhiều chiếc ghế ở trong phòng ngủ của Mark.",
+      "Cũng có một chiếc ghế ở bên ngoài phòng ngủ của Mark.",
+      "Cũng có một chiếc ghế ở trong phòng ngủ của Mark.",
+      "Cũng đã có một chiếc ghế ở trong phòng ngủ của Mark."
     ],
-    "grammar": "'these' là 'những cái này'; 'arms' là danh từ số nhiều."
+    explain: "Cấu trúc 'There's' (There is) đi với danh từ số ít 'a chair' và từ 'too' (cũng vậy) ở cuối câu."
   },
   {
-    "audio": "The chips are hot.",
-    "options": [
-      { "text": "Những cái khoai tây chiên thì nóng.", "correct": true },
-      { "text": "Những khoai tây chiên thì nóng.", "correct": false },
-      { "text": "Cái khoai tây chiên thì nóng.", "correct": false },
-      { "text": "Những cái khoai tây chiên đã nóng.", "correct": false }
+    id: 18,
+    text: "Mark sits on his chair and reads his book.",
+    correct: "Mark ngồi trên ghế của cậu ấy và đọc sách của mình.",
+    options: [
+      "Mark đang ngồi trên ghế của cậu ấy và đọc sách của mình.",
+      "Mark ngồi trên ghế của cậu ấy và đọc sách của mình.",
+      "Mark đã ngồi trên ghế của cậu ấy và đọc sách của mình.",
+      "Mark ngồi dưới ghế của cậu ấy và đọc sách của mình."
     ],
-    "grammar": "'the' (cái) + 'chips' (những khoai tây chiên) -> 'những cái khoai tây chiên'."
+    explain: "Thì Hiện tại đơn với chủ ngữ số ít (S + V-s) nối bằng liên từ 'and' diễn tả chuỗi hành động thường xuyên."
   },
   {
-    "audio": "The cat is under the armchair.",
-    "options": [
-      { "text": "Cái con mèo thì ở dưới cái ghế bành.", "correct": true },
-      { "text": "Con mèo thì ở dưới cái ghế bành.", "correct": false },
-      { "text": "Cái con mèo thì ở trên cái ghế bành.", "correct": false },
-      { "text": "Cái con mèo lúc đó thì ở dưới cái ghế bành.", "correct": false }
+    id: 19,
+    text: "There's a big red and blue rug on the floor under his chair.",
+    correct: "Có một tấm thảm lớn màu đỏ và xanh dương trên sàn nhà dưới chiếc ghế của cậu ấy.",
+    options: [
+      "Có nhiều tấm thảm lớn màu đỏ và xanh dương trên sàn nhà dưới chiếc ghế của cậu ấy.",
+      "Có một tấm thảm lớn màu đỏ và xanh dương dưới sàn nhà trên chiếc ghế của cậu ấy.",
+      "Đã có một tấm thảm lớn màu đỏ và xanh dương trên sàn nhà dưới chiếc ghế của cậu ấy.",
+      "Có một tấm thảm lớn màu đỏ và xanh dương trên sàn nhà dưới chiếc ghế của cậu ấy."
     ],
-    "grammar": "Giới từ chỉ vị trí 'under' (ở dưới); 'the' dịch là 'cái'."
+    explain: "Cấu trúc 'There's a + tính từ + N số ít' miêu tả vật thể kèm chuỗi giới từ chỉ vị trí 'on' và 'under'."
   },
   {
-    "audio": "Would you like some chocolate?",
-    "options": [
-      { "text": "Bạn có muốn một ít sô cô la không?", "correct": true },
-      { "text": "Bạn đang muốn một ít sô cô la không?", "correct": false },
-      { "text": "Bạn đã muốn một ít sô cô la không?", "correct": false },
-      { "text": "Cái bạn có muốn một ít sô cô la không?", "correct": false }
+    id: 20,
+    text: "Which animal is drinking?",
+    correct: "Con vật nào đang uống nước?",
+    options: [
+      "Con vật nào đang uống nước?",
+      "Con vật nào đã uống nước?",
+      "Những con vật nào đang uống nước?",
+      "Con vật nào sẽ uống nước?"
     ],
-    "grammar": "'Would you like...?' cấu trúc mời lịch sự."
+    explain: "Câu hỏi nghi vấn ở thì Hiện tại tiếp diễn với từ hỏi 'Which animal' số ít."
   },
   {
-    "audio": "The baby is sleeping.",
-    "options": [
-      { "text": "Cái em bé thì đang ngủ.", "correct": true },
-      { "text": "Em bé thì đang ngủ.", "correct": false },
-      { "text": "Cái em bé thì ngủ.", "correct": false },
-      { "text": "Cái em bé đã ngủ.", "correct": false }
+    id: 21,
+    text: "What are the children doing?",
+    correct: "Các em nhỏ đang làm gì?",
+    options: [
+      "Một đứa trẻ đang làm gì?",
+      "Các em nhỏ đã làm gì?",
+      "Các em nhỏ đang làm gì?",
+      "Các em nhỏ sẽ làm gì?"
     ],
-    "grammar": "'is sleeping' là Hiện tại tiếp diễn ('thì đang ngủ'); 'the baby' dịch 'cái em bé'."
+    explain: "Câu hỏi nghi vấn 'What + are + S (số nhiều) + doing?' ở thì Hiện tại tiếp diễn."
   },
   {
-    "audio": "The class is big.",
-    "options": [
-      { "text": "Cái lớp học thì to.", "correct": true },
-      { "text": "Lớp học thì to.", "correct": false },
-      { "text": "Cái lớp học lúc đó thì to.", "correct": false },
-      { "text": "Những cái lớp học thì to.", "correct": false }
+    id: 22,
+    text: "Who is wearing a hat?",
+    correct: "Ai đang đội một chiếc mũ?",
+    options: [
+      "Ai đã đội một chiếc mũ?",
+      "Ai sẽ đội một chiếc mũ?",
+      "Ai đang đội một chiếc mũ?",
+      "Ai thường đội một chiếc mũ?"
     ],
-    "grammar": "'the class' dịch 'cái lớp học'; tính từ đứng sau To Be 'is'."
+    explain: "Câu hỏi với từ hỏi 'Who' làm chủ ngữ số ít đi kèm Hiện tại tiếp diễn 'is wearing'."
   },
   {
-    "audio": "Let us play badminton.",
-    "options": [
-      { "text": "Hãy cùng chơi cầu lông.", "correct": true },
-      { "text": "Chúng ta thì đang chơi cầu lông.", "correct": false },
-      { "text": "Chúng ta đã chơi cầu lông.", "correct": false },
-      { "text": "Hãy cùng ăn cầu lông.", "correct": false }
+    id: 23,
+    text: "What is jumping from the tree?",
+    correct: "Cái gì đang nhảy từ trên cây xuống?",
+    options: [
+      "Cái gì đã nhảy từ trên cây xuống?",
+      "Cái gì đang nhảy từ trên cây xuống?",
+      "Cái gì đang nhảy lên trên cây?",
+      "Những cái gì đang nhảy từ trên cây xuống?"
     ],
-    "grammar": "'Let's + V' dùng để rủ rê, gợi ý."
+    explain: "Câu hỏi 'What is + V-ing + from...?' hỏi về hành động đang diễn ra của sự vật/con vật."
   },
   {
-    "audio": "He is my classmate.",
-    "options": [
-      { "text": "Anh ấy thì là bạn cùng lớp của tôi.", "correct": true },
-      { "text": "Cái anh ấy thì là bạn cùng lớp của tôi.", "correct": false },
-      { "text": "Anh ấy đã là bạn cùng lớp của tôi.", "correct": false },
-      { "text": "Anh ấy thì đang là bạn cùng lớp của tôi.", "correct": false }
+    id: 24,
+    text: "Which child is not happy?",
+    correct: "Đứa trẻ nào đang không vui?",
+    options: [
+      "Đứa trẻ nào đang vui?",
+      "Những đứa trẻ nào đang không vui?",
+      "Đứa trẻ nào đã không vui?",
+      "Đứa trẻ nào đang không vui?"
     ],
-    "grammar": "Tính từ sở hữu 'my'; 'is' dịch 'thì là'."
+    explain: "Câu hỏi lựa chọn dạng phủ định ở hiện tại đơn (is not + tính từ 'happy')."
   },
   {
-    "audio": "Where are the bags?",
-    "options": [
-      { "text": "Những cái cặp sách thì ở đâu?", "correct": true },
-      { "text": "Những cặp sách thì ở đâu?", "correct": false },
-      { "text": "Cái cặp sách thì ở đâu?", "correct": false },
-      { "text": "Những cái cặp sách lúc đó thì ở đâu?", "correct": false }
+    id: 25,
+    text: "She's sitting under the tree.",
+    correct: "Cô ấy đang ngồi dưới gốc cây.",
+    options: [
+      "Cô ấy đang ngồi dưới gốc cây.",
+      "Cô ấy đã ngồi dưới gốc cây.",
+      "Cô ấy đang ngồi trên gốc cây.",
+      "Những cô gái đang ngồi dưới gốc cây."
     ],
-    "grammar": "'Where are' + 'the bags' (gồm 'the' = cái, 'bags' = những cặp sách)."
+    explain: "Thì Hiện tại tiếp diễn dạng viết tắt (She's = She is) kết hợp giới từ chỉ vị trí 'under'."
   },
   {
-    "audio": "There is a clock in the classroom.",
-    "options": [
-      { "text": "Có một chiếc đồng hồ ở trong cái phòng học.", "correct": true },
-      { "text": "Có một cái chiếc đồng hồ ở trong cái phòng học.", "correct": false },
-      { "text": "Có những chiếc đồng hồ ở trong cái phòng học.", "correct": false },
-      { "text": "Có một chiếc đồng hồ ở trên cái phòng học.", "correct": false }
+    id: 26,
+    text: "Mark's got a fish now.",
+    correct: "Bây giờ Mark đang có một con cá.",
+    options: [
+      "Bây giờ Mark đã bắt được nhiều con cá.",
+      "Bây giờ Mark sẽ có một con cá.",
+      "Bây giờ Mark đang có một con cá.",
+      "Bây giờ Mark không có con cá nào."
     ],
-    "grammar": "'There is a...' + 'in the classroom' ('the classroom' = cái phòng học)."
+    explain: "Cấu trúc 'has got' (viết tắt 's got) dùng để diễn tả sự sở hữu ở hiện tại."
   },
   {
-    "audio": "Can you bounce a ball?",
-    "options": [
-      { "text": "Bạn có thể làm nảy một quả bóng không?", "correct": true },
-      { "text": "Bạn có thể làm nảy một cái quả bóng không?", "correct": false },
-      { "text": "Bạn đang làm nảy một quả bóng phải không?", "correct": false },
-      { "text": "Bạn đã làm nảy một quả bóng phải không?", "correct": false }
+    id: 27,
+    text: "Does Alice enjoy playing board games?",
+    correct: "Alice có thích chơi các trò chơi cờ bàn không?",
+    options: [
+      "Alice đã thích chơi các trò chơi cờ bàn không?",
+      "Alice có thích chơi các trò chơi cờ bàn không?",
+      "Alice có thể chơi các trò chơi cờ bàn không?",
+      "Alice có đang chơi các trò chơi cờ bàn không?"
     ],
-    "grammar": "'Can you + V?' hỏi khả năng; 'a ball' không dịch từ 'cái'."
+    explain: "Câu hỏi Yes/No ở thì Hiện tại đơn với 'Does' và cấu trúc 'enjoy + V-ing' (thích làm gì)."
   },
   {
-    "audio": "The clock is on the wall.",
-    "options": [
-      { "text": "Cái đồng hồ thì ở trên cái bức tường.", "correct": true },
-      { "text": "Đồng hồ thì ở trên cái bức tường.", "correct": false },
-      { "text": "Cái đồng hồ thì ở dưới cái bức tường.", "correct": false },
-      { "text": "Cái đồng hồ lúc đó thì ở trên cái bức tường.", "correct": false }
+    id: 28,
+    text: "Is he painting the window?",
+    correct: "Có phải chú ấy đang sơn cửa sổ không?",
+    options: [
+      "Có phải chú ấy đã sơn cửa sổ không?",
+      "Có phải chú ấy sẽ sơn cửa sổ không?",
+      "Có phải chú ấy đang sơn cửa sổ không?",
+      "Có phải họ đang sơn cửa sổ không?"
     ],
-    "grammar": "'The clock' (cái đồng hồ), 'on the wall' (ở trên cái bức tường)."
+    explain: "Câu hỏi nghi vấn Yes/No ở thì Hiện tại tiếp diễn (Is + he + V-ing...?)."
   },
   {
-    "audio": "I see three balloons.",
-    "options": [
-      { "text": "Tôi nhìn thấy ba những quả bóng bay.", "correct": true },
-      { "text": "Tôi nhìn thấy ba quả bóng bay.", "correct": false },
-      { "text": "Tôi đang nhìn thấy ba những quả bóng bay.", "correct": false },
-      { "text": "Tôi đã nhìn thấy ba những quả bóng bay.", "correct": false }
+    id: 29,
+    text: "Is there a TV in your room?",
+    correct: "Có một cái tivi ở trong phòng của bạn không?",
+    options: [
+      "Có nhiều cái tivi ở trong phòng của bạn không?",
+      "Có một cái tivi ở trong phòng của bạn không?",
+      "Đã từng có một cái tivi ở trong phòng của bạn không?",
+      "Có một cái tivi ở bên ngoài phòng của bạn không?"
     ],
-    "grammar": "Thì Hiện tại đơn 'see'; danh từ số nhiều 'balloons' có từ 'những'."
+    explain: "Câu hỏi nghi vấn với 'Is there a + N số ít...?' hỏi về sự tồn tại của đồ vật ở hiện tại."
   },
   {
-    "audio": "The clothes are clean.",
-    "options": [
-      { "text": "Những cái quần áo thì sạch.", "correct": true },
-      { "text": "Những quần áo thì sạch.", "correct": false },
-      { "text": "Cái quần áo thì sạch.", "correct": false },
-      { "text": "Những cái quần áo đã sạch.", "correct": false }
+    id: 30,
+    text: "That boy's eating a burger.",
+    correct: "Cậu bé kìa đang ăn một bánh hamburger.",
+    options: [
+      "Cậu bé kìa đã ăn một bánh hamburger.",
+      "Những cậu bé kìa đang ăn một bánh hamburger.",
+      "Cậu bé kìa đang ăn một bánh hamburger.",
+      "Cậu bé kìa thích ăn một bánh hamburger."
     ],
-    "grammar": "'The clothes' (gồm 'the' = cái, 'clothes' = những quần áo)."
+    explain: "Đại từ chỉ định 'That' (kìa/đó) kết hợp thì Hiện tại tiếp diễn viết tắt ('s eating)."
   },
   {
-    "audio": "Monkeys love bananas.",
-    "options": [
-      { "text": "Những con khỉ yêu những quả chuối.", "correct": true },
-      { "text": "Những cái con khỉ yêu những quả chuối.", "correct": false },
-      { "text": "Những con khỉ đang yêu những quả chuối.", "correct": false },
-      { "text": "Những con khỉ đã yêu những quả chuối.", "correct": false }
+    id: 31,
+    text: "There's a cake in front of the cat.",
+    correct: "Có một chiếc bánh kem ở phía trước con mèo.",
+    options: [
+      "Có một chiếc bánh kem ở phía sau con mèo.",
+      "Có một chiếc bánh kem ở phía trước con mèo.",
+      "Có nhiều chiếc bánh kem ở phía trước con mèo.",
+      "Đã có một chiếc bánh kem ở phía trước con mèo."
     ],
-    "grammar": "Danh từ số nhiều không có 'the' ('Monkeys', 'bananas') dịch có 'những', không có 'cái'."
-  },
-  {
-    "audio": "I would like a coconut, please.",
-    "options": [
-      { "text": "Tôi muốn một quả dừa.", "correct": true },
-      { "text": "Tôi muốn một cái quả dừa.", "correct": false },
-      { "text": "Tôi đang muốn một quả dừa.", "correct": false },
-      { "text": "Tôi đã muốn một quả dừa.", "correct": false }]
-  },
-  {"audio": "He plays football in the afternoon.", "options": [{"text": "Anh ấy chơi bóng đá ở trong cái buổi chiều.", "correct": true}, {"text": "Anh ấy đang chơi bóng đá ở trong cái buổi chiều.", "correct": false}, {"text": "Anh ấy đã chơi bóng đá ở trong cái buổi chiều.", "correct": false}, {"text": "Anh ấy chơi bóng đá ở trên cái buổi chiều.", "correct": false}], "grammar": "Thì Hiện tại đơn 'plays' chỉ thói quen; 'in the afternoon' có 'the' nên dịch là 'cái buổi chiều'."},
-  {"audio": "The bus is red.", "options": [{"text": "Cái xe buýt thì có màu đỏ.", "correct": true}, {"text": "Xe buýt thì có màu đỏ.", "correct": false}, {"text": "Cái xe buýt lúc đó thì có màu đỏ.", "correct": false}, {"text": "Những cái xe buýt thì có màu đỏ.", "correct": false}], "grammar": "'The bus' có mạo từ 'the' bắt buộc dịch là 'cái xe buýt'; To Be 'is' dịch là 'thì'."},
-  {"audio": "She is eating a cake.", "options": [{"text": "Cô ấy thì đang ăn một chiếc bánh ngọt.", "correct": true}, {"text": "Cô ấy thì đang ăn một cái chiếc bánh ngọt.", "correct": false}, {"text": "Cô ấy thì ăn một chiếc bánh ngọt.", "correct": false}, {"text": "Cô ấy đã ăn một chiếc bánh ngọt.", "correct": false}], "grammar": "'is eating' là thì Hiện tại tiếp diễn ('thì đang ăn'); 'a cake' không có 'the' nên không có từ 'cái'."},
-  {"audio": "This is the camera.", "options": [{"text": "Cái này thì là cái chiếc máy ảnh.", "correct": true}, {"text": "Cái kìa thì là cái chiếc máy ảnh.", "correct": false}, {"text": "Cái này thì là chiếc máy ảnh.", "correct": false}, {"text": "Những cái này thì là cái chiếc máy ảnh.", "correct": false}], "grammar": "'this' là 'cái này'; 'the camera' có 'the' nên dịch 'cái chiếc máy ảnh'."},
-  {"audio": "An alien is drawing a picture.", "options": [{"text": "Một người ngoài hành tinh thì đang vẽ một bức tranh.", "correct": true}, {"text": "Một cái người ngoài hành tinh thì đang vẽ một bức tranh.", "correct": false}, {"text": "Một người ngoài hành tinh thì vẽ một bức tranh.", "correct": false}, {"text": "Một người ngoài hành tinh đã vẽ một bức tranh.", "correct": false}], "grammar": "'An alien' không có 'the' nên không dịch 'cái'; 'is drawing' là Hiện tại tiếp diễn."},
-  {"audio": "I like candy.", "options": [{"text": "Tôi thích kẹo.", "correct": true}, {"text": "Tôi đang thích kẹo.", "correct": false}, {"text": "Tôi đã thích kẹo.", "correct": false}, {"text": "Cái tôi thích kẹo.", "correct": false}], "grammar": "Thì Hiện tại đơn với 'like' hỏi/nói về sở thích chung."},
-  {"audio": "The children know the alphabet.", "options": [{"text": "Những đứa trẻ biết cái bảng chữ cái.", "correct": true}, {"text": "Những đứa trẻ đang biết cái bảng chữ cái.", "correct": false}, {"text": "Đứa trẻ biết cái bảng chữ cái.", "correct": false}, {"text": "Những đứa trẻ biết bảng chữ cái.", "correct": false}], "grammar": "'children' là danh từ số nhiều bất quy tắc ('những đứa trẻ'); 'the alphabet' dịch là 'cái bảng chữ cái'."},
-  {"audio": "That is an animal.", "options": [{"text": "Cái kìa thì là một con động vật.", "correct": true}, {"text": "Cái này thì là một con động vật.", "correct": false}, {"text": "Cái kìa đã là một con động vật.", "correct": false}, {"text": "Những cái kìa thì là một con động vật.", "correct": false}], "grammar": "'that' là đại từ chỉ định 'cái kìa'; 'is' dịch là 'thì là'."},
-  {"audio": "There are two cars.", "options": [{"text": "Có hai những chiếc ô tô.", "correct": true}, {"text": "Có hai chiếc ô tô.", "correct": false}, {"text": "Có hai những cái chiếc ô tô.", "correct": false}, {"text": "Lúc đó đã có hai những chiếc ô tô.", "correct": false}], "grammar": "'There are' đi với danh từ số nhiều; 'cars' đếm được số nhiều có từ 'những'."},
-  {"audio": "The rabbit is eating carrots.", "options": [{"text": "Cái con thỏ thì đang ăn những củ cà rốt.", "correct": true}, {"text": "Con thỏ thì đang ăn những củ cà rốt.", "correct": false}, {"text": "Cái con thỏ thì ăn những củ cà rốt.", "correct": false}, {"text": "Cái con thỏ thì đang ăn củ cà rốt.", "correct": false}], "grammar": "'The rabbit' có 'the' dịch 'cái con thỏ'; 'carrots' số nhiều dịch 'những củ cà rốt'."},
-  {"audio": "What is the answer?", "options": [{"text": "Cái câu trả lời thì là cái gì?", "correct": true}, {"text": "Câu trả lời thì là cái gì?", "correct": false}, {"text": "Cái câu trả lời lúc đó thì là cái gì?", "correct": false}, {"text": "Những cái câu trả lời thì là cái gì?", "correct": false}], "grammar": "'What is...' hỏi thông tin; 'the answer' có 'the' nên dịch 'cái câu trả lời'."},
-  {"audio": "Is it a cat?", "options": [{"text": "Nó thì là một con mèo phải không?", "correct": true}, {"text": "Nó thì là một cái con mèo phải không?", "correct": false}, {"text": "Nó đã là một con mèo phải không?", "correct": false}, {"text": "Nó thì đang là một con mèo phải không?", "correct": false}], "grammar": "Câu hỏi Yes/No 'Is it a...?' ở thì Hiện tại đơn; 'a cat' không dịch từ 'cái'."},
-  {"audio": "They live in the apartment.", "options": [{"text": "Họ sống ở trong cái căn hộ.", "correct": true}, {"text": "Họ đang sống ở trong cái căn hộ.", "correct": false}, {"text": "Họ đã sống ở trong cái căn hộ.", "correct": false}, {"text": "Họ sống ở trên cái căn hộ.", "correct": false}], "grammar": "Thì Hiện tại đơn 'live' chỉ nơi ở cố định; 'the apartment' dịch là 'cái căn hộ'."},
-  {"audio": "The chicken can run.", "options": [{"text": "Cái con gà có thể chạy.", "correct": true}, {"text": "Con gà có thể chạy.", "correct": false}, {"text": "Cái con gà đã có thể chạy.", "correct": false}, {"text": "Cái con gà thì đang chạy.", "correct": false}], "grammar": "'can + V' chỉ khả năng ở hiện tại; 'the chicken' dịch 'cái con gà'."},
-  {"audio": "How many apples are there?", "options": [{"text": "Có bao nhiêu những quả táo?", "correct": true}, {"text": "Có bao nhiêu quả táo?", "correct": false}, {"text": "Có bao nhiêu những cái quả táo?", "correct": false}, {"text": "Lúc đó đã có bao nhiêu những quả táo?", "correct": false}], "grammar": "'How many' hỏi số lượng danh từ số nhiều ('những quả táo')."},
-  {"audio": "Where is the child?", "options": [{"text": "Cái đứa trẻ thì ở đâu?", "correct": true}, {"text": "Đứa trẻ thì ở đâu?", "correct": false}, {"text": "Những cái đứa trẻ thì ở đâu?", "correct": false}, {"text": "Cái đứa trẻ lúc đó thì ở đâu?", "correct": false}], "grammar": "'Where is' hỏi vị trí danh từ số ít; 'the child' dịch 'cái đứa trẻ'."},
-  {"audio": "These are my arms.", "options": [{"text": "Những cái này thì là những cánh tay của tôi.", "correct": true}, {"text": "Cái này thì là những cánh tay của tôi.", "correct": false}, {"text": "Những cái kìa thì là những cánh tay của tôi.", "correct": false}, {"text": "Những cái này đã là những cánh tay của tôi.", "correct": false}], "grammar": "'these' là 'những cái này'; 'arms' là danh từ số nhiều."},
-  {"audio": "The chips are hot.", "options": [{"text": "Những cái khoai tây chiên thì nóng.", "correct": true}, {"text": "Những khoai tây chiên thì nóng.", "correct": false}, {"text": "Cái khoai tây chiên thì nóng.", "correct": false}, {"text": "Những cái khoai tây chiên đã nóng.", "correct": false}], "grammar": "'the' (cái) + 'chips' (những khoai tây chiên) -> 'những cái khoai tây chiên'."},
-  {"audio": "The cat is under the armchair.", "options": [{"text": "Cái con mèo thì ở dưới cái ghế bành.", "correct": true}, {"text": "Con mèo thì ở dưới cái ghế bành.", "correct": false}, {"text": "Cái con mèo thì ở trên cái ghế bành.", "correct": false}, {"text": "Cái con mèo lúc đó thì ở dưới cái ghế bành.", "correct": false}], "grammar": "Giới từ chỉ vị trí 'under' (ở dưới); 'the' dịch là 'cái'."},
-  {"audio": "Would you like some chocolate?", "options": [{"text": "Bạn có muốn một ít sô cô la không?", "correct": true}, {"text": "Bạn đang muốn một ít sô cô la không?", "correct": false}, {"text": "Bạn đã muốn một ít sô cô la không?", "correct": false}, {"text": "Cái bạn có muốn một ít sô cô la không?", "correct": false}], "grammar": "'Would you like...?' cấu trúc mời lịch sự."},
-  {"audio": "The baby is sleeping.", "options": [{"text": "Cái em bé thì đang ngủ.", "correct": true}, {"text": "Em bé thì đang ngủ.", "correct": false}, {"text": "Cái em bé thì ngủ.", "correct": false}, {"text": "Cái em bé đã ngủ.", "correct": false}], "grammar": "'is sleeping' là Hiện tại tiếp diễn ('thì đang ngủ'); 'the baby' dịch 'cái em bé'."},
-  {"audio": "The class is big.", "options": [{"text": "Cái lớp học thì to.", "correct": true}, {"text": "Lớp học thì to.", "correct": false}, {"text": "Cái lớp học lúc đó thì to.", "correct": false}, {"text": "Những cái lớp học thì to.", "correct": false}], "grammar": "'the class' dịch 'cái lớp học'; tính từ đứng sau To Be 'is'."},
-  {"audio": "Let us play badminton.", "options": [{"text": "Hãy cùng chơi cầu lông.", "correct": true}, {"text": "Chúng ta thì đang chơi cầu lông.", "correct": false}, {"text": "Chúng ta đã chơi cầu lông.", "correct": false}, {"text": "Hãy cùng ăn cầu lông.", "correct": false}], "grammar": "'Let's + V' dùng để rủ rê, gợi ý."},
-  {"audio": "He is my classmate.", "options": [{"text": "Anh ấy thì là bạn cùng lớp của tôi.", "correct": true}, {"text": "Cái anh ấy thì là bạn cùng lớp của tôi.", "correct": false}, {"text": "Anh ấy đã là bạn cùng lớp của tôi.", "correct": false}, {"text": "Anh ấy thì đang là bạn cùng lớp của tôi.", "correct": false}], "grammar": "Tính từ sở hữu 'my'; 'is' dịch 'thì là'."},
-  {"audio": "Where are the bags?", "options": [{"text": "Những cái cặp sách thì ở đâu?", "correct": true}, {"text": "Những cặp sách thì ở đâu?", "correct": false}, {"text": "Cái cặp sách thì ở đâu?", "correct": false}, {"text": "Những cái cặp sách lúc đó thì ở đâu?", "correct": false}], "grammar": "'Where are' + 'the bags' (gồm 'the' = cái, 'bags' = những cặp sách)."},
-  {"audio": "There is a clock in the classroom.", "options": [{"text": "Có một chiếc đồng hồ ở trong cái phòng học.", "correct": true}, {"text": "Có một cái chiếc đồng hồ ở trong cái phòng học.", "correct": false}, {"text": "Có những chiếc đồng hồ ở trong cái phòng học.", "correct": false}, {"text": "Có một chiếc đồng hồ ở trên cái phòng học.", "correct": false}], "grammar": "'There is a...' + 'in the classroom' ('the classroom' = cái phòng học)."},
-  {"audio": "Can you bounce a ball?", "options": [{"text": "Bạn có thể làm nảy một quả bóng không?", "correct": true}, {"text": "Bạn có thể làm nảy một cái quả bóng không?", "correct": false}, {"text": "Bạn đang làm nảy một quả bóng phải không?", "correct": false}, {"text": "Bạn đã làm nảy một quả bóng phải không?", "correct": false}], "grammar": "'Can you + V?' hỏi khả năng; 'a ball' không dịch từ 'cái'."},
-  {"audio": "The clock is on the wall.", "options": [{"text": "Cái đồng hồ thì ở trên cái bức tường.", "correct": true}, {"text": "Đồng hồ thì ở trên cái bức tường.", "correct": false}, {"text": "Cái đồng hồ thì ở dưới cái bức tường.", "correct": false}, {"text": "Cái đồng hồ lúc đó thì ở trên cái bức tường.", "correct": false}], "grammar": "'The clock' (cái đồng hồ), 'on the wall' (ở trên cái bức tường)."},
-  {"audio": "I see three balloons.", "options": [{"text": "Tôi nhìn thấy ba những quả bóng bay.", "correct": true}, {"text": "Tôi nhìn thấy ba quả bóng bay.", "correct": false}, {"text": "Tôi đang nhìn thấy ba những quả bóng bay.", "correct": false}, {"text": "Tôi đã nhìn thấy ba những quả bóng bay.", "correct": false}], "grammar": "Thì Hiện tại đơn 'see'; danh từ số nhiều 'balloons' có từ 'những'."},
-  {"audio": "The clothes are clean.", "options": [{"text": "Những cái quần áo thì sạch.", "correct": true}, {"text": "Những quần áo thì sạch.", "correct": false}, {"text": "Cái quần áo thì sạch.", "correct": false}, {"text": "Những cái quần áo đã sạch.", "correct": false}], "grammar": "'The clothes' (gồm 'the' = cái, 'clothes' = những quần áo)."},
-  {"audio": "Monkeys love bananas.", "options": [{"text": "Những con khỉ yêu những quả chuối.", "correct": true}, {"text": "Những cái con khỉ yêu những quả chuối.", "correct": false}, {"text": "Những con khỉ đang yêu những quả chuối.", "correct": false}, {"text": "Những con khỉ đã yêu những quả chuối.", "correct": false}], "grammar": "Danh từ số nhiều không có 'the' ('Monkeys', 'bananas') dịch có 'những', không có 'cái'."},
-  {"audio": "I would like a coconut, please.", "options": [{"text": "Tôi muốn một quả dừa.", "correct": true}, {"text": "Tôi muốn một cái quả dừa.", "correct": false}, {"text": "Tôi đang muốn một quả dừa.", "correct": false}, {"text": "Tôi đã muốn một quả dừa.", "correct": false}], "grammar": "'I would like...' tỏ ý muốn lịch sự ở hiện tại."},
-  {"audio": "Do you play baseball?", "options": [{"text": "Bạn có chơi bóng chày không?", "correct": true}, {"text": "Bạn đang chơi bóng chày phải không?", "correct": false}, {"text": "Bạn đã chơi bóng chày phải không?", "correct": false}, {"text": "Cái việc chơi bóng chày của bạn có không?", "correct": false}], "grammar": "'Do you + V?' câu hỏi Yes/No ở thì Hiện tại đơn."},
-  {"audio": "What color is the car?", "options": [{"text": "Cái chiếc ô tô thì có màu gì?", "correct": true}, {"text": "Chiếc ô tô thì có màu gì?", "correct": false}, {"text": "Những chiếc ô tô thì có màu gì?", "correct": false}, {"text": "Cái chiếc ô tô lúc đó thì có màu gì?", "correct": false}], "grammar": "'What color is...' hỏi màu sắc; 'the car' dịch 'cái chiếc ô tô'."},
-  {"audio": "He is wearing a baseball cap.", "options": [{"text": "Anh ấy thì đang mặc một chiếc mũ bóng chày.", "correct": true}, {"text": "Anh ấy thì đang mặc một cái chiếc mũ bóng chày.", "correct": false}, {"text": "Anh ấy thì mặc một chiếc mũ bóng chày.", "correct": false}, {"text": "Anh ấy đã mặc một chiếc mũ bóng chày.", "correct": false}], "grammar": "'is wearing' là Hiện tại tiếp diễn ('thì đang mặc'); 'a baseball cap' không dịch 'cái'."},
-  {"audio": "The computer is next to the window.", "options": [{"text": "Cái máy tính thì ở bên cạnh cái cửa sổ.", "correct": true}, {"text": "Máy tính thì ở bên cạnh cái cửa sổ.", "correct": false}, {"text": "Cái máy tính thì ở đằng sau cái cửa sổ.", "correct": false}, {"text": "Cái máy tính lúc đó thì ở bên cạnh cái cửa sổ.", "correct": false}], "grammar": "'next to' (ở bên cạnh); 'the' dịch là 'cái'."},
-  {"audio": "Can he play basketball?", "options": [{"text": "Anh ấy có thể chơi bóng rổ không?", "correct": true}, {"text": "Anh ấy đang chơi bóng rổ phải không?", "correct": false}, {"text": "Anh ấy đã chơi bóng rổ phải không?", "correct": false}, {"text": "Cái anh ấy có thể chơi bóng rổ không?", "correct": false}], "grammar": "'Can he + V?' hỏi khả năng của anh ấy."},
-  {"audio": "This is my cousin.", "options": [{"text": "Cái này thì là anh họ của tôi.", "correct": true}, {"text": "Cái kìa thì là anh họ của tôi.", "correct": false}, {"text": "Những cái này thì là anh họ của tôi.", "correct": false}, {"text": "Cái này đã là anh họ của tôi.", "correct": false}], "grammar": "'this' = cái này; 'my' = của tôi."},
-  {"audio": "I have got a bat.", "options": [{"text": "Tôi thì có một cái gậy đánh bóng.", "correct": true}, {"text": "Tôi thì có một cái cái gậy đánh bóng.", "correct": false}, {"text": "Tôi đã có một cái gậy đánh bóng.", "correct": false}, {"text": "Tôi thì đang có một cái gậy đánh bóng.", "correct": false}], "grammar": "'have got' = 'thì có' (sở hữu hiện tại)."},
-  {"audio": "Those are cows.", "options": [{"text": "Những cái kìa thì là những con bò.", "correct": true}, {"text": "Những cái này thì là những con bò.", "correct": false}, {"text": "Cái kìa thì là những con bò.", "correct": false}, {"text": "Những cái kìa đã là những con bò.", "correct": false}], "grammar": "'those' = những cái kìa; 'cows' = những con bò."},
-  {"audio": "There is a bath in the bathroom.", "options": [{"text": "Có một cái bồn tắm ở trong cái phòng tắm.", "correct": true}, {"text": "Có một cái cái bồn tắm ở trong cái phòng tắm.", "correct": false}, {"text": "Có những cái bồn tắm ở trong cái phòng tắm.", "correct": false}, {"text": "Có một cái bồn tắm ở đằng trước cái phòng tắm.", "correct": false}], "grammar": "'There is a...' + 'in the bathroom' ('the bathroom' = cái phòng tắm)."},
-  {"audio": "She wants some crayons.", "options": [{"text": "Cô ấy muốn một vài những chiếc bút sáp màu.", "correct": true}, {"text": "Cô ấy đang muốn một vài những chiếc bút sáp màu.", "correct": false}, {"text": "Cô ấy đã muốn một vài những chiếc bút sáp màu.", "correct": false}, {"text": "Cái cô ấy muốn một vài những chiếc bút sáp màu.", "correct": false}], "grammar": "'some + N số nhiều' ('một vài những chiếc bút sáp màu')."},
-  {"audio": "Where is the bathroom?", "options": [{"text": "Cái phòng tắm thì ở đâu?", "correct": true}, {"text": "Phòng tắm thì ở đâu?", "correct": false}, {"text": "Những cái phòng tắm thì ở đâu?", "correct": false}, {"text": "Cái phòng tắm lúc đó thì ở đâu?", "correct": false}], "grammar": "'Where is' + 'the bathroom' (cái phòng tắm)."},
-  {"audio": "The crocodile is swimming.", "options": [{"text": "Cái con cá sấu thì đang bơi.", "correct": true}, {"text": "Con cá sấu thì đang bơi.", "correct": false}, {"text": "Cái con cá sấu thì bơi.", "correct": false}, {"text": "Cái con cá sấu đã bơi.", "correct": false}], "grammar": "'The crocodile' (cái con cá sấu); 'is swimming' (thì đang bơi)."},
-  {"audio": "They are playing on the beach.", "options": [{"text": "Họ thì đang chơi ở trên cái bãi biển.", "correct": true}, {"text": "Họ thì chơi ở trên cái bãi biển.", "correct": false}, {"text": "Họ đã chơi ở trên cái bãi biển.", "correct": false}, {"text": "Họ thì đang chơi ở trong cái bãi biển.", "correct": false}], "grammar": "'are playing' (thì đang chơi); 'on the beach' (ở trên cái bãi biển)."},
-  {"audio": "Draw a cross, please.", "options": [{"text": "Hãy vẽ một dấu chữ thập.", "correct": true}, {"text": "Hãy vẽ một cái dấu chữ thập.", "correct": false}, {"text": "Bạn thì đang vẽ một dấu chữ thập.", "correct": false}, {"text": "Bạn đã vẽ một dấu chữ thập.", "correct": false}], "grammar": "Câu mệnh lệnh 'Draw...'; 'a cross' không dịch 'cái'."},
-  {"audio": "I do not like beans.", "options": [{"text": "Tôi không thích những hạt đậu dài.", "correct": true}, {"text": "Tôi không đang thích những hạt đậu dài.", "correct": false}, {"text": "Tôi đã không thích những hạt đậu dài.", "correct": false}, {"text": "Cái tôi không thích những hạt đậu dài.", "correct": false}], "grammar": "Phủ định thì Hiện tại đơn 'do not like'; 'beans' (những hạt đậu dài)."},
-  {"audio": "The beans are in the cupboard.", "options": [{"text": "Những cái hạt đậu dài thì ở trong cái tủ đựng chén.", "correct": true}, {"text": "Những hạt đậu dài thì ở trong cái tủ đựng chén.", "correct": false}, {"text": "Cái hạt đậu dài thì ở trong cái tủ đựng chén.", "correct": false}, {"text": "Những cái hạt đậu dài đã ở trong cái tủ đựng chén.", "correct": false}], "grammar": "'The beans' (những cái hạt đậu dài); 'in the cupboard' (ở trong cái tủ đựng chén)."},
-  {"audio": "Is that a bear?", "options": [{"text": "Cái kìa thì là một con gấu phải không?", "correct": true}, {"text": "Cái này thì là một con gấu phải không?", "correct": false}, {"text": "Cái kìa đã là một con gấu phải không?", "correct": false}, {"text": "Những cái kìa thì là một con gấu phải không?", "correct": false}], "grammar": "'Is that...?' hỏi Yes/No với đại từ chỉ định 'that' (cái kìa)."},
-  {"audio": "My dad is driving a car.", "options": [{"text": "Bố của tôi thì đang lái một chiếc ô tô.", "correct": true}, {"text": "Cái bố của tôi thì đang lái một chiếc ô tô.", "correct": false}, {"text": "Bố của tôi thì lái một chiếc ô tô.", "correct": false}, {"text": "Bố của tôi đã lái một chiếc ô tô.", "correct": false}], "grammar": "'is driving' là Hiện tại tiếp diễn ('thì đang lái'); 'my dad' không dùng từ 'cái'."}
+    explain: "Cấu trúc 'There's a + N số ít' kết hợp cụm giới từ chỉ vị trí 'in front of' (ở phía trước)."
+  }
 ]
 ;
 
-        /* --- 2. SOUND EFFECTS (Web Audio API) --- */
-        class SoundFX {
-            constructor() {
-                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-            }
+    // --- BIẾN QUẢN LÝ TRẠNG THÁI ---
+    let questionDatabase = [];
+    let reviewQueue = []; // Danh sách các câu làm sai: [{ question, dueAfter: index }]
+    let currentQuestion = null;
+    let questionsAnsweredCount = 0; // Đếm tổng số lượt đã bấm trả lời
+    
+    let score = 0;
+    let streak = 0;
+    let maxStreak = 0;
+    let totalAnswered = 0;
+    let correctAnswersCount = 0;
+    let highScore = parseInt(localStorage.getItem('starters_high_score') || '0');
 
-            playCorrect() {
-                if (this.ctx.state === 'suspended') this.ctx.resume();
-                const now = this.ctx.currentTime;
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(523.25, now);
-                osc.frequency.setValueAtTime(659.25, now + 0.1);
-                osc.frequency.setValueAtTime(783.99, now + 0.2);
-                osc.frequency.setValueAtTime(1046.50, now + 0.3);
+    // --- AUDIO FX ---
+    const AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playSound(type) {
+        if (AudioCtx.state === 'suspended') AudioCtx.resume();
+        const osc = AudioCtx.createOscillator();
+        const gain = AudioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(AudioCtx.destination);
+        const now = AudioCtx.currentTime;
 
-                gain.gain.setValueAtTime(0.3, now);
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                osc.start(now);
-                osc.stop(now + 0.5);
-            }
-
-            playWrong() {
-                if (this.ctx.state === 'suspended') this.ctx.resume();
-                const now = this.ctx.currentTime;
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(150, now);
-                osc.frequency.setValueAtTime(110, now + 0.15);
-
-                gain.gain.setValueAtTime(0.3, now);
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                osc.start(now);
-                osc.stop(now + 0.4);
-            }
-
-            playStreak() {
-                if (this.ctx.state === 'suspended') this.ctx.resume();
-                const now = this.ctx.currentTime;
-                [400, 600, 800, 1200].forEach((freq, idx) => {
-                    const osc = this.ctx.createOscillator();
-                    const gain = this.ctx.createGain();
-                    osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-                    gain.gain.setValueAtTime(0.2, now + idx * 0.08);
-                    gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.08 + 0.2);
-                    osc.connect(gain);
-                    gain.connect(this.ctx.destination);
-                    osc.start(now + idx * 0.08);
-                    osc.stop(now + idx * 0.08 + 0.2);
-                });
-            }
+        if (type === 'correct') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.setValueAtTime(659.25, now + 0.1);
+            osc.frequency.setValueAtTime(783.99, now + 0.2);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        } else if (type === 'wrong') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(180, now);
+            osc.frequency.setValueAtTime(130, now + 0.15);
+            gain.gain.setValueAtTime(0.25, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc.start(now);
+            osc.stop(now + 0.35);
+        } else if (type === 'streak') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(440, now);
+            osc.frequency.setValueAtTime(880, now + 0.12);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+            osc.start(now);
+            osc.stop(now + 0.3);
         }
-        const sfx = new SoundFX();
+    }
 
-        /* --- 3. FIREWORKS CANVAS ANIMATION --- */
-        const canvas = document.getElementById('fireworksCanvas');
-        const ctx = canvas.getContext('2d');
-        let particles = [];
+    // --- CANVAS PHÁO HOA ---
+    const canvas = document.getElementById('confetti-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
 
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+    function resizeCanvas() {
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
 
-        function triggerFireworks() {
-            sfx.playStreak();
-            for (let i = 0; i < 50; i++) {
-                particles.push({
-                    x: canvas.width / 2,
-                    y: canvas.height / 2,
-                    vx: (Math.random() - 0.5) * 12,
-                    vy: (Math.random() - 0.5) * 12,
-                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
-                    radius: Math.random() * 4 + 2,
-                    alpha: 1,
-                    decay: Math.random() * 0.02 + 0.015
-                });
-            }
-        }
-
-        function updateFireworks() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            particles.forEach((p, index) => {
-                p.x += p.vx;
-                p.y += p.vy;
-                p.alpha -= p.decay;
-                ctx.save();
-                ctx.globalAlpha = Math.max(0, p.alpha);
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                ctx.fillStyle = p.color;
-                ctx.fill();
-                ctx.restore();
-
-                if (p.alpha <= 0) particles.splice(index, 1);
+    function triggerConfetti() {
+        particles = [];
+        const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#2ECC71', '#9B59B6'];
+        for (let i = 0; i < 60; i++) {
+            particles.push({
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                vx: (Math.random() - 0.5) * 12,
+                vy: (Math.random() - 0.7) * 12,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                radius: Math.random() * 4 + 3,
+                life: 100
             });
-            requestAnimationFrame(updateFireworks);
         }
-        updateFireworks();
+        animateConfetti();
+    }
 
-        /* --- 4. GAME ENGINE & STATE MANAGEMENT --- */
-        let mainPool = [];
-        let reviewQueue = [];
-        let currentQuestion = null;
-        let score = 0;
-        let streak = 0;
-        let maxStreak = 0;
-        let totalAnswered = 0;
-        let totalCorrect = 0;
-        let highScore = parseInt(localStorage.getItem('starters_highscore') || '0');
+    function animateConfetti() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach((p, index) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.2;
+            p.life -= 2;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life / 100;
+            ctx.fill();
+
+            if (p.life <= 0) particles.splice(index, 1);
+        });
+        if (particles.length > 0) requestAnimationFrame(animateConfetti);
+    }
+
+    // --- WEB SPEECH API ---
+    const synth = window.speechSynthesis;
+    let selectedVoice = null;
+
+    function populateVoices() {
+        const voices = synth.getVoices().filter(v => v.lang.startsWith('en'));
+        const voiceSelect = document.getElementById('voice-select');
+        voiceSelect.innerHTML = '';
+
+        if(voices.length === 0) {
+            const opt = document.createElement('option');
+            opt.textContent = "Giọng Mặc Định (English)";
+            voiceSelect.appendChild(opt);
+            return;
+        }
+
+        voices.forEach((v, index) => {
+            const opt = document.createElement('option');
+            opt.value = index;
+            opt.textContent = `${v.name} (${v.lang})`;
+            if(v.default || v.lang === 'en-US') opt.selected = true;
+            voiceSelect.appendChild(opt);
+        });
+        selectedVoice = voices[voiceSelect.value] || voices[0];
+    }
+
+    populateVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = populateVoices;
+    }
+
+    document.getElementById('voice-select').addEventListener('change', (e) => {
+        const voices = synth.getVoices().filter(v => v.lang.startsWith('en'));
+        selectedVoice = voices[e.target.value];
+    });
+
+    function speakText(text, rate = 1.0) {
+        if (synth.speaking) synth.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        if (selectedVoice) utter.voice = selectedVoice;
+        utter.rate = rate;
+        synth.speak(utter);
+    }
+
+    function testVoice() {
+        speakText("Hello! This is a test voice.", 1.0);
+    }
+
+    function speakCurrent(rate) {
+        if (currentQuestion) speakText(currentQuestion.text, rate);
+    }
+
+    // --- LOGIC GAME & SPACED REPETITION ---
+    function shuffle(array) {
+        const arr = [...array];
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    }
+
+    function initGame() {
+        score = 0;
+        streak = 0;
+        maxStreak = 0;
+        totalAnswered = 0;
+        correctAnswersCount = 0;
+        questionsAnsweredCount = 0;
         
-        // Trạng thái chờ học sinh bấm để sang câu mới
-        let isWaitingForNext = false;
+        questionDatabase = RAW_QUESTIONS.map(q => ({ ...q, solved: false }));
+        reviewQueue = [];
+        
+        document.getElementById('high-score').textContent = highScore;
+        updateUIStats();
+        
+        document.getElementById('game-panel').style.display = 'block';
+        document.getElementById('end-screen').style.display = 'none';
 
-        // UI Elements
-        const elScore = document.getElementById('scoreText');
-        const elStreak = document.getElementById('streakText');
-        const elHighScore = document.getElementById('highScoreText');
-        const elExplanationBox = document.getElementById('explanationBox');
-        const elTranscript = document.getElementById('transcriptText');
-        const elGrammar = document.getElementById('grammarText');
-        const elAnswersGrid = document.getElementById('answersGrid');
-        const elNextPrompt = document.getElementById('nextPrompt');
+        nextQuestion();
+    }
 
-        elHighScore.innerText = highScore;
+    function nextQuestion() {
+        document.getElementById('result-panel').style.display = 'none';
+        document.getElementById('btn-next').style.display = 'none';
 
-        function shuffleArray(arr) {
-            return arr.sort(() => Math.random() - 0.5);
+        // 1. Kiểm tra xem có câu sai nào đã "đủ điều kiện" xuất hiện lại (đã qua ít nhất 3 câu khác)
+        const readyReviewIndex = reviewQueue.findIndex(item => questionsAnsweredCount >= item.dueAfter);
+
+        // 2. Lấy danh sách các câu chưa từng trả lời đúng
+        let unsolvedQuestions = questionDatabase.filter(q => !q.solved);
+
+        // Nếu tất cả câu đã làm đúng ít nhất 1 lần & không còn câu sai chờ review -> Reset tiến trình
+        if (unsolvedQuestions.length === 0 && reviewQueue.length === 0) {
+            triggerConfetti();
+            questionDatabase.forEach(q => q.solved = false);
+            unsolvedQuestions = [...questionDatabase];
         }
 
-        function initGame() {
-            score = 0;
-            streak = 0;
-            maxStreak = 0;
-            totalAnswered = 0;
-            totalCorrect = 0;
-            isWaitingForNext = false;
-
-            mainPool = shuffleArray([...QUESTION_DATABASE]);
-            reviewQueue = [];
-
-            updateStatsDisplay();
-            document.getElementById('summaryScreen').classList.add('hide');
-            document.getElementById('gameScreen').classList.remove('hide');
-
-            nextQuestion();
+        // Chọn câu hỏi tiếp theo dựa trên điều kiện
+        if (readyReviewIndex !== -1) {
+            // Lấy câu sai đã đủ điều kiện giãn cách
+            const reviewItem = reviewQueue.splice(readyReviewIndex, 1)[0];
+            currentQuestion = reviewItem.question;
+        } else if (unsolvedQuestions.length > 0) {
+            // Lấy câu chưa hoàn thành
+            const randomIndex = Math.floor(Math.random() * unsolvedQuestions.length);
+            currentQuestion = unsolvedQuestions[randomIndex];
+        } else {
+            // Trường hợp chờ cho đủ 3 câu giãn cách, tạm thời chọn câu ngẫu nhiên trong DB
+            const randomIndex = Math.floor(Math.random() * questionDatabase.length);
+            currentQuestion = questionDatabase[randomIndex];
         }
 
-        function updateStatsDisplay() {
-            elScore.innerText = score;
-            elStreak.innerText = `🔥 ${streak}`;
-            elHighScore.innerText = highScore;
-        }
+        // Render Các Lựa Chọn (Xáo trộn)
+        const shuffledOptions = shuffle(currentQuestion.options);
+        const container = document.getElementById('options-container');
+        container.innerHTML = '';
 
-        /* --- 5. SPEECH SYNTHESIS (TTS) --- */
-        function speakAudio(text, rate = 1.0) {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'en-US';
-                utterance.rate = rate;
+        const labels = ['A', 'B', 'C', 'D'];
+        shuffledOptions.forEach((optText, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'btn-option';
+            btn.innerHTML = `<span style="width:24px; color:#A0AEC0;">${labels[i]}.</span> ${optText}`;
+            btn.onclick = () => handleAnswer(btn, optText);
+            container.appendChild(btn);
+        });
 
-                const voices = window.speechSynthesis.getVoices();
-                const enVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural')));
-                if (enVoice) utterance.voice = enVoice;
+        setTimeout(() => speakCurrent(1.0), 300);
+    }
 
-                window.speechSynthesis.speak(utterance);
-            }
-        }
+    function handleAnswer(selectedBtn, selectedText) {
+        const allBtns = document.querySelectorAll('.btn-option');
+        allBtns.forEach(btn => btn.disabled = true);
 
-        /* --- 6. QUESTION FLOW --- */
-        function nextQuestion() {
-            isWaitingForNext = false;
-            elExplanationBox.classList.add('hidden');
-            elNextPrompt.classList.add('hide');
+        totalAnswered++;
+        questionsAnsweredCount++; // Tăng biến đếm tổng số câu đã làm để tính khoảng cách
+        
+        const isCorrect = (selectedText === currentQuestion.correct);
 
-            // Decrement delays in review queue
-            reviewQueue.forEach(rq => rq.delay--);
+        if (isCorrect) {
+            correctAnswersCount++;
+            selectedBtn.classList.add('correct');
+            streak++;
+            if (streak > maxStreak) maxStreak = streak;
 
-            // Check if any review item is ready
-            const readyReviewIdx = reviewQueue.findIndex(rq => rq.delay <= 0);
+            // Đánh dấu câu hỏi này đã trả lời ĐÚNG
+            const dbItem = questionDatabase.find(q => q.id === currentQuestion.id);
+            if (dbItem) dbItem.solved = true;
 
-            if (readyReviewIdx !== -1) {
-                currentQuestion = reviewQueue.splice(readyReviewIdx, 1)[0].item;
-            } else if (mainPool.length > 0) {
-                currentQuestion = mainPool.pop();
+            // Xóa câu này khỏi reviewQueue nếu có
+            reviewQueue = reviewQueue.filter(item => item.question.id !== currentQuestion.id);
+
+            let addedScore = 10;
+            if (streak >= 3) addedScore += 2; 
+            score += addedScore;
+
+            if (streak >= 3) {
+                playSound('streak');
             } else {
-                mainPool = shuffleArray([...QUESTION_DATABASE]);
-                currentQuestion = mainPool.pop();
+                playSound('correct');
             }
 
-            renderQuestion(currentQuestion);
+            if (streak % 5 === 0 || score >= highScore + 20) {
+                triggerConfetti();
+            }
 
-            setTimeout(() => {
-                speakAudio(currentQuestion.audio, 1.0);
-            }, 300);
-        }
+        } else {
+            selectedBtn.classList.add('incorrect');
+            streak = 0; 
+            score = Math.max(0, score - 2); 
+            playSound('wrong');
 
-        function renderQuestion(q) {
-            const shuffledOptions = shuffleArray([...q.options]);
-            elAnswersGrid.innerHTML = '';
-            const labels = ['A', 'B', 'C', 'D'];
-
-            shuffledOptions.forEach((opt, idx) => {
-                const btn = document.createElement('button');
-                btn.className = 'btn-answer';
-                btn.innerHTML = `<strong>${labels[idx]}.</strong>&nbsp; ${opt.text}`;
-                btn.onclick = (e) => {
-                    e.stopPropagation(); // Ngăn sự kiện click lan ra ngoài body
-                    handleAnswerSelect(opt, btn);
-                };
-                elAnswersGrid.appendChild(btn);
+            allBtns.forEach(btn => {
+                if (btn.textContent.includes(currentQuestion.correct)) {
+                    btn.classList.add('correct');
+                }
             });
-        }
 
-        function handleAnswerSelect(selectedOpt, btnElement) {
-            if (isWaitingForNext) return;
-
-            totalAnswered++;
-            
-            // Show Transcript and Grammar
-            elTranscript.innerText = `🔤 "${currentQuestion.audio}"`;
-            elGrammar.innerText = `💡 ${currentQuestion.grammar}`;
-            elExplanationBox.classList.remove('hidden');
-
-            // Disable all option buttons
-            const allBtns = elAnswersGrid.querySelectorAll('.btn-answer');
-            allBtns.forEach(b => b.disabled = true);
-
-            if (selectedOpt.correct) {
-                // RIGHT ANSWER
-                totalCorrect++;
-                btnElement.classList.add('correct');
-                streak++;
-                if (streak > maxStreak) maxStreak = streak;
-
-                let pointsGained = 10;
-                if (streak >= 3) {
-                    pointsGained += (streak * 2);
-                }
-                score += pointsGained;
-
-                sfx.playCorrect();
-
-                if (streak % 5 === 0 || score >= highScore + 50) {
-                    triggerFireworks();
-                }
-
-                if (score > highScore) {
-                    highScore = score;
-                    localStorage.setItem('starters_highscore', highScore.toString());
-                }
-
-                updateStatsDisplay();
-
-            } else {
-                // WRONG ANSWER
-                btnElement.classList.add('wrong');
-                sfx.playWrong();
-
-                currentQuestion.options.forEach((opt) => {
-                    if (opt.correct) {
-                        allBtns.forEach(b => {
-                            if (b.innerText.includes(opt.text)) {
-                                b.classList.add('correct');
-                            }
-                        });
-                    }
-                });
-
-                streak = 0;
-                updateStatsDisplay();
-
+            // Đưa câu SAI vào Review Queue và ĐẶT LỊCH chỉ quay lại sau ít nhất 3 câu nữa
+            if (!reviewQueue.some(item => item.question.id === currentQuestion.id)) {
                 reviewQueue.push({
-                    item: currentQuestion,
-                    delay: Math.floor(Math.random() * 2) + 2
+                    question: currentQuestion,
+                    dueAfter: questionsAnsweredCount + 3 // Bắt buộc làm thêm ít nhất 3 câu khác
                 });
             }
-
-            // Kích hoạt trạng thái chờ học sinh bấm để qua câu mới
-            // Sử dụng setTimeout ngắn để tránh ăn nhầm cú click vừa bấm chọn đáp án
-            setTimeout(() => {
-                isWaitingForNext = true;
-                elNextPrompt.classList.remove('hide');
-            }, 200);
         }
 
-        /* --- 7. BẤM BẤT KỲ ĐÂU ĐỂ QUA CÂU --- */
-        document.addEventListener('click', (e) => {
-            // Nếu đang trong trạng thái chờ và không bấm vào nút "Dừng chơi"
-            if (isWaitingForNext && !e.target.closest('#btnStop') && !e.target.closest('.btn-audio')) {
-                nextQuestion();
-            }
-        });
-
-        /* --- 8. SUMMARY & RENDER --- */
-        function stopGameAndShowSummary() {
-            window.speechSynthesis.cancel();
-            isWaitingForNext = false;
-            document.getElementById('gameScreen').classList.add('hide');
-            document.getElementById('summaryScreen').classList.remove('hide');
-
-            const accuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
-
-            document.getElementById('sumScore').innerText = score;
-            document.getElementById('sumHighScore').innerText = highScore;
-            document.getElementById('sumTotal').innerText = totalAnswered;
-            document.getElementById('sumAccuracy').innerText = `${accuracy}%`;
-            document.getElementById('sumMaxStreak').innerText = `🔥 ${maxStreak}`;
-
-            const recordContainer = document.getElementById('newRecordContainer');
-            if (score > 0 && score >= highScore) {
-                recordContainer.innerHTML = `<div class="new-record-badge">👑 PHÁ KỶ LỤC MỚI!</div>`;
-                triggerFireworks();
-            } else {
-                recordContainer.innerHTML = '';
-            }
+        if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('starters_high_score', highScore);
         }
 
-        /* --- 9. EVENT LISTENERS --- */
-        document.getElementById('btnPlayNormal').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (currentQuestion) speakAudio(currentQuestion.audio, 1.0);
-        });
+        updateUIStats();
 
-        document.getElementById('btnPlaySlow').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (currentQuestion) speakAudio(currentQuestion.audio, 0.5);
-        });
+        // Hiển thị Transcript & Giải thích
+        document.getElementById('transcript-text').innerHTML = `🔊 ${currentQuestion.text}`;
+        document.getElementById('explanation-text').innerHTML = currentQuestion.explain;
+        document.getElementById('result-panel').style.display = 'block';
 
-        document.getElementById('btnStop').addEventListener('click', (e) => {
-            e.stopPropagation();
-            stopGameAndShowSummary();
-        });
+        document.getElementById('btn-next').style.display = 'block';
+    }
 
-        document.getElementById('btnRestart').addEventListener('click', (e) => {
-            e.stopPropagation();
-            initGame();
-        });
+    function updateUIStats() {
+        document.getElementById('score').textContent = score;
+        document.getElementById('streak').textContent = streak;
+        document.getElementById('high-score').textContent = highScore;
 
-        // Anti-cheat: Disable right click menu
-        document.addEventListener('contextmenu', event => event.preventDefault());
+        // Cập nhật Thanh Tiến Trình & Text %
+        const solvedCount = questionDatabase.filter(q => q.solved).length;
+        const totalCount = RAW_QUESTIONS.length;
+        const progressPercent = Math.round((solvedCount / totalCount) * 100);
 
-        // Preload speech synthesis voices
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.onvoiceschanged = () => {
-                window.speechSynthesis.getVoices();
-            };
-        }
+        document.getElementById('progress-fill').style.width = `${progressPercent}%`;
+        document.getElementById('progress-text').textContent = `${solvedCount}/${totalCount} (${progressPercent}%)`;
+    }
 
-        // START GAME
+    function endGame() {
+        document.getElementById('game-panel').style.display = 'none';
+        document.getElementById('end-screen').style.display = 'block';
+
+        const acc = totalAnswered > 0 ? Math.round((correctAnswersCount / totalAnswered) * 100) : 0;
+
+        document.getElementById('rep-score').textContent = score;
+        document.getElementById('rep-high').textContent = highScore;
+        document.getElementById('rep-total').textContent = totalAnswered;
+        document.getElementById('rep-acc').textContent = `${acc}%`;
+        document.getElementById('rep-maxstreak').textContent = `🔥 x${maxStreak}`;
+    }
+
+    function restartGame() {
         initGame();
-    </script>
+    }
+
+    window.onload = initGame;
+</script>
 </body>
 </html>
