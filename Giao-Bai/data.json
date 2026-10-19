@@ -1,0 +1,185 @@
+{
+  "cards": [
+    {
+      "id": "card-1790046491344",
+      "title": "CSV Card - test app import (10:08)",
+      "level": "A1",
+      "type": "mcq",
+      "text": "1. Learning a new language opens up many opportunities. 2. She decided to pursue her passion for digital art. 3. Regular exercise plays a crucial role in maintaining good health. 4. Technology has completely transformed the way we communicate. 5. Working together as a team helps us achieve better results.",
+      "selected": false,
+      "manualPhrases": [
+        {
+          "indices": [
+            5,
+            6
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "closes down",
+            "takes off",
+            "turns in"
+          ]
+        },
+        {
+          "indices": [
+            13
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "abandon",
+            "ignore",
+            "delay"
+          ]
+        },
+        {
+          "indices": [
+            24
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "minor",
+            "optional",
+            "irrelevant"
+          ]
+        },
+        {
+          "indices": [
+            34
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "destroyed",
+            "limited",
+            "hidden"
+          ]
+        },
+        {
+          "indices": [
+            47
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "fail",
+            "lose",
+            "avoid"
+          ]
+        },
+        {
+          "indices": [],
+          "customWord": "aaa",
+          "description": "sdfasdfsdfas",
+          "distractors": [
+            "",
+            "",
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "id": "card-1789806813423",
+      "title": "Bài đọc mới 1",
+      "level": "A1",
+      "type": "mcq",
+      "text": "fdasfdsfsdfas aldskjfa/ aldk aldfjald. alsdfj . ádfj. adslafkfsjd. adslfkj",
+      "selected": false,
+      "manualPhrases": []
+    },
+    {
+      "id": "card-1",
+      "title": "Benefits of Reading Books",
+      "level": "B1",
+      "type": "mcq",
+      "text": "Reading books is a wonderful habit that helps people improve their knowledge and vocabulary. It provides a great opportunity to learn about different cultures and ideas. Furthermore, reading regularly helps to reduce stress and develop critical thinking skills. It is important to find time for books every day.",
+      "selected": false,
+      "manualPhrases": [
+        {
+          "indices": [
+            3
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "an",
+            "the",
+            "O"
+          ]
+        },
+        {
+          "indices": [
+            16
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "an",
+            "the",
+            "O"
+          ]
+        },
+        {
+          "indices": [
+            23
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "structure",
+            "future",
+            "furniture"
+          ]
+        },
+        {
+          "indices": [
+            30
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "at",
+            "in",
+            "on"
+          ]
+        },
+        {
+          "indices": [
+            34
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "envelop",
+            "decide",
+            "improve"
+          ]
+        },
+        {
+          "indices": [
+            40
+          ],
+          "customWord": "",
+          "description": "",
+          "distractors": [
+            "crucial",
+            "great",
+            "good"
+          ]
+        }
+      ]
+    }
+  ],
+  "levels": [
+    "A1",
+    "A2",
+    "B1",
+    "B2",
+    "C1",
+    "C2"
+  ],
+  "exportedAt": "2026-10-19T03:13:18.669Z"
+}
