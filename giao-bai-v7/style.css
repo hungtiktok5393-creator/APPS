@@ -457,3 +457,15 @@ body:not([data-route="assign"]) .run-test{--outer:calc(3.25rem + 62px + env(safe
   .runnav .nav-in{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:none}
   .runnav .nav-arrows .btn{min-height:40px}
 }
+
+/* Bàn phím ảo (bộ từ) */
+.vk{width:100%;max-width:560px;display:flex;flex-direction:column;gap:.35rem;margin-top:.2rem;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.vk-row{display:flex;gap:.3rem;justify-content:center}
+.vk-key{flex:1 1 0;min-width:0;min-height:46px;padding:0;font:inherit;font-size:1.15rem;font-weight:700;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.vk-num .vk-key{min-height:38px;font-size:1rem;color:var(--muted)}
+.vk-key:active{background:var(--primary);color:var(--primary-text)}
+.vk-key.wide{flex:1.6 1 0}
+.vk-key.space{flex:4 1 0;font-size:.95rem}
+.vk-key.enter{flex:1.8 1 0;font-size:1rem;background:var(--primary);color:var(--primary-text)}
+.vk-key:focus-visible{outline:3px solid var(--focus);outline-offset:1px}
+@media (max-height:560px) and (orientation:landscape){.vk-key{min-height:34px;font-size:1rem}.vk-num{display:none}}

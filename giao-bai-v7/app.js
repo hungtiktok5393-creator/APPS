@@ -132,7 +132,7 @@ function storageInfo() {
 const Settings = {
   data: null,
   load() {
-    this.data = Object.assign({ scriptUrl: '', teacherKey: '', teacherOk: false, theme: 'auto', sfx: true, autoRead: true, autoSync: false }, Store.get('settings', {}));
+    this.data = Object.assign({ scriptUrl: '', teacherKey: '', teacherOk: false, theme: 'auto', sfx: true, autoRead: true, autoSync: false, vk: null }, Store.get('settings', {}));
     this.apply();
   },
   save(patch) { Object.assign(this.data, patch); Store.set('settings', this.data); this.apply(); },
@@ -681,7 +681,7 @@ function HomeView(root) {
       const shortLink = base + '#/assign?id=' + a.id + '&s=' + encodeURIComponent(API.short(url));
       a.link = link;       // lưu link lên Sheet để xem/copy lại trong Thống kê
       let mode = 'inline', notes = [];
-      if (link.length > (canSheet ? 900 : 2000)) {
+      if (canSheet || link.length > 2000) {
         if (canSheet) {
           a.link = shortLink;
           try { await withRetry(async () => { const r = await API.post(url, { action: 'saveAssignment', teacherKey: st.teacherKey, assignment: a }); if (!r.ok) throw new Error(r.message || r.error); });
@@ -754,8 +754,37 @@ function RunView(root, cfg) {
   const sfxBtn = h('button', { class: 'btn small', onclick: () => { Settings.save({ sfx: !Settings.data.sfx }); drawHud(); } });
   const readBtn = h('button', { class: 'btn small', onclick: () => { Settings.save({ autoRead: !Settings.data.autoRead }); if (Settings.data.autoRead) startRead(); else { stopRead(); TTS.cancel(); } drawHud(); } });
   const pauseBtn = h('button', { class: 'btn small', onclick: () => togglePause() });
+  /* Bàn phím ảo của app: chặn bàn phím hệ điều hành (và gợi ý/đoán từ của nó). Mặc định bật trên thiết bị cảm ứng. */
+  const vkOn = () => Settings.data.vk == null ? !!(window.matchMedia && matchMedia('(pointer: coarse)').matches) : !!Settings.data.vk;
+  const vkBtn = h('button', { class: 'btn small', onclick: () => { Settings.save({ vk: !vkOn() }); drawHud(); if (S.started && S.state === 'TYPE' && !S.paused) render(); } });
+  function vkEl(input) {
+    const MAXLEN = 60;
+    const edit = fn => {
+      if (S.locked || input.disabled) return;
+      input.focus(); const v = input.value; let s0 = input.selectionStart, e0 = input.selectionEnd; if (s0 == null) { s0 = e0 = v.length; }
+      const r = fn(v, s0, e0); if (!r) return; input.value = r.v; try { input.setSelectionRange(r.c, r.c); } catch (_) {} draft = input.value;
+    };
+    const ins = ch => edit((v, a, b) => v.length - (b - a) >= MAXLEN ? null : { v: v.slice(0, a) + ch + v.slice(b), c: a + ch.length });
+    const del = () => edit((v, a, b) => a !== b ? { v: v.slice(0, a) + v.slice(b), c: a } : a > 0 ? { v: v.slice(0, a - 1) + v.slice(a), c: a - 1 } : null);
+    const key = (label, act, cls, aria, repeat) => {
+      let t1 = null, t2 = null; const stop = () => { clearTimeout(t1); clearInterval(t2); };
+      const b = h('button', { type: 'button', class: 'vk-key ' + (cls || ''), 'aria-label': aria || label,
+        onpointerdown: e => { e.preventDefault(); act(); if (repeat) { stop(); t1 = setTimeout(() => { t2 = setInterval(() => { if (b.isConnected) act(); else stop(); }, 70); }, 400); } },
+        onpointerup: stop, onpointerleave: stop, onpointercancel: stop,
+        onclick: e => { if (e.detail === 0) act(); },
+        oncontextmenu: e => e.preventDefault() }, label);
+      return b;
+    };
+    const chars = r => [...r].map(c => key(c, () => ins(c)));
+    return h('div', { class: 'vk', role: 'group', 'aria-label': 'Bàn phím ảo' },
+      h('div', { class: 'vk-row vk-num' }, chars('1234567890')),
+      h('div', { class: 'vk-row' }, chars('qwertyuiop')),
+      h('div', { class: 'vk-row' }, chars('asdfghjkl')),
+      h('div', { class: 'vk-row' }, chars('zxcvbnm'), key('⌫', del, 'wide', 'Xóa lùi', true)),
+      h('div', { class: 'vk-row' }, key('-', () => ins('-')), key("'", () => ins("'")), key('Dấu cách', () => ins(' '), 'space'), key('.', () => ins('.')), key(',', () => ins(',')), key('Nộp', () => submit(), 'enter', 'Nộp bài')));
+  }
   const stopBtn = h('button', { class: 'btn small danger', onclick: () => askStop() }, '⏹ Dừng lại & lưu điểm');
-  const hud = h('div', { class: 'hud' }, h('div', { class: 'grp' }, hudPos, hudTime, hudCombo), h('div', { class: 'grp' }, stopBtn, sfxBtn, readBtn, pauseBtn));
+  const hud = h('div', { class: 'hud' }, h('div', { class: 'grp' }, hudPos, hudTime, hudCombo), h('div', { class: 'grp' }, stopBtn, vkBtn, sfxBtn, readBtn, pauseBtn));
   root.replaceChildren(h('div', { class: 'run' }, h('h1', { class: 'small-text muted', text: cfg.title }), hud, h('div', { class: 'progress', role: 'progressbar', 'aria-label': 'Tiến độ' }, bar), stage));
 
   function drawHud() {
@@ -767,6 +796,7 @@ function RunView(root, cfg) {
     sfxBtn.textContent = Settings.data.sfx ? '🔔 Hiệu ứng: Bật' : '🔕 Hiệu ứng: Tắt'; sfxBtn.setAttribute('aria-pressed', String(Settings.data.sfx));
     readBtn.textContent = Settings.data.autoRead ? '🗣 Tự đọc: Bật' : '🗣 Tự đọc: Tắt'; readBtn.setAttribute('aria-pressed', String(Settings.data.autoRead));
     pauseBtn.textContent = S.paused ? '▶ Tiếp tục' : '⏸ Tạm dừng (Esc)';
+    vkBtn.textContent = vkOn() ? '⌨ Bàn phím: App' : '⌨ Bàn phím: Thiết bị'; vkBtn.setAttribute('aria-pressed', String(vkOn()));
     pauseBtn.style.display = S.started ? '' : 'none';
     stopBtn.style.display = (S.started && !S.paused && correctN() >= STOP_AFTER && doneN() < words.length) ? '' : 'none';
   }
@@ -821,7 +851,8 @@ function RunView(root, cfg) {
         h('div', { class: 'row wrap', style: 'justify-content:center' },
           h('button', { class: 'btn primary big', onclick: () => dispatch('advance') }, 'Ẩn từ & gõ lại (Space)'), listen, skipButton())));
     } else {
-      const input = h('input', { type: 'text', id: 'ans', 'aria-label': 'Gõ lại từ tiếng Anh', autocomplete: 'off', autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'done', value: draft,
+      const useVK = vkOn();
+      const input = h('input', { type: 'text', id: 'ans', 'aria-label': 'Gõ lại từ tiếng Anh', autocomplete: 'off', autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'done', inputmode: useVK ? 'none' : 'text', writingsuggestions: 'false', 'data-gramm': 'false', value: draft,
         oninput: e => { draft = e.target.value; } });
       const fb = h('div', { class: 'feedback', 'aria-live': 'assertive', id: 'fb' });
       stage.append(h('div', { class: 'word-card' },
@@ -831,6 +862,7 @@ function RunView(root, cfg) {
           h('div', { class: 'row wrap', style: 'justify-content:center' },
             h('button', { type: 'submit', class: 'btn primary' }, 'Nộp (Enter)'),
             h('button', { type: 'button', class: 'btn', onclick: () => dispatch('forget') }, 'Quên / Xem lại (Tab)'), listen, skipButton())),
+        useVK ? vkEl(input) : null,
         h('p', { class: 'hint' }, 'Space là ký tự thường · ', h('kbd', null, 'Tab'), ' hoặc ', h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'Space'), ' = Quên · ', h('kbd', null, 'Esc'), ' = tạm dừng')));
       input.focus();
       setTimeout(() => { if (input.isConnected && document.activeElement === input) { try { input.scrollIntoView({ block: 'center' }); } catch (_) {} } }, 300);
@@ -1167,9 +1199,9 @@ const sortRows = (rows, sort) => rows.slice().sort((a, b) => { const x = a[sort.
 const nextSort = (sort, k, textKeys) => ({ key: k, dir: sort.key === k ? -sort.dir : (textKeys.includes(k) ? 1 : -1) });
 function sortTable(cap, cols, rows, sort, onSort) {
   return h('div', { class: 'table-wrap' }, h('table', null, h('caption', { class: 'center muted', text: cap }),
-    h('thead', null, h('tr', null, cols.map(c => h('th', { scope: 'col', class: c.num ? 'num' : '', 'aria-sort': sort.key === c.k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none' },
-      h('button', { onclick: () => onSort(c.k) }, c.label + (sort.key === c.k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '')))))),
-    h('tbody', null, rows.map(r => h('tr', null, cols.map(c => h('td', { class: c.num ? 'num' : '', text: String(c.get(r)) })))))));
+    h('thead', null, h('tr', null, cols.map(c => h('th', { scope: 'col', class: c.num ? 'num' : '', 'aria-sort': c.nosort ? null : (sort.key === c.k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none') },
+      c.nosort ? c.label : h('button', { onclick: () => onSort(c.k) }, c.label + (sort.key === c.k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '')))))),
+    h('tbody', null, rows.map(r => h('tr', null, cols.map(c => c.el ? h('td', null, c.el(r)) : h('td', { class: c.num ? 'num' : '', text: String(c.get(r)) })))))));
 }
 const pager = (page, pages, go) => h('div', { class: 'pager' }, h('button', { class: 'btn small', disabled: page <= 1, onclick: () => go(page - 1) }, '‹ Trước'),
   h('span', { text: `Trang ${page}/${pages}` }), h('button', { class: 'btn small', disabled: page >= pages, onclick: () => go(page + 1) }, 'Sau ›'));
@@ -1185,6 +1217,7 @@ function confirmPurge(a) {
     let ok = false;
     const d = Modal.open('Xóa dữ liệu bài giao', h('div', { class: 'stack' },
       h('p', null, 'Bạn sắp xóa vĩnh viễn dữ liệu của bài giao ', h('strong', { text: a.name }), ':'),
+      a.due > 0 && Date.now() <= a.due ? h('p', { class: 'err', role: 'alert', text: '⚠ Bài này CHƯA hết hạn nộp: học sinh đang làm sẽ không nộp được nữa và link sẽ hỏng.' }) : null,
       h('ul', null, h('li', { text: `${a.count || 0} lượt nộp / kết quả trên Google Sheet` }), h('li', { text: 'Dòng đăng ký bài (hạn nộp, link) và đề / bộ từ đã lưu trên Sheet' }), h('li', { text: 'Dữ liệu của bài này lưu trong trình duyệt (số lần làm, hàng đợi gửi)' })),
       h('p', { class: 'hint', text: 'Không thể hoàn tác. Thẻ bộ từ / bài test của bạn không bị xóa. Hãy xuất CSV/Excel trước nếu cần giữ điểm. Link đã giao sẽ không còn dùng được.' }),
       h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: () => d.close() }, 'Hủy'), h('button', { class: 'btn danger', onclick: () => { ok = true; d.close(); } }, '🗑 Xóa vĩnh viễn'))), () => res(ok));
@@ -1193,10 +1226,10 @@ function confirmPurge(a) {
 function assignInfoCard(a, kind, onDeleted) {
   const st = Settings.data, expired = a.due > 0 && Date.now() > a.due;
   let link = a.link || '';
-  if (!link && a.hasData && API.validUrl(st.scriptUrl)) link = location.href.split('#')[0] + (kind === 'test' ? '#/taketest?id=' : '#/assign?id=') + a.id + '&s=' + encodeURIComponent(st.scriptUrl);
+  if (a.hasData && API.validUrl(st.scriptUrl)) link = location.href.split('#')[0] + (kind === 'test' ? '#/taketest?id=' : '#/assign?id=') + a.id + '&s=' + encodeURIComponent(API.short(st.scriptUrl));   // luôn hiện link ngắn nếu đề đã lưu trên Sheet
   const box = h('textarea', { readonly: true, 'aria-label': 'Link giao bài', style: 'min-height:70px;font-size:.8rem', onfocus: e => e.target.select() }); box.value = link;
   const msg = h('p', { class: 'small-text', role: 'status' });
-  const del = h('button', { class: 'btn danger', type: 'button', disabled: !!a.due && !expired, onclick: remove }, '🗑 Xóa dữ liệu bài này');
+  const del = h('button', { class: 'btn danger', type: 'button', onclick: remove }, '🗑 Xóa dữ liệu bài này');
   async function remove() {
     if (!(await confirmPurge(a))) return;
     del.disabled = true; msg.className = 'muted small-text'; msg.textContent = 'Đang xóa…';
@@ -1213,7 +1246,7 @@ function assignInfoCard(a, kind, onDeleted) {
         h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => toast(await copyText(link, box) ? 'Đã sao chép link.' : 'Hãy chọn và copy thủ công.') }, '📋 Copy link')))
       : h('p', { class: 'hint', text: 'Link của bài này chưa được lưu (bài giao từ phiên bản cũ). Hãy tạo lại link từ thẻ ở trang chủ nếu cần.' }),
     h('div', { class: 'row wrap' }, del),
-    h('p', { class: 'hint', text: a.due && !expired ? 'Nút xóa chỉ dùng được sau khi bài hết hạn nộp.' : 'Xóa toàn bộ kết quả, đăng ký bài và đề đã lưu của bài này (trên Google Sheet và trong app).' }), msg);
+    h('p', { class: 'hint', text: 'Xóa toàn bộ kết quả, đăng ký bài và đề đã lưu của bài này (trên Google Sheet và trong app). Dùng được bất cứ lúc nào, kể cả khi bài chưa hết hạn.' }), msg);
 }
 
 function StatsView(root) {
@@ -1966,7 +1999,18 @@ function TestRun(root, cfg) {
     if (left <= 0) submit(true);
   };
   root.classList.add('wide');
-  const hud = h('div', { class: 'run-hud' }, h('strong', { class: 'run-title', text: cfg.title }), h('div', { class: 'grp' }, prog, timerEl, h('button', { class: 'btn primary small', onclick: () => submit(false) }, '✔ Nộp bài')));
+  const de = document.documentElement, fsOK = !!(de.requestFullscreen || de.webkitRequestFullscreen), fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const fsBtn = fsOK ? h('button', { type: 'button', class: 'btn small', onclick: toggleFs }) : null;
+  function paintFs() { if (!fsBtn) return; const on = !!fsEl(); fsBtn.textContent = on ? '🗗' : '⛶'; const l = on ? 'Thoát toàn màn hình' : 'Toàn màn hình'; fsBtn.title = l; fsBtn.setAttribute('aria-label', l); fsBtn.setAttribute('aria-pressed', String(on)); }
+  function toggleFs() {
+    const fail = () => toast('Thiết bị không cho phép toàn màn hình.', 'error');
+    try {
+      if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else { const p = (de.requestFullscreen || de.webkitRequestFullscreen).call(de); if (p && p.catch) p.catch(fail); }
+    } catch (_) { fail(); }
+  }
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, paintFs)); paintFs();
+  const hud = h('div', { class: 'run-hud' }, h('strong', { class: 'run-title', text: cfg.title }), h('div', { class: 'grp' }, prog, timerEl, fsBtn, h('button', { class: 'btn primary small', onclick: () => submit(false) }, '✔ Nộp bài')));
   const runEl = h('div', { class: 'run-test' }, hud, dock.el, stage, nav);
   root.replaceChildren(runEl);
   /* Đo chiều cao thanh trên / thanh dưới → CSS dùng để (1) ghim đoạn văn ngay dưới thanh trên (điện thoại dọc),
@@ -1981,7 +2025,8 @@ function TestRun(root, cfg) {
   window.addEventListener('resize', fit); window.addEventListener('orientationchange', fit);
   prog.textContent = `Đã làm 0/${N}`; window.onbeforeunload = () => 'Bài test chưa nộp. Bạn có chắc muốn thoát?';
   clock(); tick = setInterval(clock, 1000); show(0); fit();
-  return { destroy() { finished = true; clearInterval(tick); window.onbeforeunload = null; if (ro) ro.disconnect(); window.removeEventListener('resize', fit); window.removeEventListener('orientationchange', fit); if (view) view.destroy(); dock.destroy(); root.classList.remove('wide'); } };
+  return { destroy() { finished = true; clearInterval(tick); window.onbeforeunload = null; if (ro) ro.disconnect();
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.removeEventListener(ev, paintFs)); try { if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (_) {} window.removeEventListener('resize', fit); window.removeEventListener('orientationchange', fit); if (view) view.destroy(); dock.destroy(); root.classList.remove('wide'); } };
 }
 /** Kết quả: điểm từng phần; bấm số câu → mở đúng phần đó (đoạn văn + mọi câu có đúng/sai, đáp án, giải thích) và cuộn tới câu */
 function TestResult(root, o) {
@@ -2815,7 +2860,7 @@ function openAssignTest(t) {
     const shortLink = base + '#/taketest?id=' + a.id + '&s=' + encodeURIComponent(API.short(url));
     a.link = link;       // lưu link lên Sheet để xem/copy lại trong Thống kê test
     const post = body => API.post(url, Object.assign({ action: 'saveTest', teacherKey: st.teacherKey, assignment: a }, body)).then(r => { if (!r.ok) throw new Error(r.message || r.error); });
-    if (link.length > (canSheet ? 900 : 2000)) {
+    if (canSheet || link.length > 2000) {
       if (canSheet) { a.link = shortLink; try { await withRetry(() => post({ test })); link = shortLink; mode = 'sheet'; } catch (e) { mode = 'long'; notes.push('Không lưu được đề lên Google Sheet (' + e.message + '). Đang dùng link dài.'); } }
       else { mode = 'long'; notes.push('Link đang rất dài vì chưa kết nối Google Apps Script. Vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối, rồi bấm “Thử tạo link ngắn lại” để có link ngắn chia sẻ được qua Zalo/Messenger.'); }
     } else if (canSheet) { try { await post({ test: null }); } catch (e) { notes.push('Chưa đăng ký hạn nộp lên máy chủ (' + e.message + ').'); } }
@@ -3022,20 +3067,61 @@ function TestStatsView(root) {
       const qm = {}, order = []; rows.forEach(x => x.items.forEach(it => { const o = qm[it.id] || (qm[it.id] = { q: it.q, t: it.t, n: 0, right: 0, partial: 0 }); if (!qm[it.id].seen) { order.push(it.id); qm[it.id].seen = 1; } o.n++; if (it.ok === 'right') o.right++; else if (it.ok === 'partial') o.partial++; }));
       const detail = x => Modal.open(`${x.name} – ${x.score}/${x.max}`, h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['Câu hỏi', 'Dạng', 'Trả lời', 'Điểm'].map(c => h('th', { scope: 'col', text: c })))),
         h('tbody', null, x.items.map(it => h('tr', { class: it.ok === 'right' ? '' : 'bad-row' }, h('td', { style: 'white-space:normal;min-width:160px', text: it.q }), h('td', { text: QTYPES[it.t] || it.t }), h('td', { style: 'white-space:normal', text: it.a || '—' }), h('td', { class: 'num', text: it.g + '/' + it.m })))))));
+      const T = { sort: { key: 'submittedAt', dir: -1 }, page: 1, ssort: { key: 'total', dir: -1 }, spage: 1, split: false };
+      rows.forEach(x => { x.score = Number(x.score) || 0; x.max = Number(x.max) || 0; x.totalMs = Number(x.totalMs) || 0; x.pct = pct(x); x.lateN = x.late ? 1 : 0; });
+      const rcols = [
+        { k: 'name', label: 'Họ tên', get: x => x.name }, { k: 'cls', label: 'Lớp', get: x => x.cls },
+        { k: 'score', label: 'Điểm', num: 1, get: x => x.score + '/' + x.max }, { k: 'pct', label: '%', num: 1, get: x => x.pct + '%' },
+        { k: 'totalMs', label: 'Thời gian', num: 1, get: x => fmtTime(x.totalMs) }, { k: 'submittedAt', label: 'Nộp lúc', get: x => fmtDate(x.submittedAt) },
+        { k: 'lateN', label: 'Trễ', get: x => x.late ? 'Trễ' : '' },
+        { nosort: 1, label: 'Chi tiết', el: x => h('button', { class: 'btn small', onclick: () => detail(x) }, 'Chi tiết') }];
+      const scols = [
+        { k: 'name', label: 'Học sinh', get: e => e.name }, { k: 'cls', label: 'Lớp', get: e => e.cls },
+        { k: 'attempts', label: 'Số lần làm', num: 1, get: e => e.attempts }, { k: 'total', label: 'Tổng điểm', num: 1, get: e => e.total },
+        { k: 'max', label: 'Tổng tối đa', num: 1, get: e => e.max }, { k: 'pct', label: '% tổng', num: 1, get: e => e.pct + '%' },
+        { k: 'best', label: '% cao nhất', num: 1, get: e => e.best + '%' }, { k: 'time', label: 'Tổng thời gian', num: 1, get: e => fmtTime(e.time) },
+        { k: 'last', label: 'Lần gần nhất', get: e => fmtDate(e.last) }];
+      const byStudent = split => {
+        const m = new Map();
+        rows.forEach(x => {
+          const key = Norm.text(x.name).toLowerCase() + (split ? '|' + Norm.text(x.cls).toLowerCase() : '');
+          let e = m.get(key); if (!e) { e = { name: x.name, classes: new Set(), attempts: 0, total: 0, max: 0, best: 0, time: 0, last: '' }; m.set(key, e); }
+          e.attempts++; e.total += x.score; e.max += x.max; e.best = Math.max(e.best, x.pct); e.time += x.totalMs; if (x.cls) e.classes.add(x.cls);
+          if (String(x.submittedAt) > e.last) e.last = String(x.submittedAt);
+        });
+        return [...m.values()].map(e => ({ name: e.name, cls: [...e.classes].join(', '), attempts: e.attempts, total: round2(e.total), max: round2(e.max), pct: e.max ? Math.round(e.total / e.max * 100) : 0, best: e.best, time: e.time, last: e.last }));
+      };
+      const PAGE = 10, tableHost = h('div'), studHost = h('div');
+      const sortedRows = () => sortRows(rows, T.sort), sortedStuds = () => sortRows(byStudent(T.split), T.ssort);
+      function draw() {
+        const rp = Math.max(1, Math.ceil(rows.length / PAGE)); T.page = clamp(T.page, 1, rp);
+        tableHost.replaceChildren(sortTable('', rcols, sortedRows().slice((T.page - 1) * PAGE, T.page * PAGE), T.sort, k => { T.sort = nextSort(T.sort, k, ['name', 'cls']); T.page = 1; draw(); }),
+          rows.length > PAGE ? pager(T.page, rp, p => { T.page = p; draw(); }) : null);
+        const studs = sortedStuds(), sp = Math.max(1, Math.ceil(studs.length / PAGE)); T.spage = clamp(T.spage, 1, sp);
+        studHost.replaceChildren(sortTable('', scols, studs.slice((T.spage - 1) * PAGE, T.spage * PAGE), T.ssort, k => { T.ssort = nextSort(T.ssort, k, ['name', 'cls', 'last']); T.spage = 1; draw(); }),
+          studs.length > PAGE ? pager(T.spage, sp, p => { T.spage = p; draw(); }) : null);
+      }
       out.replaceChildren(
         h('div', { class: 'card row wrap', style: 'justify-content:space-around;text-align:center' }, h('div', null, h('div', { class: 'score-big', text: String(rows.length) }), h('div', { class: 'muted', text: 'Bài nộp' })), h('div', null, h('div', { class: 'score-big', text: avg + '%' }), h('div', { class: 'muted', text: 'Điểm TB' })),
           h('div', null, h('div', { class: 'score-big', text: Math.max.apply(null, rows.map(pct)) + '%' }), h('div', { class: 'muted', text: 'Cao nhất' }))),
-        h('h2', { text: 'Kết quả từng bài nộp' }),
-        h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['Họ tên', 'Lớp', 'Điểm', '%', 'Thời gian', 'Nộp lúc', 'Trễ', ''].map(c => h('th', { scope: 'col', text: c })))),
-          h('tbody', null, rows.map(x => h('tr', null, h('td', { text: x.name }), h('td', { text: x.cls }), h('td', { class: 'num', text: x.score + '/' + x.max }), h('td', { class: 'num', text: pct(x) + '%' }), h('td', { class: 'num', text: fmtTime(x.totalMs) }), h('td', { text: fmtDate(x.submittedAt) }), h('td', { text: x.late ? 'Trễ' : '' }),
-            h('td', null, h('button', { class: 'btn small', onclick: () => detail(x) }, 'Chi tiết'))))))),
+        h('h2', { text: 'Tổng điểm theo học sinh' }),
+        h('p', { class: 'hint', text: 'Cộng điểm của mọi lần nộp của cùng một tên học sinh (không phân biệt hoa/thường). Bấm tiêu đề cột để sắp xếp.' }),
+        h('label', { class: 'check', for: 'ts-split' }, h('input', { type: 'checkbox', id: 'ts-split', onchange: e => { T.split = e.target.checked; T.spage = 1; draw(); } }), 'Tách theo lớp (cùng tên nhưng khác lớp là hai học sinh)'),
+        studHost,
+        h('h2', { text: 'Kết quả từng bài nộp' }), tableHost,
         h('h2', { text: 'Tỉ lệ làm đúng theo câu' }),
         h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['#', 'Câu hỏi', 'Dạng', 'Đúng', 'Một phần', 'Sai/bỏ trống'].map(c => h('th', { scope: 'col', text: c })))),
           h('tbody', null, order.map((k, i) => { const o = qm[k]; return h('tr', null, h('td', { text: String(i + 1) }), h('td', { style: 'white-space:normal;min-width:180px', text: o.q }), h('td', { text: QTYPES[o.t] || o.t }), h('td', { class: 'num', text: Math.round(o.right / o.n * 100) + '%' }), h('td', { class: 'num', text: Math.round(o.partial / o.n * 100) + '%' }), h('td', { class: 'num', text: Math.round((o.n - o.right - o.partial) / o.n * 100) + '%' })); })))),
-        h('div', { class: 'row wrap' }, h('button', { class: 'btn', onclick: () => {
-          const data = rows.map(x => [x.name, x.cls, x.score, x.max, pct(x), Math.round(x.totalMs / 1000), x.submittedAt, x.late ? 'yes' : ''].map(safeCell));
-          download('ket-qua-test.csv', '\ufeff' + Papa.unparse({ fields: ['Họ tên', 'Lớp', 'Điểm', 'Tối đa', '%', 'Giây', 'Nộp lúc', 'Trễ'], data }), 'text/csv;charset=utf-8');
-        } }, '⬇ Xuất CSV')));
+        h('div', { class: 'row wrap' },
+          h('button', { class: 'btn', onclick: () => {
+            const data = sortedRows().map(x => [x.name, x.cls, x.score, x.max, x.pct, Math.round(x.totalMs / 1000), x.submittedAt, x.late ? 'yes' : ''].map(safeCell));
+            download('ket-qua-test.csv', '\ufeff' + Papa.unparse({ fields: ['Họ tên', 'Lớp', 'Điểm', 'Tối đa', '%', 'Giây', 'Nộp lúc', 'Trễ'], data }), 'text/csv;charset=utf-8');
+          } }, '⬇ Xuất CSV'),
+          h('button', { class: 'btn', onclick: () => {
+            const data = sortedStuds().map(e => [e.name, e.cls, e.attempts, e.total, e.max, e.pct, e.best, Math.round(e.time / 1000), e.last].map(safeCell));
+            download('ket-qua-test_tong-theo-hs.csv', '\ufeff' + Papa.unparse({ fields: ['Học sinh', 'Lớp', 'Số lần làm', 'Tổng điểm', 'Tổng tối đa', '% tổng', '% cao nhất', 'Tổng thời gian (giây)', 'Lần gần nhất'], data }), 'text/csv;charset=utf-8');
+          } }, '⬇ CSV tổng theo HS')));
+      draw();
     } catch (e) { out.replaceChildren(statsErr(e)); }
   }
   return { destroy() {} };
