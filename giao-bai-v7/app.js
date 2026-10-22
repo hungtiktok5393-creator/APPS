@@ -1966,12 +1966,22 @@ function TestRun(root, cfg) {
     if (left <= 0) submit(true);
   };
   root.classList.add('wide');
-  root.replaceChildren(h('div', { class: 'run-test' },
-    h('div', { class: 'run-hud' }, h('strong', { class: 'run-title', text: cfg.title }), h('div', { class: 'grp' }, prog, timerEl, h('button', { class: 'btn primary small', onclick: () => submit(false) }, '✔ Nộp bài'))),
-    dock.el, stage, nav));
+  const hud = h('div', { class: 'run-hud' }, h('strong', { class: 'run-title', text: cfg.title }), h('div', { class: 'grp' }, prog, timerEl, h('button', { class: 'btn primary small', onclick: () => submit(false) }, '✔ Nộp bài')));
+  const runEl = h('div', { class: 'run-test' }, hud, dock.el, stage, nav);
+  root.replaceChildren(runEl);
+  /* Đo chiều cao thanh trên / thanh dưới → CSS dùng để (1) ghim đoạn văn ngay dưới thanh trên (điện thoại dọc),
+     (2) tính chiều cao khung chia đôi (các chế độ còn lại) mà không bị thanh dưới che. */
+  const fit = () => {
+    const top = parseFloat(getComputedStyle(hud).top) || 0;
+    runEl.style.setProperty('--hud-h', hud.offsetHeight + 'px');
+    runEl.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+    runEl.style.setProperty('--stick-top', (top + hud.offsetHeight + 6) + 'px');
+  };
+  let ro = null; try { if (window.ResizeObserver) { ro = new ResizeObserver(fit); ro.observe(hud); ro.observe(nav); } } catch (_) { ro = null; }
+  window.addEventListener('resize', fit); window.addEventListener('orientationchange', fit);
   prog.textContent = `Đã làm 0/${N}`; window.onbeforeunload = () => 'Bài test chưa nộp. Bạn có chắc muốn thoát?';
-  clock(); tick = setInterval(clock, 1000); show(0);
-  return { destroy() { finished = true; clearInterval(tick); window.onbeforeunload = null; if (view) view.destroy(); dock.destroy(); root.classList.remove('wide'); } };
+  clock(); tick = setInterval(clock, 1000); show(0); fit();
+  return { destroy() { finished = true; clearInterval(tick); window.onbeforeunload = null; if (ro) ro.disconnect(); window.removeEventListener('resize', fit); window.removeEventListener('orientationchange', fit); if (view) view.destroy(); dock.destroy(); root.classList.remove('wide'); } };
 }
 /** Kết quả: điểm từng phần; bấm số câu → mở đúng phần đó (đoạn văn + mọi câu có đúng/sai, đáp án, giải thích) và cuộn tới câu */
 function TestResult(root, o) {

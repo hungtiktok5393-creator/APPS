@@ -416,3 +416,44 @@ body:not([data-route="assign"]) .run-test{--outer:calc(3.25rem + 62px + env(safe
   .run-hud .pill{padding:.1rem .6rem}
   .run-hud .btn.small{padding:.15rem .7rem}
 }
+
+/* =====================================================================
+   v2 – Khung nghe cuộn theo trang · đoạn văn ghim (điện thoại dọc) · nút Phần trước/sau luôn đủ rộng
+   (các biến --hud-h, --nav-h, --stick-top do app.js đo và gán lên .run-test)
+   ===================================================================== */
+
+/* --- 1) Khung nghe (mp3): MỌI thiết bị / chế độ như điện thoại dọc – nằm ở đầu trang, cuộn đi theo trang, không ghim --- */
+.run-test .dock{position:static;top:auto;bottom:auto}
+
+/* --- 2) Chế độ chia đôi (máy tính, máy tính bảng ngang, điện thoại ngang): đoạn văn | câu hỏi cạnh nhau, mỗi bên cuộn riêng.
+       Trang cuộn được để khung nghe trôi đi; khung chia đôi có chiều cao = phần màn hình còn lại giữa thanh trên và thanh dưới --- */
+@media(min-width:861px), (max-height:560px) and (orientation:landscape){
+  .run-test{height:auto;min-height:0}
+  .run-stage{flex:none}
+  .run-test .split{
+    height:calc(100vh - var(--outer) - var(--hud-h,2.9rem) - var(--nav-h,6rem) - 1.3rem);
+    height:calc(100dvh - var(--outer) - var(--hud-h,2.9rem) - var(--nav-h,6rem) - 1.3rem);
+    min-height:12rem;grid-template-rows:minmax(0,1fr);align-items:stretch}
+}
+
+/* --- 3) Điện thoại / máy tính bảng DỌC: một cột; đoạn văn ĐƯỢC GHIM ngay dưới thanh trên, câu hỏi cuộn bên dưới --- */
+@media(max-width:860px) and (min-height:561px), (max-width:860px) and (orientation:portrait){
+  .run-test{height:auto}
+  .run-test .split .pane.pass{
+    position:sticky;top:var(--stick-top,3.2rem);z-index:12;
+    max-height:34vh;max-height:34dvh;overflow:auto;
+    box-shadow:0 4px 10px rgba(0,0,0,.14)}
+  .run-test .split .pane.qs{max-height:none;overflow:visible}
+}
+
+/* --- 4) Thanh dưới: dãy phần/câu hỏi ở trên (tự cuộn), hai nút Phần trước / Phần sau ở hàng riêng, rộng bằng màn hình --- */
+.runnav{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:.35rem;max-height:none;overflow:visible}
+.runnav .nav-in{flex:0 1 auto;min-width:0;flex-wrap:wrap;overflow-x:visible;overflow-y:auto;max-height:22vh;max-height:22dvh;padding-bottom:0}
+.runnav .nav-in>*{flex:none}
+.runnav .nav-arrows{display:flex;flex:none;width:100%;gap:.4rem;margin:0}
+.runnav .nav-arrows .btn{flex:1 1 0;min-width:0;min-height:44px;white-space:nowrap}
+/* Điện thoại và màn hình thấp: dãy phần/câu hỏi cuộn ngang một hàng */
+@media(max-width:600px), (max-height:560px) and (orientation:landscape){
+  .runnav .nav-in{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:none}
+  .runnav .nav-arrows .btn{min-height:40px}
+}
