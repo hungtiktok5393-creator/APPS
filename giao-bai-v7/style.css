@@ -469,3 +469,63 @@ body:not([data-route="assign"]) .run-test{--outer:calc(3.25rem + 62px + env(safe
 .vk-key.enter{flex:1.8 1 0;font-size:1rem;background:var(--primary);color:var(--primary-text)}
 .vk-key:focus-visible{outline:3px solid var(--focus);outline-offset:1px}
 @media (max-height:560px) and (orientation:landscape){.vk-key{min-height:34px;font-size:1rem}.vk-num{display:none}}
+
+/* =====================================================================
+   v3 – Mật khẩu · Highlight · Thanh chia khung bài đọc / câu hỏi (chữ to nhỏ theo khung)
+   ===================================================================== */
+
+/* --- Đăng nhập --- */
+.login-card{max-width:420px;margin:10vh auto 0}
+.pw-row{display:flex;gap:.4rem}.pw-row input{flex:1 1 auto;min-width:0}
+.pw-row .btn{flex:none;min-width:48px}
+
+/* --- Nội dung trong mỗi khung co giãn theo kích thước khung (zoom đặt trên lớp bên trong để không làm lệch chiều cao khung) --- */
+.zin{zoom:var(--z,1)}
+@supports not (zoom:1){.zin{font-size:calc(1em*var(--z,1))}}
+
+/* --- Highlight --- */
+mark.hl{color:#16181d;border-radius:3px;padding:0;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.hl-y{background:#fde047}.hl-g{background:#86efac}.hl-p{background:#f9a8d4}.hl-b{background:#93c5fd}.hl-o{background:#fdba74}
+.hl-bar{position:fixed;z-index:1000;display:flex;align-items:center;gap:.4rem;padding:.4rem .55rem;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:999px;box-shadow:0 6px 22px rgba(0,0,0,.3);-webkit-user-select:none;user-select:none;touch-action:manipulation;max-width:calc(100vw - 12px)}
+.hl-bar[hidden]{display:none}
+.hl-sw{width:36px;height:36px;flex:none;border-radius:50%;border:2px solid rgba(0,0,0,.28);padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.hl-sw:active{transform:scale(.92)}
+.hl-x{flex:none;min-height:36px;padding:0 .75rem;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--muted);font:inherit;font-size:.9rem;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.hl-bar.has .hl-x{background:var(--danger);color:#fff;border-color:transparent}
+.hl-bar button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+/* --- Thanh chia --- */
+.split-bar{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;border-radius:10px;align-items:center;justify-content:center}
+.split-bar .grip{display:block;background:var(--border);border-radius:99px;transition:background .15s}
+.split-bar:hover .grip,.split-bar:focus-visible .grip,.split-bar.drag .grip{background:var(--primary)}
+.split-bar:focus-visible{outline:3px solid var(--focus);outline-offset:-2px}
+.bar-v{display:none;cursor:col-resize;align-self:stretch;width:100%;min-height:0}
+.bar-v .grip{width:6px;height:64px;max-height:60%}
+.bar-h{display:flex;cursor:row-resize;width:100%;height:22px}
+.bar-h .grip{width:72px;height:6px}
+.pass-wrap{display:block}
+body.dragging-split{-webkit-user-select:none;user-select:none}
+body.ds-col,body.ds-col *{cursor:col-resize!important}
+body.ds-row,body.ds-row *{cursor:row-resize!important}
+
+/* Chia TRÁI–PHẢI: máy tính, máy tính bảng ngang, điện thoại ngang → thanh dọc giữa hai khung */
+@media(min-width:861px){
+  .split.has-bar{grid-template-columns:minmax(0,var(--c1,1fr)) 18px minmax(0,var(--c2,1fr));gap:0}
+  .pass-wrap{display:contents}
+  .pass-wrap>.bar-h{display:none}
+  .split.has-bar>.bar-v{display:flex}
+}
+@media(max-height:560px) and (orientation:landscape){
+  .run-test .split.has-bar{grid-template-columns:minmax(0,var(--c1,1fr)) 18px minmax(0,var(--c2,1fr));gap:0}
+  .run-test .pass-wrap{display:contents}
+  .run-test .pass-wrap>.bar-h{display:none}
+  .run-test .split.has-bar>.bar-v{display:flex}
+}
+
+/* Chia TRÊN–DƯỚI: điện thoại / máy tính bảng dọc → khung bài đọc (ghim) + thanh ngang + câu hỏi bên dưới */
+@media(max-width:860px) and (min-height:561px), (max-width:860px) and (orientation:portrait){
+  .run-test .split.has-bar{display:block}
+  .run-test .pass-wrap{position:sticky;top:var(--stick-top,3.2rem);z-index:12;background:var(--bg);border-radius:12px;margin-bottom:.4rem;box-shadow:0 4px 10px rgba(0,0,0,.14)}
+  .run-test .split .pane.pass{position:static;top:auto;box-shadow:none;max-height:calc(var(--ph,34)*1dvh)}
+  .split.sized .pane.pass,.run-test .split.sized .pane.pass{height:calc(var(--ph)*1dvh);max-height:none}   /* sau khi kéo thanh chia: khung bài đọc có chiều cao cố định theo thanh */
+}

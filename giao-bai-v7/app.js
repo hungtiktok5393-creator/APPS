@@ -316,8 +316,8 @@ const API = {
   short(u) { const m = /^https:\/\/script\.google\.com\/macros\/s\/([\w-]{20,})\/exec$/.exec(String(u || '')); return m ? m[1] : u; },
   expand(s) { s = String(s || ''); return /^[\w-]{20,}$/.test(s) ? 'https://script.google.com/macros/s/' + s + '/exec' : s; },
   validUrl(u) { try { const x = new URL(u); return x.protocol === 'https:' && x.hostname === 'script.google.com' && x.pathname.endsWith('/exec'); } catch (_) { return false; } },
-  async _fetch(url, opts) {
-    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 20000);
+  async _fetch(url, opts, ms) {
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms || 20000);
     try {
       const res = await fetch(url, Object.assign({ signal: ac.signal }, opts));
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -330,9 +330,34 @@ const API = {
     } finally { clearTimeout(t); }
   },
   /** POST dạng text/plain để tránh CORS preflight */
-  post(url, body) { return this._fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }); },
+  post(url, body, ms) { return this._fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }, ms); },
   get(url, params) { const u = new URL(url); Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v)); return this._fetch(u.toString()); }
 };
+
+/** TỐC ĐỘ 1 – "đánh thức" Apps Script: lượt gọi đầu tiên sau vài phút nghỉ phải khởi động lại máy chủ (1–3 giây). Gọi ping ngầm khi giáo viên vào trang chủ / mở hộp thoại Giao bài để lúc bấm nút máy chủ đã sẵn sàng. */
+const warmUp = (() => {
+  let last = 0;
+  return () => {
+    const st = Settings.data;
+    if (!st || !API.validUrl(st.scriptUrl) || Date.now() - last < 4 * 60 * 1000) return;
+    last = Date.now(); API.get(st.scriptUrl, { action: 'ping' }).catch(() => {});
+  };
+})();
+/** TỐC ĐỘ 2 – stale-while-revalidate: hiện NGAY bản đã tải lần trước (danh sách bài lưu cả trong máy, kết quả lưu trong phiên), đồng thời tải bản mới ở nền;
+ *  chỉ vẽ lại khi dữ liệu thật sự đổi. */
+const Mem = {};
+const pkey = key => 'sm_c_' + key + '_' + String((Settings.data && Settings.data.scriptUrl) || '').slice(-10);
+const cacheSet = (key, v, persist) => { Mem[key] = { v, s: JSON.stringify(v) }; if (persist) { try { localStorage.setItem(pkey(key), Mem[key].s); } catch (_) {} } };
+async function swr(key, fetcher, onData, persist) {
+  let hit = Mem[key];
+  if (!hit && persist) { try { const raw = localStorage.getItem(pkey(key)); if (raw) hit = Mem[key] = { v: JSON.parse(raw), s: raw }; } catch (_) {} }
+  if (hit) onData(hit.v, true);
+  let v;
+  try { v = await fetcher(); }
+  catch (e) { if (hit) { toast('Không cập nhật được dữ liệu mới – đang hiển thị bản đã tải trước đó.', 'error'); return; } throw e; }
+  if (hit && hit.s === JSON.stringify(v)) return;
+  cacheSet(key, v, persist); onData(v, false);
+}
 
 const Sync = {
   listeners: new Set(), status: {}, busy: false,
@@ -514,6 +539,7 @@ function openExport() {
 
 /* ===================== 9a. HOME VIEW ===================== */
 function HomeView(root) {
+  warmUp();
   let offer = null, alive = true;   // offer: dữ liệu mới phát hiện trong data.json
   const banner = () => h('div', { class: 'box sync-banner', role: 'status' },
     h('p', { text: `Có bản dữ liệu mới trong data.json (${offer.sets.length} bộ từ` + (offer.exportedAt ? `, xuất lúc ${fmtDate(offer.exportedAt)}` : '') + ').' }),
@@ -526,7 +552,6 @@ function HomeView(root) {
         h('h1', { text: 'Bộ từ vựng của tôi' }),
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn primary', onclick: () => openEditor(null) }, '＋ Tạo bộ từ'),
-          h('a', { class: 'btn primary', href: '#/test-edit/new' }, '📝 Tạo bài test'),
           h('label', { class: 'btn', style: 'margin:0;cursor:pointer' }, '⬆ Nhập JSON',
             h('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: e => importFile(e.target, render) })),
           h('button', { class: 'btn', onclick: () => openExport() }, '⬇ Xuất JSON'),
@@ -655,6 +680,7 @@ function HomeView(root) {
 
   /* --- Giao bài --- */
   function openAssign(s) {
+    warmUp();
     const due = h('input', { type: 'datetime-local', id: 'a-due', value: toLocalInput(Date.now() + 7 * 864e5) });
     const max = h('input', { type: 'number', id: 'a-max', min: 0, max: 20, value: 0 });
     const req = h('input', { type: 'checkbox', id: 'a-req', checked: true });
@@ -1129,7 +1155,7 @@ function SettingsView(root) {
       if (!r.ok) throw new Error(r.message || r.error);
       Settings.save(Object.assign(v, { teacherOk: !!r.teacher }));
       res.replaceChildren(h('p', { class: r.teacher ? 'ok' : 'err', text: r.teacher ? '✓ Kết nối thành công và Teacher Key hợp lệ.' : '⚠ Kết nối được máy chủ nhưng Teacher Key trống hoặc sai – chưa mở được Bảng thống kê.' }),
-        (r.v || 0) < 6 ? h('p', { class: 'err', text: '⚠ Apps Script chưa phải bản mới nhất (thiếu hỗ trợ đặt tên bài giao, lưu link, xóa dữ liệu bài bất cứ lúc nào). Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → Version: New version.' }) : null);
+        (r.v || 0) < 7 ? h('p', { class: 'err', text: '⚠ Apps Script chưa phải bản mới nhất (bản mới đọc/ghi Sheet nhanh hơn rõ rệt: tạo link, thống kê, xóa bài). Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → Version: New version.' }) : null);
       renderNav();
     } catch (e) { res.replaceChildren(h('p', { class: 'err', text: 'Không kết nối được: ' + e.message })); }
   }
@@ -1150,6 +1176,10 @@ function SettingsView(root) {
       h('label', { for: 'st-key', text: 'Teacher Key' }), key,
       h('p', { class: 'hint', text: 'Teacher Key chỉ lưu trên máy này và chỉ để xem thống kê / tạo link ngắn. Không bao giờ được đưa vào link giao bài.' }),
       h('div', { class: 'row wrap' }, h('button', { class: 'btn', onclick: test }, 'Kiểm tra kết nối')), res),
+    Auth.enabled() ? h('section', { class: 'card' }, h('h2', { text: 'Mật khẩu truy cập app' }),
+      h('p', { class: 'hint', text: 'App đang bật mật khẩu. Thiết bị này được ghi nhớ đăng nhập; bấm “Đăng xuất” để bắt nhập lại. Muốn đổi mật khẩu: tạo mã mới rồi dán vào index.html (học sinh vào bằng link giao bài không cần mật khẩu).' }),
+      h('div', { class: 'row wrap' }, h('a', { class: 'btn', href: '#/tao-mat-khau' }, '🔑 Tạo mã mật khẩu mới'), h('a', { class: 'btn', href: '#/logout' }, 'Đăng xuất'))) : h('section', { class: 'card' }, h('h2', { text: 'Mật khẩu truy cập app' }),
+      h('p', { class: 'hint', text: 'Hiện CHƯA bật mật khẩu. Tạo mã mật khẩu rồi dán vào index.html để bật.' }), h('a', { class: 'btn', href: '#/tao-mat-khau' }, '🔑 Tạo mã mật khẩu')),
     h('section', { class: 'card' }, h('h2', { text: 'Giao diện & âm thanh' }),
       h('label', { for: 'st-theme', text: 'Chế độ màu' }), theme,
       h('label', { class: 'check', for: 'st-sfx' }, sfx, 'Hiệu ứng âm thanh (Ting / Oops)'),
@@ -1223,7 +1253,7 @@ function confirmPurge(a) {
       h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: () => d.close() }, 'Hủy'), h('button', { class: 'btn danger', onclick: () => { ok = true; d.close(); } }, '🗑 Xóa vĩnh viễn'))), () => res(ok));
   });
 }
-function assignInfoCard(a, kind, onDeleted) {
+function assignInfoCard(a, kind, onDeleted, onFailed) {
   const st = Settings.data, expired = a.due > 0 && Date.now() > a.due;
   let link = a.link || '';
   if (a.hasData && API.validUrl(st.scriptUrl)) link = location.href.split('#')[0] + (kind === 'test' ? '#/taketest?id=' : '#/assign?id=') + a.id + '&s=' + encodeURIComponent(API.short(st.scriptUrl));   // luôn hiện link ngắn nếu đề đã lưu trên Sheet
@@ -1233,11 +1263,18 @@ function assignInfoCard(a, kind, onDeleted) {
   async function remove() {
     if (!(await confirmPurge(a))) return;
     del.disabled = true; msg.className = 'muted small-text'; msg.textContent = 'Đang xóa…';
+    const req = API.post(st.scriptUrl, { action: 'deleteAssignment', teacherKey: st.teacherKey, id: a.id }, 60000);   // gửi đi ngay, không chờ
+    req.catch(() => {});
+    purgeLocalAssignment(a.id);
+    onDeleted(a);                                  // giao diện cập nhật NGAY – Google Sheet xóa ở nền
+    toast('Đang xóa bài “' + a.name + '” trên Google Sheet…');
     try {
-      const r = await API.post(st.scriptUrl, { action: 'deleteAssignment', teacherKey: st.teacherKey, id: a.id });
-      if (!r.ok) throw new Error(r.message || r.error);
-      purgeLocalAssignment(a.id); toast('Đã xóa dữ liệu bài “' + a.name + '”.'); onDeleted();
-    } catch (e) { del.disabled = false; msg.className = 'err small-text'; msg.textContent = /Hành động/.test(e.message) ? 'Apps Script chưa được cập nhật. Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → New version.' : e.message; }
+      const r = await req; if (!r.ok) throw new Error(r.message || r.error);
+      toast('Đã xóa dữ liệu bài “' + a.name + '”.');
+    } catch (e) {
+      toast('Xóa chưa thành công: ' + (/Hành động/.test(e.message) ? 'Apps Script chưa được cập nhật (Deploy → New version).' : e.message) + ' Đang tải lại danh sách.', 'error');
+      if (onFailed) onFailed();
+    }
   }
   return h('div', { class: 'card stack' },
     h('h2', { text: 'Thông tin bài giao' }),
@@ -1267,35 +1304,53 @@ function StatsView(root) {
     { k: 'submittedAt', label: 'Nộp lúc', get: r => fmtDate(r.submittedAt) + (r.late ? ' (trễ)' : '') }];
   const body = h('div', { class: 'stack' }), picker = h('select', { id: 'sx-as', onchange: () => loadResults(picker.value) }), infoHost = h('div');
   root.replaceChildren(h('div', { class: 'stack' }, h('h1', { text: 'Bảng thống kê' }), h('div', null, h('label', { for: 'sx-as', text: 'Chọn bài đã giao' }), picker), infoHost, body));
+  body.dataset.ph = '';
+  let rq = 0;
+  const prompt = () => h('p', { class: 'muted', text: 'Hãy chọn một bài ở trên.' });
+  function fill(list) {                           // gọi với bản đã lưu lần trước (hiện ngay) rồi với bản mới từ máy chủ
+    const keep = picker.value; M.list = list;
+    if (!list.length) { picker.replaceChildren(); infoHost.replaceChildren(); body.dataset.ph = ''; body.replaceChildren(h('div', { class: 'card empty', text: 'Chưa có bài nào được giao / chưa có kết quả.' })); return; }
+    picker.replaceChildren(h('option', { value: '' }, '— Chọn —'), h('option', { value: 'all' }, '★ Tất cả các bài (tổng theo học sinh)'),
+      list.map(a => h('option', { value: a.id }, `${a.name} · ${a.count} lượt nộp · hạn ${fmtDate(a.due)}`)));
+    picker.value = keep && Array.from(picker.options).some(o => o.value === keep) ? keep : '';
+    if (body.dataset.ph !== '0') body.replaceChildren(prompt());
+    drawInfo(picker.value);
+  }
   body.append(loading('Đang tải danh sách bài…'));
-  (async () => {
-    try {
-      const r = await API.get(st.scriptUrl, { action: 'assignments', teacherKey: st.teacherKey });
-      if (!r.ok) throw new Error(r.error === 'unauthorized' ? 'Teacher Key không đúng.' : (r.message || r.error));
-      if (!r.assignments.length) { body.replaceChildren(h('div', { class: 'card empty', text: 'Chưa có bài nào được giao / chưa có kết quả.' })); return; }
-      M.list = r.assignments;
-      picker.replaceChildren(h('option', { value: '' }, '— Chọn —'), h('option', { value: 'all' }, '★ Tất cả các bài (tổng theo học sinh)'),
-        r.assignments.map(a => h('option', { value: a.id }, `${a.name} · ${a.count} lượt nộp · hạn ${fmtDate(a.due)}`)));
-      body.replaceChildren(h('p', { class: 'muted', text: 'Hãy chọn một bài ở trên.' }));
-    } catch (e) { body.replaceChildren(errorPanel(e.message, h('button', { class: 'btn primary', onclick: () => StatsView(root) }, 'Thử lại'))); }
-  })();
+  swr('assignments', async () => {
+    const r = await API.get(st.scriptUrl, { action: 'assignments', teacherKey: st.teacherKey });
+    if (!r.ok) throw new Error(r.error === 'unauthorized' ? 'Teacher Key không đúng.' : (r.message || r.error));
+    return r.assignments;
+  }, fill, true).catch(e => body.replaceChildren(errorPanel(e.message, h('button', { class: 'btn primary', onclick: () => StatsView(root) }, 'Thử lại'))));
 
+  function onDel(a) {                             // xóa xong hiển thị ngay, không chờ Google Sheet
+    const list = (M.list || []).filter(x => x.id !== a.id);
+    cacheSet('assignments', list, true); delete Mem['res:' + a.id];
+    picker.value = ''; rq++; body.dataset.ph = ''; fill(list);
+  }
   function drawInfo(id) {
     const a = M.list && M.list.find(x => x.id === id);
-    infoHost.replaceChildren(a ? assignInfoCard(a, 'vocab', () => StatsView(root)) : null);
+    infoHost.replaceChildren(a ? assignInfoCard(a, 'vocab', onDel, () => StatsView(root)) : null);
   }
   async function loadResults(id) {
     drawInfo(id);
-    if (!id) return;
-    body.replaceChildren(loading('Đang tải kết quả…'));
+    const my = ++rq;
+    if (!id) { body.dataset.ph = ''; body.replaceChildren(prompt()); return; }
+    body.dataset.ph = '0';
+    if (!Mem['res:' + id]) body.replaceChildren(loading('Đang tải kết quả…'));
     try {
-      const r = await API.get(st.scriptUrl, { action: 'results', id, teacherKey: st.teacherKey });
-      if (!r.ok) throw new Error(r.message || r.error);
-      M.cur = r.assignment || { id, name: id }; M.all = id === 'all';
-      M.rows = r.results.map(x => { const det = x.details || []; return { name: x.name, cls: x.cls, an: x.assignmentName || '', score: Number(x.score), max: det.length * 10, words: det.length, totalWords: Number(x.totalWords) || 0, status: x.status || '',
-        totalMs: Number(x.totalMs), weak: det.filter(Scoring.needsWork).length, submittedAt: x.submittedAt, details: det, late: x.late }; });
-      M.page = 1; M.spage = 1; layout();
-    } catch (e) { body.replaceChildren(errorPanel(e.message, h('button', { class: 'btn', onclick: () => loadResults(id) }, 'Thử lại'))); }
+      await swr('res:' + id, async () => {
+        const r = await API.get(st.scriptUrl, { action: 'results', id, teacherKey: st.teacherKey });
+        if (!r.ok) throw new Error(r.message || r.error);
+        return r;
+      }, r => {
+        if (my !== rq) return;
+        M.cur = r.assignment || { id, name: id }; M.all = id === 'all';
+        M.rows = r.results.map(x => { const det = x.details || []; return { name: x.name, cls: x.cls, an: x.assignmentName || '', score: Number(x.score), max: det.length * 10, words: det.length, totalWords: Number(x.totalWords) || 0, status: x.status || '',
+          totalMs: Number(x.totalMs), weak: det.filter(Scoring.needsWork).length, submittedAt: x.submittedAt, details: det, late: x.late }; });
+        M.page = 1; M.spage = 1; layout();
+      });
+    } catch (e) { if (my === rq) body.replaceChildren(errorPanel(e.message, h('button', { class: 'btn', onclick: () => loadResults(id) }, 'Thử lại'))); }
   }
   const filtered = () => {
     const f = M.f, mn = f.min === '' ? -Infinity : Number(f.min), mx = f.max === '' ? Infinity : Number(f.max);
@@ -1944,6 +1999,144 @@ function AudioDock(srcs, used) {
     destroy() { Object.keys(clips).forEach(k => clips[k].destroy()); }
   };
 }
+/* ---------- Highlight (bôi màu) văn bản khi làm bài ----------
+   Học sinh bôi đen một đoạn chữ → hiện thanh chọn màu; chọn "Bỏ" (hoặc chọn lại đúng màu đang tô) để bỏ highlight.
+   Dữ liệu lưu theo vị trí ký tự trong từng khung nên vẫn còn khi chuyển sang phần khác rồi quay lại. */
+const HL = (() => {
+  const COLORS = [['y', 'Vàng'], ['g', 'Xanh lá'], ['p', 'Hồng'], ['b', 'Xanh dương'], ['o', 'Cam']];
+  const SKIP = 'input,textarea,select,option,button,audio,video,canvas,iframe,.zoom-wrap,.qno,.ltr,.mk,.dock';
+  const roots = new Set(); let bar = null, pending = null, tmr = 0, hold = 0, bound = false;
+  const textNodes = el => { const out = [], w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode())) out.push(n); return out; };
+  const allowed = n => !(n.parentElement && n.parentElement.closest(SKIP));
+  const offs = (el, node, off) => { const r = document.createRange(); r.selectNodeContents(el); r.setEnd(node, off); return r.toString().length; };
+  const cut = (list, s, e) => { const out = []; list.forEach(x => { if (x.e <= s || x.s >= e) out.push(x); else { if (x.s < s) out.push({ s: x.s, e: s, c: x.c }); if (x.e > e) out.push({ s: e, e: x.e, c: x.c }); } }); return out; };
+  const merge = list => { const out = []; list.slice().sort((a, b) => a.s - b.s).forEach(x => { const l = out[out.length - 1]; if (l && l.c === x.c && l.e >= x.s) l.e = Math.max(l.e, x.e); else out.push({ s: x.s, e: x.e, c: x.c }); }); return out; };
+  const covered = (list, s, e, c) => { let pos = s; list.filter(x => x.c === c).sort((a, b) => a.s - b.s).forEach(x => { if (x.s <= pos && x.e > pos) pos = x.e; }); return pos >= e; };
+  /** Vẽ lại các thẻ <mark> của một khung từ dữ liệu đã lưu */
+  function paint(r) {
+    const el = r.el;
+    el.querySelectorAll('mark.hl').forEach(m => m.replaceWith(...m.childNodes));
+    el.normalize();
+    const list = merge(r.store[r.key] || []); if (!list.length) return;
+    let pos = 0; const segs = [];
+    textNodes(el).forEach(n => {
+      const a = pos, b = pos + n.length; pos = b; if (!allowed(n)) return;
+      const parts = []; list.forEach(x => { const s = Math.max(x.s, a), e = Math.min(x.e, b); if (e > s) parts.push([s - a, e - a, x.c]); });
+      if (parts.length) segs.push([n, parts]);
+    });
+    segs.forEach(([n, parts]) => {
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const [s, e, c] = parts[i], mid = s > 0 ? n.splitText(s) : n;
+        if (e - s < mid.length) mid.splitText(e - s);
+        const m = document.createElement('mark'); m.className = 'hl hl-' + c; mid.parentNode.insertBefore(m, mid); m.appendChild(mid);
+      }
+    });
+  }
+  function hide() { pending = null; if (bar) bar.hidden = true; }
+  function place(rg) {
+    const rects = rg.getClientRects(), first = rects.length ? rects[0] : rg.getBoundingClientRect(), last = rects.length ? rects[rects.length - 1] : first;
+    const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    if (last.bottom < 0 || first.top > vh) return hide();                         // vùng chọn đã cuộn ra ngoài màn hình
+    const bw = bar.offsetWidth, bh = bar.offsetHeight;
+    let y = last.bottom + 12; if (y + bh > vh - 8) y = first.top - bh - 12;          // ưu tiên đặt DƯỚI vùng chọn (menu Sao chép của hệ điều hành thường nằm trên)
+    bar.style.left = clamp((last.left + last.right) / 2 - bw / 2, 6, vw - bw - 6) + 'px'; bar.style.top = clamp(y, 6, vh - bh - 6) + 'px';
+  }
+  function sync() {
+    if (Date.now() - hold < 600) return;
+    const sel = window.getSelection();
+    if (!roots.size || !sel || !sel.rangeCount || sel.isCollapsed) return hide();
+    const rg = sel.getRangeAt(0), root = Array.from(roots).find(r => r.el.contains(rg.commonAncestorContainer));
+    if (!root || !rg.toString().trim()) return hide();
+    const s = offs(root.el, rg.startContainer, rg.startOffset), e = offs(root.el, rg.endContainer, rg.endOffset);
+    if (e <= s) return hide();
+    const has = (root.store[root.key] || []).some(x => x.e > s && x.s < e);
+    pending = { root, s, e };
+    ensureBar().hidden = false; bar.classList.toggle('has', has); place(rg);
+  }
+  function applyHL(c) {
+    const p = pending; if (!p) return;
+    const list = p.root.store[p.root.key] || [];
+    const color = c && covered(list, p.s, p.e, c) ? '' : c;                          // bấm lại đúng màu đang tô kín → bỏ highlight
+    p.root.store[p.root.key] = merge(cut(list, p.s, p.e).concat(color ? [{ s: p.s, e: p.e, c: color }] : []));
+    paint(p.root); const sel = window.getSelection(); if (sel) sel.removeAllRanges(); hide();
+  }
+  function ensureBar() {
+    if (bar) return bar;
+    bar = h('div', { class: 'hl-bar', role: 'toolbar', 'aria-label': 'Highlight văn bản', hidden: true },
+      COLORS.map(([c, name]) => h('button', { type: 'button', class: 'hl-sw hl-' + c, 'data-c': c, 'aria-label': 'Highlight màu ' + name, title: name })),
+      h('button', { type: 'button', class: 'hl-x', 'data-c': '', 'aria-label': 'Bỏ highlight', title: 'Bỏ highlight' }, '✕ Bỏ'));
+    bar.addEventListener('pointerdown', e => { hold = Date.now(); e.preventDefault(); });          // giữ nguyên vùng chọn khi bấm nút
+    bar.addEventListener('mousedown', e => e.preventDefault());
+    bar.addEventListener('click', e => { const b = e.target.closest('button'); if (b) applyHL(b.dataset.c); });
+    document.body.append(bar); return bar;
+  }
+  function bind() {
+    if (bound) return; bound = true;
+    document.addEventListener('selectionchange', () => { clearTimeout(tmr); tmr = setTimeout(sync, 220); });
+    document.addEventListener('scroll', () => { if (bar && !bar.hidden) requestAnimationFrame(() => { hold = 0; sync(); }); }, true);
+    window.addEventListener('resize', () => { if (bar && !bar.hidden) sync(); });
+  }
+  return {
+    register(el, store, key) {
+      const r = { el, store, key }; roots.add(r); bind(); paint(r);
+      return () => { roots.delete(r); if (pending && pending.root === r) hide(); };
+    }
+  };
+})();
+
+/* ---------- Thanh chia giữa khung bài đọc và khung câu hỏi ----------
+   Máy tính / ngang: thanh DỌC (kéo trái–phải). Điện thoại / máy tính bảng dọc: thanh NGANG (kéo lên–xuống).
+   Kéo bằng chuột, cảm ứng hoặc bàn phím (phím mũi tên); bấm đúp để đặt lại. Chữ trong mỗi khung to / nhỏ theo kích thước khung. */
+const SIDE_Q = '(min-width:861px), (max-height:560px) and (orientation:landscape)';   // trùng điều kiện "chia đôi trái–phải" trong style.css
+function initSplit(split, pass, qpane, bars) {
+  const zp = pass.querySelector('.zin'), zq = qpane.querySelector('.zin'), DEF_PH = 34, LO = 22, HI = 78;
+  const mq = window.matchMedia ? window.matchMedia(SIDE_Q) : { matches: true };
+  const L = Object.assign({ r: 50, ph: null }, Store.get('layout', {}));
+  const side = () => !!mq.matches, save = () => Store.set('layout', { r: L.r, ph: L.ph });
+  function apply() {
+    split.style.setProperty('--c1', L.r + 'fr'); split.style.setProperty('--c2', (100 - L.r) + 'fr');
+    if (L.ph != null) { split.style.setProperty('--ph', L.ph); split.classList.add('sized'); } else { split.style.removeProperty('--ph'); split.classList.remove('sized'); }
+    let sp = 1, sq = 1;
+    if (side()) { sp = clamp(L.r / 50, .7, 1.6); sq = clamp((100 - L.r) / 50, .7, 1.6); }
+    else if (L.ph != null) { sp = clamp(L.ph / DEF_PH, .7, 1.6); sq = clamp((100 - L.ph) / (100 - DEF_PH), .8, 1.4); }
+    zp.style.setProperty('--z', sp.toFixed(3)); zq.style.setProperty('--z', sq.toFixed(3));
+    bars.forEach(b => b.setAttribute('aria-valuenow', String(Math.round(side() ? L.r : (L.ph == null ? DEF_PH : L.ph)))));
+  }
+  function start(e) {
+    if (e.button > 0) return;
+    e.preventDefault();
+    const bar = e.currentTarget, isSide = side(), rect = split.getBoundingClientRect();
+    try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+    bar.classList.add('drag'); document.body.classList.add('dragging-split', isSide ? 'ds-col' : 'ds-row');
+    if (!isSide && L.ph == null) L.ph = clamp(pass.getBoundingClientRect().height / window.innerHeight * 100, 12, 72);
+    const move = ev => {
+      if (isSide) L.r = clamp((ev.clientX - rect.left) / rect.width * 100, LO, HI);
+      else L.ph = clamp((ev.clientY - pass.getBoundingClientRect().top) / window.innerHeight * 100, 12, 72);
+      apply();
+    };
+    const end = () => {
+      bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', end); bar.removeEventListener('pointercancel', end); bar.removeEventListener('lostpointercapture', end);
+      bar.classList.remove('drag'); document.body.classList.remove('dragging-split', 'ds-col', 'ds-row'); save();
+    };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', end); bar.addEventListener('lostpointercapture', end);
+  }
+  const reset = () => { L.r = 50; L.ph = null; apply(); save(); };
+  bars.forEach(b => {
+    b.addEventListener('pointerdown', start); b.addEventListener('dblclick', reset);
+    b.addEventListener('keydown', e => {
+      if (e.key === 'Home' || e.key === 'Escape') { e.preventDefault(); return reset(); }
+      const d = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -3 : (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 3 : 0;
+      if (!d) return; e.preventDefault();
+      if (side()) L.r = clamp(L.r + d, LO, HI); else L.ph = clamp((L.ph == null ? DEF_PH : L.ph) + d, 12, 72);
+      apply(); save();
+    });
+  });
+  apply();
+  const on = () => apply();
+  if (mq.addEventListener) mq.addEventListener('change', on); else if (mq.addListener) mq.addListener(on);
+  return () => { if (mq.removeEventListener) mq.removeEventListener('change', on); else if (mq.removeListener) mq.removeListener(on); };
+}
+
 function SectionView(sec, ctx) {
   const rs = ctx.rs, cleanup = [];
   const frames = sec.qs.map(q => QFrame(q, q.no, { v: ctx.ans[q.id], set: v => ctx.set(q, v), used: ctx.used, flags: rs ? null : ctx.flags, onFlag: ctx.onFlag, res: rs ? rs[q.id] : null }));
@@ -1951,16 +2144,22 @@ function SectionView(sec, ctx) {
   const extra = [];
   if (sec.instr) extra.push(h('div', { class: 'sec-instr pre', text: sec.instr }));
   if (rs && sec.yt) { const a = AudioClip({ id: 'rv' + sec.id, yt: sec.yt }, {}, true, '🎧 Nghe lại'); extra.push(a.el); cleanup.push(a.destroy); }
-  const pass = (sec.passage || sec.img) ? h('div', { class: 'pane pass', tabindex: '0', role: 'region', 'aria-label': 'Đoạn văn' },
+  const pass = (sec.passage || sec.img) ? h('div', { class: 'pane pass', tabindex: '0', role: 'region', 'aria-label': 'Đoạn văn' }, h('div', { class: 'zin' },
     sec.title ? h('h2', { text: sec.title }) : null, sec.img ? zoomImg(sec.img, 'Hình minh họa của phần') : null,
-    sec.passage ? h('div', { class: 'pre passage-text', text: sec.passage }) : null) : null;
-  const qpane = h('div', { class: 'pane qs stack', role: 'region', 'aria-label': 'Câu hỏi' }, !pass && sec.title ? h('h2', { text: sec.title }) : null, extra, frames.map(f => f.el));
-  return { el: h('div', { class: 'split' + (pass ? '' : ' one') }, pass, qpane), destroy() { cleanup.forEach(f => f()); },
+    sec.passage ? h('div', { class: 'pre passage-text', text: sec.passage }) : null)) : null;
+  const qpane = h('div', { class: 'pane qs', role: 'region', 'aria-label': 'Câu hỏi' }, h('div', { class: 'zin stack' }, !pass && sec.title ? h('h2', { text: sec.title }) : null, extra, frames.map(f => f.el)));
+  const mkBar = dir => h('div', { class: 'split-bar bar-' + dir, role: 'separator', tabindex: '0', 'aria-orientation': dir === 'v' ? 'vertical' : 'horizontal', 'aria-valuemin': '0', 'aria-valuemax': '100',
+    'aria-label': 'Thanh chia: kéo để đổi kích thước khung bài đọc và khung câu hỏi (chữ to/nhỏ theo khung). Bấm đúp để đặt lại.', title: 'Kéo để đổi kích thước hai khung · bấm đúp để đặt lại' }, h('span', { class: 'grip' }));
+  const barV = pass ? mkBar('v') : null, barH = pass ? mkBar('h') : null;
+  const split = h('div', { class: 'split' + (pass ? ' has-bar' : ' one') }, pass ? h('div', { class: 'pass-wrap' }, pass, barH) : null, barV, qpane);
+  if (pass) cleanup.push(initSplit(split, pass, qpane, [barV, barH]));
+  if (ctx.hl) { cleanup.push(HL.register(qpane.querySelector('.zin'), ctx.hl, sec.id + ':q')); if (pass) cleanup.push(HL.register(pass.querySelector('.zin'), ctx.hl, sec.id + ':p')); }
+  return { el: split, destroy() { cleanup.forEach(f => f()); },
     scrollTo(qid) { const e = qpane.querySelector('#qb-' + qid); if (e) { e.scrollIntoView({ behavior: 'smooth', block: 'center' }); const i = e.querySelector('input,select,textarea'); if (i && i.focus) i.focus({ preventScroll: true }); } } };
 }
 function TestRun(root, cfg) {
   const t = cfg.test, P = prepTest(t), secs = P.secs, flat = P.flat, N = flat.length, ans = {}, used = {}, flags = {}, done = {}, btns = {};
-  const t0 = Date.now(), deadline = t.limit ? t0 + t.limit * 60000 : 0;
+  const t0 = Date.now(), deadline = t.limit ? t0 + t.limit * 60000 : 0, hl = {};   // hl: các đoạn học sinh đã highlight (giữ khi đổi phần)
   let si = 0, view = null, finished = false, tick = null;
   const srcs = []; if (t.yt) srcs.push({ id: 'test', yt: t.yt, si: -1, label: '🎧 Bài nghe (toàn bài test)' });
   secs.forEach((s, i) => { if (s.yt) srcs.push({ id: 'sec' + s.id, yt: s.yt, si: i, label: '🎧 ' + (s.title || 'Bài nghe của phần ' + (i + 1)) }); });
@@ -1981,7 +2180,7 @@ function TestRun(root, cfg) {
   }
   function show(i) {
     if (view) view.destroy(); si = i;
-    view = SectionView(secs[i], { ans, set: setAns, used, flags, onFlag: updBtn, rs: null });
+    view = SectionView(secs[i], { ans, set: setAns, used, flags, onFlag: updBtn, rs: null, hl });
     stage.replaceChildren(view.el); dock.sync(i); paintNav(); window.scrollTo(0, 0);
   }
   async function submit(auto) {
@@ -2031,7 +2230,7 @@ function TestRun(root, cfg) {
 /** Kết quả: điểm từng phần; bấm số câu → mở đúng phần đó (đoạn văn + mọi câu có đúng/sai, đáp án, giải thích) và cuộn tới câu */
 function TestResult(root, o) {
   const r = o.res, t = o.test, pct = r.max ? Math.round(r.score / r.max * 100) : 0, N = r.flat.length;
-  let view = null, cur = -1, focus = -1;
+  let view = null, cur = -1, focus = -1; const hlStore = {};
   const pane = h('div', { class: 'stack', style: 'display:none' }), pal = h('div', { class: 'stack' });
   const cls = x => ({ right: 'ok', wrong: 'bad', blank: 'bad', partial: 'mid', pending: 'pend' })[x.ok];
   const lab = x => ({ right: 'đúng', wrong: 'sai', blank: 'chưa trả lời', partial: 'đúng một phần', pending: 'chờ chấm' })[x.ok];
@@ -2043,7 +2242,7 @@ function TestResult(root, o) {
     const i = q.si; focus = r.flat.indexOf(q);
     if (i !== cur) {
       if (view) view.destroy(); cur = i;
-      view = SectionView(r.secs[i], { ans: r.ans, rs: r.rs, used: {}, flags: null, set: () => {} });
+      view = SectionView(r.secs[i], { ans: r.ans, rs: r.rs, used: {}, flags: null, set: () => {}, hl: hlStore });
       pane.replaceChildren(h('div', { class: 'row wrap' },
         h('button', { class: 'btn small', disabled: i === 0, onclick: () => open(r.secs[i - 1].qs[0]) }, '‹ Phần trước'), h('button', { class: 'btn small', disabled: i === r.secs.length - 1, onclick: () => open(r.secs[i + 1].qs[0]) }, 'Phần sau ›'),
         h('button', { class: 'btn small', onclick: () => { for (let k = 1; k <= N; k++) { const j = (focus + k) % N; if (r.rs[r.flat[j].id].ok !== 'right') return open(r.flat[j]); } toast('Không còn câu nào chưa đúng.'); } }, 'Câu chưa đúng tiếp theo ↷')), view.el);
@@ -2836,6 +3035,7 @@ function openTextImport(onUse, canAppend) {
 
 /* ---------- Giao bài test ---------- */
 function openAssignTest(t) {
+  warmUp();
   const bad = testProblems(t);
   if (bad.length) return Modal.open('Bài test chưa hợp lệ', h('div', null, h('ul', null, bad.slice(0, 10).map(b => h('li', { text: b }))), h('a', { class: 'btn primary', href: '#/test-edit/' + t.id, onclick: () => document.querySelector('dialog.modal') && document.querySelector('dialog.modal').close() }, 'Mở trình soạn')));
   const due = h('input', { type: 'datetime-local', id: 'ta-due', value: toLocalInput(Date.now() + 7 * 864e5) });
@@ -3047,21 +3247,40 @@ function TestStatsView(root) {
   const sel = h('select', { id: 'ts-sel', 'aria-label': 'Chọn bài test', onchange: () => load() }), out = h('div', { class: 'stack' }), info = h('div'); let list = [];
   root.replaceChildren(h('div', { class: 'stack' }, h('h1', { text: 'Thống kê bài test' }), h('div', { class: 'card' }, h('label', { for: 'ts-sel', text: 'Chọn bài test' }), sel,
     h('div', { class: 'row wrap', style: 'margin-top:.5rem' }, h('button', { class: 'btn small', onclick: () => load() }, '⟳ Tải lại'))), info, out));
-  (async () => {
-    out.replaceChildren(loading());
-    try {
-      const r = await API.get(st.scriptUrl, { action: 'testAssignments', teacherKey: st.teacherKey }); if (!r.ok) throw new Error(r.message || r.error);
-      if (!r.assignments.length) return out.replaceChildren(h('p', { class: 'muted', text: 'Chưa có bài test nào được giao hoặc nộp.' }));
-      list = r.assignments; sel.replaceChildren(r.assignments.map(a => h('option', { value: a.id }, `${a.name} (${a.count} bài nộp)`))); load();
-    } catch (e) { out.replaceChildren(statsErr(e)); }
-  })();
+  let lastLoaded = null, rq = 0;
+  function fillT(l) {                              // bản đã lưu (hiện ngay) rồi bản mới từ máy chủ
+    const keep = sel.value; list = l;
+    if (!l.length) { sel.replaceChildren(); info.replaceChildren(); lastLoaded = null; out.replaceChildren(h('p', { class: 'muted', text: 'Chưa có bài test nào được giao hoặc nộp.' })); return; }
+    sel.replaceChildren(l.map(a => h('option', { value: a.id }, `${a.name} (${a.count} bài nộp)`)));
+    sel.value = keep && l.some(x => x.id === keep) ? keep : l[0].id;
+    if (sel.value !== lastLoaded) load();
+    else { const cur = l.find(x => x.id === sel.value); info.replaceChildren(cur ? assignInfoCard(cur, 'test', onDelT, () => TestStatsView(root)) : null); }
+  }
+  function onDelT(a) {
+    const l = list.filter(x => x.id !== a.id);
+    cacheSet('testAssignments', l, true); delete Mem['tres:' + a.id]; lastLoaded = null; rq++; fillT(l);
+  }
+  out.replaceChildren(loading());
+  swr('testAssignments', async () => {
+    const r = await API.get(st.scriptUrl, { action: 'testAssignments', teacherKey: st.teacherKey }); if (!r.ok) throw new Error(r.message || r.error);
+    return r.assignments;
+  }, fillT, true).catch(e => out.replaceChildren(statsErr(e)));
   async function load() {
-    const cur = list.find(x => x.id === sel.value);
-    info.replaceChildren(cur ? assignInfoCard(cur, 'test', () => TestStatsView(root)) : null);
-    out.replaceChildren(loading());
+    const id = sel.value, my = ++rq; lastLoaded = id;
+    const cur = list.find(x => x.id === id);
+    info.replaceChildren(cur ? assignInfoCard(cur, 'test', onDelT, () => TestStatsView(root)) : null);
+    if (!id) return;
+    if (!Mem['tres:' + id]) out.replaceChildren(loading());
     try {
-      const r = await API.get(st.scriptUrl, { action: 'testResults', teacherKey: st.teacherKey, id: sel.value }); if (!r.ok) throw new Error(r.message || r.error);
-      const rows = r.results.slice().sort((a, b) => a.submittedAt < b.submittedAt ? 1 : -1);
+      await swr('tres:' + id, async () => {
+        const r = await API.get(st.scriptUrl, { action: 'testResults', teacherKey: st.teacherKey, id }); if (!r.ok) throw new Error(r.message || r.error);
+        return r.results;
+      }, results => { if (my === rq) renderRes(results); });
+    } catch (e) { if (my === rq) out.replaceChildren(statsErr(e)); }
+  }
+  function renderRes(results) {
+    try {
+      const rows = results.slice().sort((a, b) => a.submittedAt < b.submittedAt ? 1 : -1);
       if (!rows.length) return out.replaceChildren(h('p', { class: 'muted', text: 'Chưa có học sinh nào nộp bài này.' }));
       const pct = x => x.max ? Math.round(x.score / x.max * 100) : 0, avg = Math.round(rows.reduce((s, x) => s + pct(x), 0) / rows.length);
       const qm = {}, order = []; rows.forEach(x => x.items.forEach(it => { const o = qm[it.id] || (qm[it.id] = { q: it.q, t: it.t, n: 0, right: 0, partial: 0 }); if (!qm[it.id].seen) { order.push(it.id); qm[it.id].seen = 1; } o.n++; if (it.ok === 'right') o.right++; else if (it.ok === 'partial') o.partial++; }));
@@ -3127,6 +3346,105 @@ function TestStatsView(root) {
   return { destroy() {} };
 }
 
+/* ===================== 10d. MẬT KHẨU TRUY CẬP APP ===================== */
+/** SHA-256 thuần JS (không phụ thuộc crypto.subtle nên chạy cả khi mở file trực tiếp / http). */
+const sha256 = (() => {
+  const K = [], H0 = [];
+  for (let n = 2, c = 0; c < 64; n++) {
+    let p = true; for (let i = 2; i * i <= n; i++) if (n % i === 0) { p = false; break; }
+    if (!p) continue;
+    if (c < 8) H0[c] = (Math.pow(n, 1 / 2) % 1) * 4294967296 | 0;
+    K[c++] = (Math.pow(n, 1 / 3) % 1) * 4294967296 | 0;
+  }
+  return msg => {
+    const b = new TextEncoder().encode(String(msg)), l = b.length, n = ((l + 9 + 63) >> 6) << 4, w = new Uint32Array(n), W = new Uint32Array(64);
+    for (let i = 0; i < l; i++) w[i >> 2] |= b[i] << (24 - (i % 4) * 8);
+    w[l >> 2] |= 0x80 << (24 - (l % 4) * 8); w[n - 1] = (l * 8) >>> 0; w[n - 2] = Math.floor(l * 8 / 4294967296);
+    let H = H0.slice();
+    for (let o = 0; o < n; o += 16) {
+      for (let i = 0; i < 16; i++) W[i] = w[o + i];
+      for (let i = 16; i < 64; i++) {
+        const x = W[i - 15], y = W[i - 2];
+        W[i] = (W[i - 16] + (((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3)) + W[i - 7] + (((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10))) | 0;
+      }
+      let [a, b2, c, d, e, f, g, hh] = H;
+      for (let i = 0; i < 64; i++) {
+        const t1 = (hh + (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+        const t2 = ((((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) + ((a & b2) ^ (a & c) ^ (b2 & c))) | 0;
+        hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b2; b2 = a; a = (t1 + t2) | 0;
+      }
+      H = [H[0] + a | 0, H[1] + b2 | 0, H[2] + c | 0, H[3] + d | 0, H[4] + e | 0, H[5] + f | 0, H[6] + g | 0, H[7] + hh | 0];
+    }
+    return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+  };
+})();
+/** Mật khẩu đơn giản: mã băm SHA-256 nằm ở index.html (window.SM_PASS_HASH). Để trống = không đặt mật khẩu.
+ *  Ghi nhớ đăng nhập: lưu mã băm + hạn vào localStorage; đổi mật khẩu ở index.html thì mọi thiết bị tự bị đăng xuất.
+ *  Lưu ý: đây là "cửa chắn" phía trình duyệt (ngăn người lạ dùng app), không phải bảo mật cứng – dữ liệu thật trên Google Sheet vẫn được bảo vệ bằng Teacher Key ở máy chủ. */
+const Auth = {
+  DAYS: 30,
+  hash() { return String(window.SM_PASS_HASH || '').trim().toLowerCase(); },
+  enabled() { return /^[0-9a-f]{64}$/.test(this.hash()); },
+  ok() {
+    if (!this.enabled()) return true;
+    const hs = this.hash();
+    for (const S of ['localStorage', 'sessionStorage']) {
+      try { const v = JSON.parse(window[S].getItem('sm_auth') || 'null'); if (v && v.h === hs && (!v.exp || v.exp > Date.now())) return true; } catch (_) {}
+    }
+    return false;
+  },
+  login(pw, remember) {
+    const hs = this.hash(); if (sha256(pw) !== hs) return false;
+    const val = JSON.stringify({ h: hs, exp: remember ? Date.now() + this.DAYS * 864e5 : 0 });
+    try { window[remember ? 'localStorage' : 'sessionStorage'].setItem('sm_auth', val); window[remember ? 'sessionStorage' : 'localStorage'].removeItem('sm_auth'); } catch (_) {}
+    return true;
+  },
+  logout() { ['localStorage', 'sessionStorage'].forEach(S => { try { window[S].removeItem('sm_auth'); } catch (_) {} }); }
+};
+function LoginView(root) {
+  let fails = 0, wait = 0, timer = null;
+  const pw = h('input', { type: 'password', id: 'lg-pw', autocomplete: 'current-password', autocapitalize: 'off', spellcheck: 'false', 'aria-describedby': 'lg-err' });
+  const rem = h('input', { type: 'checkbox', id: 'lg-rem', checked: true });
+  const err = h('p', { class: 'err', id: 'lg-err', role: 'alert' });
+  const go = h('button', { class: 'btn primary big', type: 'submit' }, 'Đăng nhập');
+  const eye = h('button', { class: 'btn', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Hiện mật khẩu', title: 'Hiện / ẩn mật khẩu', onclick: () => {
+    const on = pw.type === 'password'; pw.type = on ? 'text' : 'password'; eye.setAttribute('aria-pressed', String(on)); eye.setAttribute('aria-label', on ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'); eye.textContent = on ? '🙈' : '👁'; } }, '👁');
+  function lock(sec) {
+    wait = Date.now() + sec * 1000; go.disabled = true; clearInterval(timer);
+    timer = setInterval(() => { const left = Math.ceil((wait - Date.now()) / 1000); if (left <= 0) { clearInterval(timer); go.disabled = false; err.textContent = ''; } else err.textContent = `Sai mật khẩu. Thử lại sau ${left} giây.`; }, 250);
+  }
+  function submit(e) {
+    e.preventDefault();
+    if (Date.now() < wait) return;
+    if (Auth.login(pw.value, rem.checked)) { clearInterval(timer); Router.render(); return; }
+    fails++; pw.value = ''; pw.focus();
+    if (fails >= 3) lock(Math.min(30, 2 * (fails - 2))); else err.textContent = 'Sai mật khẩu. Vui lòng thử lại.';
+  }
+  root.replaceChildren(h('form', { class: 'card stack login-card', onsubmit: submit, novalidate: true },
+    h('h1', { text: '🔐 Đăng nhập' }),
+    h('p', { class: 'muted', text: 'Nhập mật khẩu để vào Spelling Mastery.' }),
+    h('label', { for: 'lg-pw', text: 'Mật khẩu' }), h('div', { class: 'pw-row' }, pw, eye),
+    h('label', { class: 'check', for: 'lg-rem' }, rem, `Ghi nhớ đăng nhập trên thiết bị này (${Auth.DAYS} ngày)`),
+    err, go,
+    h('p', { class: 'hint', text: 'Học sinh vào bằng link giao bài thì không cần mật khẩu.' })));
+  setTimeout(() => pw.focus(), 0);
+  return { destroy() { clearInterval(timer); } };
+}
+/** Công cụ tạo mã mật khẩu (băm SHA-256) để dán vào index.html – mở bằng #/tao-mat-khau */
+function PassTool(root) {
+  const pw = h('input', { type: 'text', id: 'pt-pw', autocomplete: 'off', spellcheck: 'false', placeholder: 'Nhập mật khẩu mới' });
+  const out = h('textarea', { readonly: true, 'aria-label': 'Đoạn mã dán vào index.html', style: 'min-height:84px;font-size:.8rem', onfocus: e => e.target.select() });
+  const upd = () => { out.value = pw.value ? `<script>window.SM_PASS_HASH = "${sha256(pw.value)}";</script>` : ''; };
+  pw.addEventListener('input', upd);
+  root.replaceChildren(h('div', { class: 'card stack', style: 'max-width:640px;margin:0 auto' },
+    h('h1', { text: '🔑 Tạo mã mật khẩu' }),
+    h('p', { class: 'muted', text: 'Gõ mật khẩu mong muốn, sao chép đoạn mã bên dưới và thay vào dòng <script>window.SM_PASS_HASH = …</script> trong index.html (rồi đăng lại lên host). Mật khẩu không được lưu ở đâu – chỉ mã băm một chiều nằm trong index.html.' }),
+    h('label', { for: 'pt-pw', text: 'Mật khẩu mới' }), pw, out,
+    h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => { if (!out.value) return; toast(await copyText(out.value, out) ? 'Đã sao chép.' : 'Hãy chọn và copy thủ công.'); } }, '📋 Copy đoạn mã'), h('a', { class: 'btn', href: '#/' }, 'Về trang chủ')),
+    h('p', { class: 'hint', text: 'Để trống mã (SM_PASS_HASH = "") nếu muốn tắt mật khẩu. Đổi mã thì mọi thiết bị đang ghi nhớ đăng nhập sẽ tự bị đăng xuất.' })));
+  return { destroy() {} };
+}
+
 const Lock = {
   get() { try { const v = sessionStorage.getItem('sm_lock'); return v && (v.startsWith('#/assign') || v.startsWith('#/taketest')) ? v : ''; } catch (_) { return ''; } },
   set(v) { try { sessionStorage.setItem('sm_lock', v); } catch (_) {} },
@@ -3136,7 +3454,7 @@ const Lock = {
 function renderNav() {
   if (document.body.dataset.route === 'assign') { $('#nav').replaceChildren(); return; }
   const path = location.hash.replace(/^#/, '').split('?')[0] || '/';
-  const items = [['#/', 'Trang chủ', '/'], Settings.data.teacherOk ? ['#/stats', 'Thống kê', '/stats'] : null, Settings.data.teacherOk ? ['#/teststats', 'Thống kê test', '/teststats'] : null, ['#/settings', 'Cài đặt', '/settings']].filter(Boolean);
+  const items = [['#/', 'Trang chủ', '/'], Settings.data.teacherOk ? ['#/stats', 'Thống kê', '/stats'] : null, Settings.data.teacherOk ? ['#/teststats', 'Thống kê test', '/teststats'] : null, ['#/settings', 'Cài đặt', '/settings'], Auth.enabled() ? ['#/logout', 'Đăng xuất', '/logout'] : null].filter(Boolean);
   $('#nav').replaceChildren(...items.map(([href, t, p]) => h('a', { href, 'aria-current': path === p ? 'page' : null }, t)));
 }
 const Router = {
@@ -3149,6 +3467,11 @@ const Router = {
     const isAssign = path === '/assign' || path === '/taketest', student = Lock.applies();
     if (isAssign && student) Lock.set('#' + raw);
     if (!isAssign && student && Lock.get()) { location.replace(Lock.get()); return; }   // đang ở chế độ học sinh → đưa về bài đang làm
+    if (path === '/logout') { Auth.logout(); history.replaceState(null, '', '#/'); this.render(); return; }
+    if (!isAssign && path !== '/tao-mat-khau' && !Auth.ok()) {       // chưa đăng nhập → chỉ hiện màn hình mật khẩu (link giao bài của học sinh luôn mở được)
+      document.body.dataset.route = 'app'; $('#nav').replaceChildren(); $('.brand').setAttribute('href', '#/'); document.title = 'Đăng nhập – Spelling Mastery';
+      this.cur = LoginView(root); return;
+    }
     document.body.dataset.route = isAssign ? 'assign' : 'app';
     const brand = $('.brand');
     if (isAssign && student) brand.removeAttribute('href'); else brand.setAttribute('href', '#/');   // học sinh: tên app không bấm được
@@ -3157,6 +3480,7 @@ const Router = {
     try {
       if (path === '/' || path === '') this.cur = HomeView(root);
       else if (path === '/settings') this.cur = SettingsView(root);
+      else if (path === '/tao-mat-khau') this.cur = PassTool(root);
       else if (path === '/stats') this.cur = StatsView(root);
       else if (path === '/assign' || path === '/taketest') {
         const pick = key => { const m = query.match(new RegExp('(?:^|&)' + key + '=([^&]*)')); return m ? m[1] : ''; };
@@ -3180,6 +3504,6 @@ function init() {
   Sync.flush();
   Router.render();
 }
-window.__SM_TEST__ = { Parser, Scoring, Norm, IO, statsByStudent };
+window.__SM_TEST__ = { Parser, Scoring, Norm, IO, statsByStudent, HL, SectionView, Auth, sha256 };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

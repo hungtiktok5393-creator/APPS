@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 6;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 7;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -28,14 +28,44 @@ const ASSIGN_HEADERS = ['id', 'name', 'due', 'max', 'req', 'createdAt', 'wordsJs
 
 /* ---------- Tiện ích ---------- */
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
-function ss_() { return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet(); }
+/* TỐC ĐỘ: mở Spreadsheet / Sheet MỘT lần cho mỗi lượt gọi (trước đây mở lại ở mọi hàm). */
+let _ss = null; const _sh = {};
+function ss_() { return _ss || (_ss = SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet()); }
 function sheet_(name, headers) {
+  if (_sh[name]) return _sh[name];
   const ss = ss_(); let sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); sh.appendRow(headers); sh.setFrozenRows(1); }
   else if (sh.getLastColumn() < headers.length) sh.getRange(1, 1, 1, headers.length).setValues([headers]);   // sheet tạo từ bản cũ: bổ sung tiêu đề cột mới
-  return sh;
+  return (_sh[name] = sh);
 }
+/** Đọc TOÀN BỘ sheet – chỉ dùng cho sheet nhỏ (Assignments). Sheet lớn (Results, TestResults, Tests) phải đọc theo cột / theo dòng cần thiết. */
 function rows_(sh) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues(); }
+/** Đọc một khối cột liên tiếp (col bắt đầu từ 1) – bỏ qua các cột 'details'/'items'/mảnh đề rất nặng. */
+function cols_(sh, col, num) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, col, n - 1, num).getValues(); }
+/** Số dòng (>= 2) đầu tiên có cột col (1-based) = id; 0 nếu không có. Chỉ đọc đúng một cột. */
+function findRow_(sh, col, id) {
+  const v = cols_(sh, col, 1);
+  for (let i = 0; i < v.length; i++) if (String(v[i][0]) === id) return i + 2;
+  return 0;
+}
+/** Các dòng đầy đủ (ncol cột) mà cột khóa col (1-based) thỏa test(). Chỉ đọc cột khóa, rồi đọc đúng các khối dòng trúng. */
+function readWhere_(sh, col, test, ncol) {
+  const n = sh.getLastRow(); if (n < 2) return [];
+  ncol = Math.min(ncol, sh.getLastColumn());
+  const keys = sh.getRange(2, col, n - 1, 1).getValues(), hit = [];
+  keys.forEach(function (k, i) { if (test(String(k[0]))) hit.push(i + 2); });
+  if (!hit.length) return [];
+  const blocks = [];
+  hit.forEach(function (r) { const b = blocks[blocks.length - 1]; if (b && r === b[1] + 1) b[1] = r; else blocks.push([r, r]); });
+  if (blocks.length > 6) return sh.getRange(2, 1, n - 1, ncol).getValues().filter(function (_, i) { return test(String(keys[i][0])); });   // quá nhiều khối rời → đọc một lần cho nhanh
+  let out = [];
+  blocks.forEach(function (b) { out = out.concat(sh.getRange(b[0], 1, b[1] - b[0] + 1, ncol).getValues()); });
+  return out;
+}
+/* Bộ nhớ đệm (CacheService): bài giao / đề test được học sinh mở liên tục → không đọc Sheet lại mỗi lần. Xóa khi lưu / xóa bài. */
+function cget_(k) { try { const v = CacheService.getScriptCache().get(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+function cput_(k, o, sec) { try { const s = JSON.stringify(o); if (s.length < 32000) CacheService.getScriptCache().put(k, s, sec || 900); } catch (e) {} }   // giới hạn 100 KB/giá trị (UTF-8) → chỉ lưu bản ≤ ~32.000 ký tự
+function cdel_(id) { try { CacheService.getScriptCache().removeAll(['a:' + id, 'aw:' + id, 'tst:' + id]); } catch (e) {} }
 function chunks_(s, n) { const out = []; for (let i = 0; i < s.length && out.length < n; i += CELL) out.push(s.slice(i, i + CELL)); while (out.length < n) out.push(''); return out; }
 function detailsOf_(r) { return [r[9]].concat(r.slice(13, 22)).join(''); }
 /** Chặn formula injection khi mở bằng Sheets/Excel */
@@ -44,19 +74,23 @@ function iso_(v) { return v instanceof Date ? v.toISOString() : String(v); }
 function isTeacher_(key) {
   return TEACHER_KEY !== 'DOI_MAT_KHAU_CUA_BAN' && typeof key === 'string' && key.length > 0 && key === TEACHER_KEY;
 }
-function loadBlob_(id) {                    // dữ liệu lớn (bộ từ / đề) lưu theo mảnh trong sheet Tests
-  const r = rows_(sheet_(SHEET_TESTS, TESTS_HEADERS)).find(function (x) { return String(x[0]) === id; });
-  if (!r) return null;
-  try { return JSON.parse(r.slice(4, 4 + NCHUNK).join('')); } catch (e) { return null; }
+function loadBlob_(id) {                    // dữ liệu lớn (bộ từ / đề) lưu theo mảnh trong sheet Tests – chỉ đọc ĐÚNG dòng của bài
+  const sh = sheet_(SHEET_TESTS, TESTS_HEADERS), row = findRow_(sh, 1, id);
+  if (!row) return null;
+  try { return JSON.parse(sh.getRange(row, 5, 1, NCHUNK).getValues()[0].join('')); } catch (e) { return null; }
 }
 function findAssignment_(id, withWords) {
-  const r = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)).find(x => String(x[0]) === id);
-  if (!r) return null;
+  const ck = (withWords ? 'aw:' : 'a:') + id, hitC = cget_(ck);
+  if (hitC) return hitC;
+  const sh = sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), row = findRow_(sh, 1, id);
+  if (!row) return null;
+  const r = sh.getRange(row, 1, 1, ASSIGN_HEADERS.length).getValues()[0];
   let words = null, tts = null;
   try { words = JSON.parse(r[6] || 'null'); } catch (e) {}
   try { tts = JSON.parse(r[7] || 'null'); } catch (e) {}
   if (withWords && !words) { const b = loadBlob_(id); if (Array.isArray(b)) words = b; }
-  return { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, max: Number(r[3]) || 0, req: r[4] === true || r[4] === 'TRUE' || r[4] === 1, createdAt: iso_(r[5]), words: words, tts: tts, shuffle: r[8] === true || r[8] === 'TRUE' };
+  const a = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, max: Number(r[3]) || 0, req: r[4] === true || r[4] === 'TRUE' || r[4] === 1, createdAt: iso_(r[5]), words: words, tts: tts, shuffle: r[8] === true || r[8] === 'TRUE' };
+  cput_(ck, a); return a;
 }
 
 /* ---------- POST: nộp bài / lưu bài giao ---------- */
@@ -94,13 +128,14 @@ function submit_(b) {
   if (!(score >= 0 && score <= details.length * 10)) return { ok: false, error: 'bad_request', message: 'Điểm không hợp lệ.' };
   const status = STATUSES.indexOf(b.status) >= 0 ? b.status : 'done';
   const totalWords = Math.max(0, Math.min(5000, Math.round(+b.totalWords || 0)));
-  const sh = sheet_(SHEET_RESULTS, RESULT_HEADERS), data = rows_(sh);
+  const sh = sheet_(SHEET_RESULTS, RESULT_HEADERS), data = cols_(sh, 1, 6);   // TỐC ĐỘ: chỉ đọc cột A:F (mã, bài, tên, lớp) – không đọc các cột 'details' rất nặng
 
   // Một lần làm = một submissionId = một dòng. Bản lưu tạm (partial) sẽ được cập nhật khi có thêm từ / có bản cuối.
   const idx = data.findIndex(function (r) { return String(r[0]) === id; });
   if (idx >= 0) {
-    let oldN = 0; try { oldN = JSON.parse(detailsOf_(data[idx]) || '[]').length; } catch (e) {}
-    const oldStatus = String(data[idx][11] || 'done');
+    const old = sh.getRange(idx + 2, 1, 1, RESULT_HEADERS.length).getValues()[0];     // chỉ đọc đúng dòng này
+    let oldN = 0; try { oldN = JSON.parse(detailsOf_(old) || '[]').length; } catch (e) {}
+    const oldStatus = String(old[11] || 'done');
     const progressed = details.length > oldN || (details.length === oldN && oldStatus === 'partial' && status !== 'partial');
     if (!progressed) return { ok: true, duplicate: true };          // gửi trùng / bản cũ hơn → bỏ qua
   }
@@ -133,15 +168,16 @@ function saveAssignment_(b) {
   let wordsJson = words ? JSON.stringify(words) : '';
   if (wordsJson.length > CELL) {                // bộ từ lớn: lưu theo mảnh ở sheet Tests, ô wordsJson để trống
     if (wordsJson.length > CELL * NCHUNK) return { ok: false, error: 'too_large', message: 'Bộ từ quá lớn để lưu.' };
-    const tsh = sheet_(SHEET_TESTS, TESTS_HEADERS), td = rows_(tsh), trow = [String(a.id), safe_(String(a.name || '').slice(0, 80)), new Date().toISOString(), wordsJson.length].concat(chunks_(wordsJson, NCHUNK));
-    const ti = td.findIndex(function (r) { return String(r[0]) === String(a.id); });
-    if (ti >= 0) tsh.getRange(ti + 2, 1, 1, trow.length).setValues([trow]); else tsh.appendRow(trow);
+    const tsh = sheet_(SHEET_TESTS, TESTS_HEADERS), trow = [String(a.id), safe_(String(a.name || '').slice(0, 80)), new Date().toISOString(), wordsJson.length].concat(chunks_(wordsJson, NCHUNK));
+    const ti = findRow_(tsh, 1, String(a.id));
+    if (ti) tsh.getRange(ti, 1, 1, trow.length).setValues([trow]); else tsh.appendRow(trow);
     wordsJson = '';
   }
-  const sh = sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), data = rows_(sh);
+  const sh = sheet_(SHEET_ASSIGN, ASSIGN_HEADERS);
   const row = [String(a.id), safe_(String(a.name || '').slice(0, 80)), Number(a.due), Number(a.max) || 0, !!a.req, new Date().toISOString(), wordsJson, JSON.stringify(a.tts || {}), !!a.shuffle, a.kind === 'test' ? 'test' : '', linkOf_(a)];
-  const idx = data.findIndex(function (r) { return String(r[0]) === String(a.id); });
-  if (idx >= 0) sh.getRange(idx + 2, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
+  const idx = findRow_(sh, 1, String(a.id));
+  if (idx) sh.getRange(idx, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
+  cdel_(String(a.id));
   return { ok: true };
 }
 
@@ -157,26 +193,28 @@ function saveTest_(b) {
     const js = JSON.stringify(b.test);
     if (js.length > CELL * NCHUNK) return { ok: false, error: 'too_large', message: 'Đề test quá lớn để lưu.' };
     const chunks = chunks_(js, NCHUNK);
-    const sh = sheet_(SHEET_TESTS, TESTS_HEADERS), data = rows_(sh);
+    const sh = sheet_(SHEET_TESTS, TESTS_HEADERS);
     const row = [String(a.id), safe_(String(a.name || '').slice(0, 80)), new Date().toISOString(), js.length].concat(chunks);
-    const idx = data.findIndex(function (r) { return String(r[0]) === String(a.id); });
-    if (idx >= 0) sh.getRange(idx + 2, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
+    const idx = findRow_(sh, 1, String(a.id));
+    if (idx) sh.getRange(idx, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
+    cdel_(String(a.id));
   }
   return { ok: true };
 }
-/** Mã các bài là BÀI TEST (đánh dấu kind, có kết quả TestResults, hoặc đề lưu ở sheet Tests) */
-function blobIds_() { const set = {}; rows_(sheet_(SHEET_TESTS, TESTS_HEADERS)).forEach(function (r) { if (String(r[0])) set[String(r[0])] = 1; }); return set; }
-function testIds_() {
-  const set = {};
-  rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)).forEach(function (r) { if (String(r[9]) === 'test') set[String(r[0])] = 1; });
-  rows_(sheet_(SHEET_TRES, TRES_HEADERS)).forEach(function (r) { set[String(r[1])] = 1; });
-  rows_(sheet_(SHEET_TESTS, TESTS_HEADERS)).forEach(function (r) { if (String(r[4]).charAt(0) === '{') set[String(r[0])] = 1; });   // đề (object); bộ từ lớn là mảng '['
-  return set;
+/** Đọc 1 lần các dữ liệu dùng chung cho danh sách bài: sheet Tests chỉ cột A:E (mã + mảnh đầu), TestResults chỉ cột B (mã bài). */
+function listCtx_() {
+  const A = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)), T = cols_(sheet_(SHEET_TESTS, TESTS_HEADERS), 1, 5), TR = cols_(sheet_(SHEET_TRES, TRES_HEADERS), 2, 3);
+  const blob = {}, tids = {};
+  T.forEach(function (r) { const id = String(r[0]); if (!id) return; blob[id] = 1; if (String(r[4]).charAt(0) === '{') tids[id] = 1; });   // đề (object); bộ từ lớn là mảng '['
+  A.forEach(function (r) { if (String(r[9]) === 'test') tids[String(r[0])] = 1; });
+  TR.forEach(function (r) { tids[String(r[0])] = 1; });
+  return { A: A, T: T, TR: TR, blob: blob, tids: tids };
 }
 function findTest_(id) {
-  const r = rows_(sheet_(SHEET_TESTS, TESTS_HEADERS)).find(function (x) { return String(x[0]) === id; });
-  if (!r) return null;
-  try { return JSON.parse(r.slice(4, 4 + NCHUNK).join('')); } catch (e) { return null; }
+  const ck = 'tst:' + id, hitC = cget_(ck); if (hitC) return hitC;
+  const sh = sheet_(SHEET_TESTS, TESTS_HEADERS), row = findRow_(sh, 1, id);
+  if (!row) return null;
+  try { const t = JSON.parse(sh.getRange(row, 5, 1, NCHUNK).getValues()[0].join('')); cput_(ck, t); return t; } catch (e) { return null; }
 }
 function submitTest_(b) {
   const id = String(b.submissionId || ''), aid = String(b.assignmentId || '');
@@ -193,7 +231,7 @@ function submitTest_(b) {
   score = Math.round(score * 100) / 100; maxScore = Math.round(maxScore * 100) / 100;
   if (JSON.stringify(items).length > 48000) items = items.map(function (d) { return { id: d.id, q: d.q, t: d.t, a: '', g: d.g, m: d.m, ok: d.ok }; });     // quá dài → bỏ câu trả lời
   if (JSON.stringify(items).length > 48000) items = items.map(function (d) { return { id: d.id, q: '', t: d.t, a: '', g: d.g, m: d.m, ok: d.ok }; });   // vẫn dài → bỏ cả nội dung câu hỏi
-  const sh = sheet_(SHEET_TRES, TRES_HEADERS), data = rows_(sh);
+  const sh = sheet_(SHEET_TRES, TRES_HEADERS), data = cols_(sh, 1, 6);      // TỐC ĐỘ: chỉ đọc cột A:F, không đọc cột 'items'
   if (data.some(function (r) { return String(r[0]) === id; })) return { ok: true, duplicate: true };
   const a = findAssignment_(aid), due = a ? a.due : (Number(b.due) || 0), max = a ? a.max : (Number(b.max) || 0), now = Date.now();
   if (due && now > due + GRACE_MS) return { ok: false, error: 'expired', message: 'Bài đã hết hạn nộp.' };
@@ -207,28 +245,36 @@ function submitTest_(b) {
 
 
 /* ---------- XÓA DỮ LIỆU MỘT BÀI GIAO (luôn cho phép, kể cả khi chưa hết hạn) ---------- */
-/** Xóa mọi dòng có cột col (0-based) = id; xóa theo khối liên tiếp từ dưới lên cho nhanh. Trả về số dòng đã xóa. */
+/** Xóa mọi dòng có cột col (0-based) = id. Ít khối liên tiếp → xóa từng khối (từ dưới lên); nhiều khối rời → ghi lại cả bảng MỘT lần (nhanh hơn nhiều so với hàng chục lệnh deleteRows). Trả về số dòng đã xóa. */
 function deleteRows_(sh, col, id) {
   const n = sh.getLastRow(); if (n < 2) return 0;
   const vals = sh.getRange(2, col + 1, n - 1, 1).getValues(), hit = [];
   vals.forEach(function (v, i) { if (String(v[0]) === id) hit.push(i + 2); });
   if (!hit.length) return 0;
-  if (sh.getMaxRows() < sh.getLastRow() + 5) sh.insertRowsAfter(sh.getMaxRows(), 5);   // Sheets không cho xóa hết các dòng không bị đóng băng
-  let cnt = 0, i = hit.length - 1;
-  while (i >= 0) { let j = i; while (j > 0 && hit[j - 1] === hit[j] - 1) j--; sh.deleteRows(hit[j], i - j + 1); cnt += i - j + 1; i = j - 1; }
-  return cnt;
+  const blocks = [];
+  hit.forEach(function (r) { const b = blocks[blocks.length - 1]; if (b && r === b[1] + 1) b[1] = r; else blocks.push([r, r]); });
+  if (blocks.length <= 3) {
+    if (sh.getMaxRows() < sh.getLastRow() + 5) sh.insertRowsAfter(sh.getMaxRows(), 5);   // Sheets không cho xóa hết các dòng không bị đóng băng
+    for (let k = blocks.length - 1; k >= 0; k--) sh.deleteRows(blocks[k][0], blocks[k][1] - blocks[k][0] + 1);
+  } else {
+    const lc = sh.getLastColumn(), all = sh.getRange(2, 1, n - 1, lc).getValues();
+    const keep = all.filter(function (_, i) { return String(vals[i][0]) !== id; }).map(function (r) { return r.map(function (c) { return typeof c === 'string' ? safe_(c) : c; }); });   // safe_: không để ô văn bản bị hiểu thành công thức khi ghi lại
+    sh.getRange(2, 1, n - 1, lc).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, lc).setValues(keep);
+  }
+  return hit.length;
 }
 function deleteAssignment_(b) {
   if (!isTeacher_(b.teacherKey)) return { ok: false, error: 'unauthorized', message: 'Teacher Key không đúng.' };
   const id = String(b.id || '');
   if (!/^[\w-]{3,40}$/.test(id)) return { ok: false, error: 'bad_request', message: 'Mã bài không hợp lệ.' };
-  const a = findAssignment_(id);
   const out = {
-    results: deleteRows_(sheet_(SHEET_RESULTS, RESULT_HEADERS), 1, id),
-    testResults: deleteRows_(sheet_(SHEET_TRES, TRES_HEADERS), 1, id),
+    assignment: deleteRows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), 0, id),      // xóa dòng đăng ký trước → học sinh mở link sẽ thấy "không tìm thấy" ngay
     tests: deleteRows_(sheet_(SHEET_TESTS, TESTS_HEADERS), 0, id),
-    assignment: deleteRows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), 0, id)
+    results: deleteRows_(sheet_(SHEET_RESULTS, RESULT_HEADERS), 1, id),
+    testResults: deleteRows_(sheet_(SHEET_TRES, TRES_HEADERS), 1, id)
   };
+  cdel_(id);
   return { ok: true, deleted: out };
 }
 
@@ -254,12 +300,12 @@ function doGet(e) {
     if (!isTeacher_(p.teacherKey)) return json_({ ok: false, error: 'unauthorized', message: 'Teacher Key không đúng.' });
 
     if (action === 'assignments') {
-      const res = rows_(sheet_(SHEET_RESULTS, RESULT_HEADERS)), map = {}, tids = testIds_(), tset = blobIds_();
-      rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)).forEach(function (r) { if (!String(r[0]) || tids[String(r[0])]) return; map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!r[6] || !!tset[String(r[0])] }; });
+      const c = listCtx_(), res = cols_(sheet_(SHEET_RESULTS, RESULT_HEADERS), 2, 3), map = {};   // Results: chỉ cột B:D (mã bài, tên bài, ngày nộp)
+      c.A.forEach(function (r) { if (!String(r[0]) || c.tids[String(r[0])]) return; map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!r[6] || !!c.blob[String(r[0])] }; });
       res.forEach(function (r) {
-        const id = String(r[1]);
-        if (!id || tids[id]) return;
-        if (!map[id]) map[id] = { id: id, name: String(r[2] || id), due: 0, createdAt: iso_(r[3]), count: 0 };
+        const id = String(r[0]);
+        if (!id || c.tids[id]) return;
+        if (!map[id]) map[id] = { id: id, name: String(r[1] || id), due: 0, createdAt: iso_(r[2]), count: 0 };
         map[id].count++;
       });
       const list = Object.keys(map).map(function (k) { return map[k]; }).sort(function (x, y) { return y.createdAt < x.createdAt ? -1 : 1; });
@@ -267,13 +313,13 @@ function doGet(e) {
     }
 
     if (action === 'testAssignments') {
-      const map = {}, tset = blobIds_();
-      rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)).forEach(function (r) { if (String(r[0]) && String(r[9]) === 'test') map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!tset[String(r[0])] }; });
-      rows_(sheet_(SHEET_TESTS, TESTS_HEADERS)).forEach(function (r) { const id = String(r[0]); if (id && String(r[4]).charAt(0) === '{' && !map[id]) map[id] = { id: id, name: String(r[1]), due: 0, createdAt: iso_(r[2]), count: 0, link: '', hasData: true }; });
-      rows_(sheet_(SHEET_TRES, TRES_HEADERS)).forEach(function (r) {
-        const id = String(r[1]);
-        if (id && !map[id]) map[id] = { id: id, name: String(r[2] || id), due: 0, createdAt: iso_(r[3]), count: 0, link: '', hasData: false };
+      const c = listCtx_(), map = {};
+      c.A.forEach(function (r) { if (String(r[0]) && String(r[9]) === 'test') map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!c.blob[String(r[0])] }; });
+      c.T.forEach(function (r) { const id = String(r[0]); if (id && String(r[4]).charAt(0) === '{' && !map[id]) map[id] = { id: id, name: String(r[1]), due: 0, createdAt: iso_(r[2]), count: 0, link: '', hasData: true }; });
+      c.TR.forEach(function (r) {        // cột B:D của TestResults: mã bài, tên bài, ngày nộp
+        const id = String(r[0]);
         if (!id) return;
+        if (!map[id]) map[id] = { id: id, name: String(r[1] || id), due: 0, createdAt: iso_(r[2]), count: 0, link: '', hasData: false };
         map[id].count++;
       });
       return json_({ ok: true, assignments: Object.keys(map).map(function (k) { return map[k]; }).sort(function (x, y) { return y.createdAt < x.createdAt ? -1 : 1; }) });
@@ -281,7 +327,7 @@ function doGet(e) {
 
     if (action === 'testResults') {
       const id = String(p.id || '');
-      const results = rows_(sheet_(SHEET_TRES, TRES_HEADERS)).filter(function (r) { return String(r[1]) === id; }).map(function (r) {
+      const results = readWhere_(sheet_(SHEET_TRES, TRES_HEADERS), 2, function (k) { return k === id; }, TRES_HEADERS.length).map(function (r) {
         let items = []; try { items = JSON.parse(r[10] || '[]'); } catch (x) {}
         return { submissionId: String(r[0]), assignmentId: String(r[1]), submittedAt: iso_(r[3]), name: String(r[4]), cls: String(r[5]), score: Number(r[6]), max: Number(r[7]), totalMs: Number(r[8]), late: String(r[9]) === 'yes', items: items };
       });
@@ -291,7 +337,9 @@ function doGet(e) {
     if (action === 'results') {
       const id = String(p.id || ''), all = id === 'all';          // id = 'all' → mọi bài (để cộng điểm học sinh qua nhiều bài)
       const a = all ? null : findAssignment_(id);
-      const results = rows_(sheet_(SHEET_RESULTS, RESULT_HEADERS)).filter(function (r) { return all || String(r[1]) === id; }).map(function (r) {
+      const sh = sheet_(SHEET_RESULTS, RESULT_HEADERS);
+      const rows = all ? rows_(sh) : readWhere_(sh, 2, function (k) { return k === id; }, RESULT_HEADERS.length);   // một bài: chỉ đọc đúng các dòng của bài đó
+      const results = rows.map(function (r) {
         let details = []; try { details = JSON.parse(detailsOf_(r) || '[]'); } catch (x) {}
         return { submissionId: String(r[0]), assignmentId: String(r[1]), assignmentName: String(r[2]), submittedAt: iso_(r[3]), name: String(r[4]), cls: String(r[5]), score: Number(r[6]), totalMs: Number(r[7]),
           late: String(r[8]) === 'yes', details: details, status: String(r[11] || 'done'), totalWords: Number(r[12]) || 0 };
