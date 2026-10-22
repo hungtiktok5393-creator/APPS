@@ -194,3 +194,12 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 - **Tên bài giao:** hộp thoại **Giao bài** (bộ từ và bài test) có ô *Tên bài giao*; tên này hiện cho học sinh và trong Thống kê, không đổi tên thẻ.
 - **Thống kê (cả bài từ vựng và test):** chọn bài → thẻ **Thông tin bài giao** có hạn nộp, **link giao bài (copy lại được)**. Bài giao từ phiên bản cũ chưa lưu link: nếu đề/bộ từ nằm trên Sheet thì link ngắn được dựng lại, không thì hiện hướng dẫn tạo link mới.
 - **Xóa dữ liệu bài hết hạn:** nút **🗑 Xóa dữ liệu bài này** chỉ bật khi bài đã hết hạn (máy chủ cũng kiểm tra). Xóa vĩnh viễn: kết quả (`Results`/`TestResults`), dòng đăng ký (`Assignments`), đề/bộ từ lưu ở `Tests`, và dữ liệu của bài trong trình duyệt (số lần làm, hàng đợi gửi). Thẻ bộ từ / bài test của bạn không bị xóa. Nên xuất CSV/Excel trước.
+
+## 11. Nâng cấp giao diện & bài nghe (22/10/2026)
+- **Link giao bài ngắn hơn:** khi đã kết nối Apps Script + Teacher Key, link dài hơn ~900 ký tự (trước đây 2000) tự chuyển sang link ngắn `#/taketest?id=…&s=<mã triển khai>`; chỉ còn ~100–150 ký tự. Tự thử lại 3 lần nếu mạng chập chờn; nếu vẫn lỗi có nút **↻ Thử tạo link ngắn lại** và thông báo rõ nguyên nhân. Link cũ (mang cả URL Apps Script) vẫn mở bình thường. *Không cần sửa `Code.gs`.* Nếu chưa kết nối Apps Script thì không có cách nào rút gọn (dữ liệu bài phải nằm trong link).
+- **Hình lớn:** hình trong đoạn văn / câu hỏi rộng hết khung chứa (giữ tỉ lệ), bấm vào để phóng to thêm.
+- **Khung nghe nhỏ, đứng yên:** nằm ở đầu phần, không đi theo khi cuộn, không che câu hỏi. Chỉ-nghe chỉ còn là một nút nhỏ.
+- **Google Drive không cho tua / tạm dừng:** app thử phát trực tiếp (không có thanh điều khiển). Nếu Drive chặn, app dùng khung xem của Drive nhưng **khóa** ngay khi học sinh bấm ▶ (lớp phủ chặn chạm, bỏ focus để phím Space không dừng được); muốn nghe lại phải bấm **↺ Nghe lại** (trừ một lượt). Mọi loại file còn lại cũng chặn nút tạm dừng / tua ở màn hình khóa & thông báo (Media Session). *Cách chắc chắn nhất:* đặt file mp3 ngay trong repo GitHub Pages (vd. thư mục `audio/`) và dán link đầy đủ `https://<user>.github.io/<repo>/audio/ten.mp3`.
+- **Hết khoảng trống dưới menu cuối:** nguyên nhân là các nút radio ẩn của đáp án làm trang dài thêm; đã sửa. Màn hình làm bài lấp đầy chiều cao thiết bị, đoạn văn | câu hỏi cuộn riêng, thanh số câu luôn sát đáy.
+- **Điện thoại / máy tính bảng:** thanh điều hướng cuộn ngang và không dính khi cuộn (điện thoại), thanh trên và thanh số câu gọn hơn, thanh số câu cuộn ngang, điện thoại xoay ngang chia đôi đoạn văn | câu hỏi.
+

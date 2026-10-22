@@ -303,7 +303,18 @@ const Link = {
   pack(obj) { return LZString.compressToBase64(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
   unpack(t) { try { t = String(t).replace(/-/g, '+').replace(/_/g, '/'); while (t.length % 4) t += '='; return LZString.decompressFromBase64(t); } catch (_) { return null; } }
 };
+/** Thử lại vài lần khi mạng / Apps Script chập chờn */
+async function withRetry(fn, tries) {
+  tries = tries || 3; let err;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); } catch (e) { err = e; if (i < tries - 1) await new Promise(r => setTimeout(r, 700 * (i + 1))); }
+  }
+  throw err;
+}
 const API = {
+  /** Link giao bài chỉ mang mã triển khai (…/macros/s/<MÃ>/exec) cho ngắn; link cũ mang cả URL vẫn đọc được */
+  short(u) { const m = /^https:\/\/script\.google\.com\/macros\/s\/([\w-]{20,})\/exec$/.exec(String(u || '')); return m ? m[1] : u; },
+  expand(s) { s = String(s || ''); return /^[\w-]{20,}$/.test(s) ? 'https://script.google.com/macros/s/' + s + '/exec' : s; },
   validUrl(u) { try { const x = new URL(u); return x.protocol === 'https:' && x.hostname === 'script.google.com' && x.pathname.endsWith('/exec'); } catch (_) { return false; } },
   async _fetch(url, opts) {
     const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 20000);
@@ -667,16 +678,16 @@ function HomeView(root) {
       const payload = { v: 1, id: a.id, n: a.name, w: a.words.map(c => [c.en, c.vi]), t: { l: a.tts.lang, r: a.tts.rate }, due: a.due, sh: a.shuffle ? 1 : 0, max: a.max, req: a.req ? 1 : 0, u: API.validUrl(url) ? url : '' };
       const base = location.href.split('#')[0];
       let link = base + '#/assign?d=' + Link.pack(payload);
-      const shortLink = base + '#/assign?id=' + a.id + '&s=' + encodeURIComponent(url);
+      const shortLink = base + '#/assign?id=' + a.id + '&s=' + encodeURIComponent(API.short(url));
       a.link = link;       // lưu link lên Sheet để xem/copy lại trong Thống kê
       let mode = 'inline', notes = [];
-      if (link.length > 2000) {
+      if (link.length > (canSheet ? 900 : 2000)) {
         if (canSheet) {
           a.link = shortLink;
-          try { const r = await API.post(url, { action: 'saveAssignment', teacherKey: st.teacherKey, assignment: a }); if (!r.ok) throw new Error(r.message || r.error);
+          try { await withRetry(async () => { const r = await API.post(url, { action: 'saveAssignment', teacherKey: st.teacherKey, assignment: a }); if (!r.ok) throw new Error(r.message || r.error); });
             link = shortLink; mode = 'sheet'; }
           catch (e) { mode = 'inline-long'; notes.push('Không lưu được bộ từ lên Google Sheet (' + e.message + '). Đang dùng link dài.'); }
-        } else { mode = 'inline-long'; notes.push('Link dài hơn 2000 ký tự. Hãy cấu hình Apps Script URL + Teacher Key trong Cài đặt để dùng link ngắn (lưu bộ từ lên Sheet).'); }
+        } else { mode = 'inline-long'; notes.push('Link đang rất dài vì chưa kết nối Google Apps Script. Vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối, rồi bấm “Thử tạo link ngắn lại” để có link ngắn chia sẻ được qua Zalo/Messenger.'); }
       } else if (canSheet) {   // đăng ký hạn nộp / số lần ở máy chủ (nguồn quyết định), không gửi danh sách từ
         try { const r = await API.post(url, { action: 'saveAssignment', teacherKey: st.teacherKey, assignment: Object.assign({}, a, { words: null }) }); if (!r.ok) throw new Error(r.message || r.error); }
         catch (e) { notes.push('Chưa đăng ký hạn nộp lên máy chủ (' + e.message + '). Máy chủ sẽ dùng hạn nộp trong link.'); }
@@ -688,6 +699,7 @@ function HomeView(root) {
         h('p', { class: 'ok', text: mode === 'sheet' ? '✓ Link ngắn (bộ từ đã lưu trên Google Sheet).' : '✓ Link chứa toàn bộ dữ liệu bài.' }),
         h('p', { class: 'hint', text: `Độ dài link: ${link.length} ký tự · Hạn: ${fmtDate(dueMs)}` }),
         ...notes.map(n => h('div', { class: 'box warn', text: n })),
+        mode === 'inline-long' ? h('div', { class: 'row wrap' }, h('button', { class: 'btn small', onclick: () => create() }, '↻ Thử tạo link ngắn lại')) : null,
         box,
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn primary', onclick: async () => toast(await copyText(link, box) ? 'Đã sao chép link.' : 'Không sao chép được – hãy chọn và copy thủ công.') }, '📋 Copy link'),
@@ -990,12 +1002,12 @@ async function loadAssignment(q) {
     return decodeAssignment(q.d);
   }
   if (q.id && q.s) {
-    if (!API.validUrl(q.s)) throw new Error('Link không hợp lệ: địa chỉ máy chủ không đúng.');
-    const r = await API.get(q.s, { action: 'getAssignment', id: q.id });
+    if (!API.validUrl(API.expand(q.s))) throw new Error('Link không hợp lệ: địa chỉ máy chủ không đúng.');
+    const r = await API.get(API.expand(q.s), { action: 'getAssignment', id: q.id });
     if (!r.ok) throw new Error(r.error === 'not_found' ? 'Không tìm thấy bài tập này trên máy chủ (mã sai hoặc đã bị xóa).' : (r.message || 'Không tải được bài tập.'));
     const a = r.assignment;
     if (!a.words || !a.words.length) throw new Error('Bài tập chưa có danh sách từ.');
-    return { id: a.id, name: a.name, words: a.words, tts: { lang: (a.tts && a.tts.lang) || 'en-US', voice: '', rate: clamp(Number(a.tts && a.tts.rate) || 1, .5, 1.5) }, due: Number(a.due) || 0, shuffle: !!a.shuffle, max: Number(a.max) || 0, req: !!a.req, scriptUrl: q.s };
+    return { id: a.id, name: a.name, words: a.words, tts: { lang: (a.tts && a.tts.lang) || 'en-US', voice: '', rate: clamp(Number(a.tts && a.tts.rate) || 1, .5, 1.5) }, due: Number(a.due) || 0, shuffle: !!a.shuffle, max: Number(a.max) || 0, req: !!a.req, scriptUrl: API.expand(q.s) };
   }
   throw new Error('Link thiếu dữ liệu bài tập. Hãy kiểm tra lại đường dẫn.');
 }
@@ -1444,7 +1456,7 @@ function AudioClip(q, used, review, label) {
   const med = Media.parse(y.url) || { kind: 'ext', url: String(y.url || '') };
   const compact = !!y.hide || (med.kind === 'file' && !med.video);
   const verb = y.hide ? 'Nghe' : 'Xem';
-  let eng = null, ready = false, playing = false, poll = null, dead = false, failed = false, free = false;
+  let eng = null, ready = false, playing = false, poll = null, dead = false, failed = false, free = false, guardOff = null;
   const host = h('div', { class: 'yt-host' });
   const info = h('span', { class: 'muted small-text', role: 'status' });
   const btn = h('button', { class: 'btn primary', type: 'button', onclick: play }, '⏳ Đang tải…');
@@ -1469,7 +1481,7 @@ function AudioClip(q, used, review, label) {
   function stop() { clearInterval(poll); if (playing) { playing = false; try { eng.pause(); } catch (_) {} } refresh(); }
   function play() {
     if (!ready || playing || free || failed || !eng || left() === 0) return;
-    used[q.id] = (used[q.id] || 0) + 1; playing = true;
+    used[q.id] = (used[q.id] || 0) + 1; playing = true; lockSession();
     let r; try { r = eng.play(); } catch (_) { playing = false; }
     if (r && r.catch) r.catch(() => { if (playing) { playing = false; used[q.id] = Math.max(0, (used[q.id] || 1) - 1); clearInterval(poll); info.textContent = '⚠ Trình duyệt không cho phát – hãy bấm lại.'; refresh(); } });
     clearInterval(poll);
@@ -1491,30 +1503,73 @@ function AudioClip(q, used, review, label) {
       eng = { play() { player.seekTo(start, true); player.playVideo(); }, pause() { player.pauseVideo(); }, time: () => player.getCurrentTime(), destroy() { if (player.destroy) player.destroy(); } };
     }).catch(e => giveUp(e.message));
   }
-  function mountMedia(src, isVideo, onFail) {
-    const el = document.createElement(isVideo ? 'video' : 'audio');
-    el.preload = 'auto'; el.controls = false; el.setAttribute('playsinline', ''); if (isVideo) el.className = 'yt-media';
-    const t = setTimeout(() => { if (!ready && !dead && !free) onFail(); }, 15000);
-    el.addEventListener('loadedmetadata', () => { clearTimeout(t); ready = true; refresh(); });
-    el.addEventListener('error', () => { clearTimeout(t); if (!dead && !free) onFail(); });
-    el.addEventListener('ended', stop);
-    el.addEventListener('pause', () => { if (playing && !el.ended) { try { el.play(); } catch (_) {} } });   // chống tạm dừng
-    el.src = src; host.append(el);
-    eng = { play() { try { el.currentTime = start; } catch (_) {} return el.play(); }, pause() { el.pause(); }, time: () => el.currentTime,
-      destroy() { clearTimeout(t); try { el.pause(); el.removeAttribute('src'); el.load(); } catch (_) {} } };
+  /** Chặn điều khiển ở màn hình khóa / thông báo (tua, tạm dừng) trong lúc học sinh đang nghe */
+  const lockSession = () => {
+    if (review) return;
+    try { const ms = navigator.mediaSession; if (!ms) return;
+      ['pause', 'stop', 'seekto', 'seekbackward', 'seekforward', 'previoustrack', 'nexttrack'].forEach(a => { try { ms.setActionHandler(a, () => {}); } catch (_) {} }); } catch (_) {}
+  };
+  /** srcs: một hoặc nhiều địa chỉ dự phòng, thử lần lượt; hết mà không được mới gọi onFail */
+  function mountMedia(srcs, isVideo, onFail) {
+    srcs = [].concat(srcs); let k = 0, t = null, el = null;
+    const drop = () => { clearTimeout(t); if (el) { try { el.pause(); el.removeAttribute('src'); el.load(); } catch (_) {} if (el.remove) el.remove(); el = null; } };
+    const next = () => { if (dead || free) return; drop(); if (++k < srcs.length) load(); else onFail(); };
+    function load() {
+      el = document.createElement(isVideo ? 'video' : 'audio');
+      el.preload = 'auto'; el.controls = false; el.setAttribute('playsinline', ''); el.setAttribute('controlsList', 'nodownload noplaybackrate'); el.disablePictureInPicture = true;
+      if (isVideo) el.className = 'yt-media';
+      const me = el;
+      t = setTimeout(() => { if (me === el && !ready && !dead && !free) next(); }, srcs.length > 1 ? 9000 : 15000);
+      el.addEventListener('loadedmetadata', () => { if (me !== el) return; clearTimeout(t); ready = true; refresh(); });
+      el.addEventListener('error', () => { if (me !== el || dead || free) return; if (ready) { clearTimeout(t); onFail(); } else next(); });
+      el.addEventListener('ended', () => { if (me === el) stop(); });
+      el.addEventListener('pause', () => { if (me === el && playing && !el.ended) { try { el.play(); } catch (_) {} } });   // chống tạm dừng
+      el.src = srcs[k]; host.append(el);
+    }
+    eng = { play() { try { el.currentTime = start; } catch (_) {} return el.play(); }, pause() { if (el) el.pause(); }, time: () => el ? el.currentTime : 0, destroy() { drop(); } };
+    load();
+  }
+  /** Google Drive không phát trực tiếp được → dùng khung xem của Drive nhưng KHÓA sau khi học sinh bấm ▶:
+   *  lớp phủ trong suốt chặn mọi thao tác (không tua / không tạm dừng), bỏ focus khỏi khung để phím Space không dừng được.
+   *  Muốn nghe lại phải bấm “Nghe lại” (trừ một lượt). */
+  function setGuarded(src) {
+    killEngine(); free = true; ready = true; failed = false;
+    box.classList.remove('compact'); box.classList.add('free', 'guard');
+    cover.className = 'yt-cover'; cover.textContent = ''; cover.style.display = 'none';
+    const fr = h('iframe', { src, title: 'Bài nghe', allow: 'autoplay; encrypted-media', referrerpolicy: 'strict-origin-when-cross-origin' });
+    host.replaceChildren(fr); ext.style.display = 'none';
+    let phase = 'idle';
+    const sayLeft = () => max ? `Còn ${left()}/${max} lượt nghe` : 'Nghe không giới hạn số lần';
+    function arm() {
+      phase = 'idle'; fr.tabIndex = 0;
+      if (left() === 0) { phase = 'done'; cover.className = 'yt-cover hide'; cover.style.display = ''; btn.style.display = 'none'; info.className = 'muted small-text'; info.textContent = 'Đã hết lượt nghe.'; return; }
+      cover.style.display = 'none'; btn.style.display = 'none'; info.className = 'muted small-text';
+      info.textContent = 'Bấm nút ▶ ở giữa khung để nghe (' + sayLeft().toLowerCase() + '). Khi đã bắt đầu sẽ không tạm dừng / tua được.';
+    }
+    function lock() {
+      if (phase !== 'idle') return; phase = 'locked';
+      used[q.id] = (used[q.id] || 0) + 1;
+      cover.style.display = ''; fr.tabIndex = -1; try { fr.blur(); window.focus(); } catch (_) {}
+      btn.className = 'btn small'; btn.disabled = false; btn.textContent = '↺ Nghe lại'; btn.style.display = left() > 0 ? '' : 'none';
+      info.textContent = sayLeft();
+    }
+    btn.onclick = () => { if (phase !== 'locked' || left() === 0) return; fr.src = 'about:blank'; setTimeout(() => { if (!dead) { fr.src = src; arm(); } }, 60); };
+    const onBlur = () => setTimeout(() => { if (!dead && phase === 'idle' && document.activeElement === fr) lock(); }, 0);   // học sinh vừa bấm vào khung Drive
+    window.addEventListener('blur', onBlur); guardOff = () => window.removeEventListener('blur', onBlur);
+    arm();
   }
   function mount() {
     if (med.kind === 'yt') return mountYt();
     if (med.kind === 'embed') return setFree(med.embed);
-    if (med.kind === 'drive') return mountMedia('https://drive.google.com/uc?export=download&id=' + med.id, true,
-      () => setFree('https://drive.google.com/file/d/' + med.id + '/preview', 'Google Drive phát trong khung riêng – không giới hạn số lượt nghe. (Nếu không có tiếng, giáo viên cần chia sẻ file ở chế độ “Bất kỳ ai có link”.)'));
+    if (med.kind === 'drive') return mountMedia(['https://drive.usercontent.google.com/download?id=' + med.id + '&export=download&confirm=t', 'https://drive.google.com/uc?export=download&id=' + med.id], true,
+      () => review ? setFree('https://drive.google.com/file/d/' + med.id + '/preview', 'Google Drive phát trong khung riêng. (Nếu không có tiếng, giáo viên cần chia sẻ file ở chế độ “Bất kỳ ai có link”.)') : setGuarded('https://drive.google.com/file/d/' + med.id + '/preview'));
     if (med.kind === 'file' || med.kind === 'auto') return mountMedia(med.url, med.kind === 'auto' || !!med.video, () => giveUp('Không phát trực tiếp được link này (máy chủ chặn hoặc không phải file âm thanh/video). Bấm “Mở trong tab mới” để xem.'));
     giveUp('Link này không nhúng được vào bài. Bấm “Mở trong tab mới” để xem.');
   }
   refresh(); mount();
   return { isPlaying: () => playing, el: h('div', { class: 'audio' }, label ? h('strong', { class: 'audio-label', text: label }) : null, box,
     h('div', { class: 'row wrap' }, btn, info, ext)),
-  destroy() { dead = true; killEngine(); } };
+  destroy() { dead = true; if (guardOff) guardOff(); killEngine(); } };
 }
 
 /* ---------- Mô hình câu hỏi ---------- */
@@ -1877,7 +1932,7 @@ function TestRun(root, cfg) {
   const srcs = []; if (t.yt) srcs.push({ id: 'test', yt: t.yt, si: -1, label: '🎧 Bài nghe (toàn bài test)' });
   secs.forEach((s, i) => { if (s.yt) srcs.push({ id: 'sec' + s.id, yt: s.yt, si: i, label: '🎧 ' + (s.title || 'Bài nghe của phần ' + (i + 1)) }); });
   const dock = AudioDock(srcs, used);
-  const timerEl = h('span', { class: 'pill', role: 'timer' }), prog = h('span', { class: 'pill' }), stage = h('div'), nav = h('nav', { class: 'runnav', 'aria-label': 'Điều hướng các phần và câu hỏi' });
+  const timerEl = h('span', { class: 'pill', role: 'timer' }), prog = h('span', { class: 'pill' }), stage = h('div', { class: 'run-stage' }), nav = h('nav', { class: 'runnav', 'aria-label': 'Điều hướng các phần và câu hỏi' });
   const answered = q => grade(q, ans[q.id]).ok !== 'blank', cnt = () => flat.filter(q => done[q.id]).length;
   const updBtn = q => { const b = btns[q.id]; if (b) { b.classList.toggle('done', !!done[q.id]); b.classList.toggle('flag', !!flags[q.id]); } };
   const setAns = (q, v) => { ans[q.id] = v; done[q.id] = answered(q); updBtn(q); prog.textContent = `Đã làm ${cnt()}/${N}`; };
@@ -1888,8 +1943,8 @@ function TestRun(root, cfg) {
       if (i !== si) return h('button', { type: 'button', class: 'nav-sec', onclick: () => show(i) }, `${name} · ${s.qs.filter(q => done[q.id]).length}/${s.qs.length}`);
       return h('div', { class: 'nav-sec cur', 'aria-current': 'true' }, h('span', { class: 'nav-t', text: name }),
         s.qs.map(q => { const b = h('button', { type: 'button', class: 'pal-b' + (done[q.id] ? ' done' : '') + (flags[q.id] ? ' flag' : ''), 'aria-label': 'Câu ' + q.no, onclick: () => view.scrollTo(q.id) }, String(q.no)); btns[q.id] = b; return b; }));
-    }),
-    secs.length > 1 ? h('div', { class: 'nav-arrows' }, h('button', { class: 'btn small', disabled: si === 0, onclick: () => show(si - 1) }, '‹ Phần trước'), h('button', { class: 'btn small', disabled: si === secs.length - 1, onclick: () => show(si + 1) }, 'Phần sau ›')) : null));
+    })),
+    secs.length > 1 ? h('div', { class: 'nav-arrows' }, h('button', { class: 'btn small', disabled: si === 0, onclick: () => show(si - 1) }, '‹ Phần trước'), h('button', { class: 'btn small', disabled: si === secs.length - 1, onclick: () => show(si + 1) }, 'Phần sau ›')) : null);
   }
   function show(i) {
     if (view) view.destroy(); si = i;
@@ -1997,11 +2052,11 @@ function decodeTestLink(d) {
 async function loadTestAssignment(q) {
   if (q.d) { if (!window.LZString) throw new Error('Thư viện giải nén chưa tải được – hãy kiểm tra mạng và tải lại trang.'); return decodeTestLink(q.d); }
   if (q.id && q.s) {
-    if (!API.validUrl(q.s)) throw new Error('Link không hợp lệ: địa chỉ máy chủ không đúng.');
-    const r = await API.get(q.s, { action: 'getTest', id: q.id });
+    if (!API.validUrl(API.expand(q.s))) throw new Error('Link không hợp lệ: địa chỉ máy chủ không đúng.');
+    const r = await API.get(API.expand(q.s), { action: 'getTest', id: q.id });
     if (!r.ok) throw new Error(r.error === 'not_found' ? 'Không tìm thấy bài test này trên máy chủ.' : (r.message || 'Không tải được bài test.'));
     const a = r.assignment; if (!a.test) throw new Error('Bài test chưa có câu hỏi.'); legacyWrap(a.test); if (!qCount(a.test)) throw new Error('Bài test chưa có câu hỏi.');
-    return { id: a.id, name: a.name, test: a.test, due: Number(a.due) || 0, max: Number(a.max) || 0, req: !!a.req, scriptUrl: q.s };
+    return { id: a.id, name: a.name, test: a.test, due: Number(a.due) || 0, max: Number(a.max) || 0, req: !!a.req, scriptUrl: API.expand(q.s) };
   }
   throw new Error('Link thiếu dữ liệu bài test.');
 }
@@ -2747,18 +2802,19 @@ function openAssignTest(t) {
     const a = { id: shortId(), name: Norm.text(nameIn.value).slice(0, 80) || t.name, link: '', due: dueMs, max: clamp(parseInt(max.value, 10) || 0, 0, 20), req: req.checked, shuffle: false, tts: {}, words: null };
     const base = location.href.split('#')[0], payload = { v: 1, id: a.id, n: a.name, test, due: a.due, max: a.max, req: a.req ? 1 : 0, u: API.validUrl(url) ? url : '' };
     let link = base + '#/taketest?d=' + Link.pack(payload), mode = 'inline', notes = [];
-    const shortLink = base + '#/taketest?id=' + a.id + '&s=' + encodeURIComponent(url);
+    const shortLink = base + '#/taketest?id=' + a.id + '&s=' + encodeURIComponent(API.short(url));
     a.link = link;       // lưu link lên Sheet để xem/copy lại trong Thống kê test
     const post = body => API.post(url, Object.assign({ action: 'saveTest', teacherKey: st.teacherKey, assignment: a }, body)).then(r => { if (!r.ok) throw new Error(r.message || r.error); });
-    if (link.length > 2000) {
-      if (canSheet) { a.link = shortLink; try { await post({ test }); link = shortLink; mode = 'sheet'; } catch (e) { mode = 'long'; notes.push('Không lưu được đề lên Google Sheet (' + e.message + '). Đang dùng link dài.'); } }
-      else { mode = 'long'; notes.push('Link dài hơn 2000 ký tự. Hãy cấu hình Apps Script URL + Teacher Key (Cài đặt) để dùng link ngắn.'); }
+    if (link.length > (canSheet ? 900 : 2000)) {
+      if (canSheet) { a.link = shortLink; try { await withRetry(() => post({ test })); link = shortLink; mode = 'sheet'; } catch (e) { mode = 'long'; notes.push('Không lưu được đề lên Google Sheet (' + e.message + '). Đang dùng link dài.'); } }
+      else { mode = 'long'; notes.push('Link đang rất dài vì chưa kết nối Google Apps Script. Vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối, rồi bấm “Thử tạo link ngắn lại” để có link ngắn chia sẻ được qua Zalo/Messenger.'); }
     } else if (canSheet) { try { await post({ test: null }); } catch (e) { notes.push('Chưa đăng ký hạn nộp lên máy chủ (' + e.message + ').'); } }
     else notes.push('Chưa cấu hình Apps Script: học sinh làm được nhưng kết quả sẽ không được ghi về Sheet.');
     const box = h('textarea', { readonly: true, 'aria-label': 'Link giao bài test', style: 'min-height:90px;font-size:.8rem', onfocus: e => e.target.select() }); box.value = link;
     const canvas = h('canvas', { 'aria-label': 'Mã QR', role: 'img' });
     out.replaceChildren(h('p', { class: 'ok', text: mode === 'sheet' ? '✓ Link ngắn (đề đã lưu trên Google Sheet).' : '✓ Link chứa toàn bộ đề.' }),
       h('p', { class: 'hint', text: `Độ dài link: ${link.length} ký tự · Hạn: ${fmtDate(dueMs)}` }), ...notes.map(n => h('div', { class: 'box warn', text: n })),
+      mode === 'long' ? h('div', { class: 'row wrap' }, h('button', { class: 'btn small', onclick: () => create() }, '↻ Thử tạo link ngắn lại')) : null,
       h('div', { class: 'box', text: 'Lưu ý: đáp án đúng nằm trong dữ liệu đề (ứng dụng không có máy chủ chấm điểm riêng) – phù hợp bài kiểm tra tại lớp / luyện tập, không phải thi nghiêm ngặt.' }), box,
       h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', onclick: async () => toast(await copyText(link, box) ? 'Đã sao chép link.' : 'Hãy chọn và copy thủ công.') }, '📋 Copy link')), h('div', { class: 'qr' }, canvas));
     if (window.QRCode) QRCode.toCanvas(canvas, link, { width: 260, margin: 2, errorCorrectionLevel: 'L' }, err => { if (err) canvas.replaceWith(h('p', { class: 'err', text: 'Link quá dài để tạo mã QR. Hãy dùng link ngắn qua Google Sheet.' })); });

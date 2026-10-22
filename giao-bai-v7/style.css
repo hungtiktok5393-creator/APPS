@@ -73,7 +73,7 @@ input[type=checkbox]{width:22px;height:22px;vertical-align:middle;margin-right:.
 dialog.modal{border:1px solid var(--border);border-radius:var(--radius);padding:0;max-width:min(560px,94vw);width:100%;background:var(--surface);color:var(--text);box-shadow:0 10px 40px rgba(0,0,0,.35)}
 dialog.modal::backdrop{background:rgba(0,0,0,.55)}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:.5rem .5rem .5rem 1rem;border-bottom:1px solid var(--border)}
-.modal-body{padding:1rem;max-height:80vh;overflow:auto}
+.modal-body{padding:1rem;max-height:80vh;max-height:80dvh;overflow:auto;-webkit-overflow-scrolling:touch}
 /* Toast */
 #toasts{position:fixed;left:0;right:0;bottom:12px;display:flex;flex-direction:column;align-items:center;gap:.5rem;z-index:200;pointer-events:none;padding:0 .5rem}
 .toast{pointer-events:auto;background:var(--text);color:var(--bg);border-radius:10px;padding:.5rem .9rem;display:flex;align-items:center;gap:.75rem;max-width:560px;box-shadow:var(--shadow)}
@@ -156,7 +156,7 @@ body[data-route="assign"] main{padding-top:max(1rem,env(safe-area-inset-top))}
 .pre{white-space:pre-wrap;word-break:break-word}
 input[type=radio]{width:22px;height:22px;vertical-align:middle;margin-right:.4rem}
 .qf .q-text{font-size:1.25rem;margin:.2rem 0}
-.passage{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;max-height:40vh;overflow:auto}
+.passage{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;max-height:40vh;max-height:40dvh;overflow:auto;-webkit-overflow-scrolling:touch}
 .q-img{max-width:100%;max-height:320px;border-radius:10px;align-self:flex-start}
 .opts{display:flex;flex-direction:column;gap:.5rem}
 .opt{display:flex;align-items:center;gap:.6rem;margin:0;min-height:48px;padding:.5rem .8rem;border:2px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;font-weight:500}
@@ -241,8 +241,7 @@ main.wide{max-width:1400px}
 body:not([data-route="assign"]) .run-hud{top:60px}
 .run-hud .grp{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
 .run-title{font-size:1.05rem}
-.dock{position:sticky;top:58px;z-index:14;background:var(--surface);border:2px solid var(--primary);border-radius:12px;padding:.5rem .7rem;display:flex;flex-direction:column;gap:.4rem}
-body:not([data-route="assign"]) .dock{top:118px}
+.dock{position:static;background:var(--surface);border:2px solid var(--primary);border-radius:12px;padding:.5rem .7rem;display:flex;flex-direction:column;gap:.4rem}
 .dock .audio{flex-direction:row;flex-wrap:wrap;align-items:center;gap:.7rem}
 .dock .audio-label{flex:1 0 100%}
 .dock .yt-box{width:200px;max-width:100%;padding-top:112px;flex:none}
@@ -280,3 +279,140 @@ body:not([data-route="assign"]) .dock{top:118px}
 .sec-body{padding:0 1rem 1rem}
 .sec-passage{min-height:160px;font-family:inherit}
 .q-ed{background:var(--bg)}
+
+/* =====================================================================
+   Nâng cấp giao diện: hình lớn · khung nghe gọn đứng yên · bố cục kín màn hình
+   · điện thoại / máy tính bảng (dọc và ngang)
+   ===================================================================== */
+img,video{max-width:100%}
+img{height:auto}
+
+/* --- Hình: rộng hết khung chứa, giữ nguyên tỉ lệ (bấm để phóng to thêm) --- */
+.zoom-wrap{display:block;width:100%;max-width:100%;align-self:stretch}
+.q-img{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain}
+.pane.pass .zoom-wrap{margin-bottom:.8rem}
+
+/* --- Khung nghe: nhỏ gọn, nằm ở đầu phần, KHÔNG đi theo khi cuộn --- */
+.audio .yt-box{max-width:320px;padding-top:min(56.25%,180px)}
+.audio .yt-box.free{max-width:360px;padding-top:min(56.25%,203px)}
+.audio .yt-box.compact{padding-top:0;height:40px;max-width:260px}
+.dock{position:static;padding:.35rem .6rem;border-width:1px;gap:.3rem}
+.dock .audio{flex-direction:row;flex-wrap:wrap;align-items:center;gap:.35rem .7rem}
+.dock .audio-label{flex:0 1 auto;font-size:.9rem}
+.dock .yt-box{width:128px;max-width:100%;padding-top:72px;flex:none}
+.dock .yt-box.compact{width:88px;min-width:0;max-width:88px;padding-top:0;height:34px;flex:none}
+.dock .yt-box.free{width:min(260px,100%);max-width:100%;padding-top:146px}
+.dock .row{gap:.4rem}
+/* Khung Drive đã khóa: lớp phủ trong suốt chặn chạm / chuột sau khi học sinh bấm ▶ */
+.yt-box.guard .yt-host iframe{pointer-events:auto}
+.yt-box.guard .yt-cover{cursor:not-allowed}
+
+/* --- Làm bài: khung lấp đầy màn hình, không còn khoảng trống dưới thanh menu cuối --- */
+.run-test{--outer:calc(3.25rem + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px));min-height:calc(100vh - var(--outer));min-height:calc(100dvh - var(--outer))}
+body:not([data-route="assign"]) .run-test{--outer:calc(3.25rem + 62px + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px))}
+.run-stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.run-stage>.split{flex:1 1 auto;min-height:0}
+.runnav{flex:none;max-height:36vh;max-height:36dvh;overflow:auto;-webkit-overflow-scrolling:touch}
+@media(min-width:861px){
+  .run-test{height:calc(100vh - var(--outer));height:calc(100dvh - var(--outer));min-height:24rem}
+  .run-test .split{grid-template-rows:minmax(0,1fr);align-items:stretch}
+  .run-test .split .pane{max-height:none;height:100%;min-height:0}
+}
+/* Điện thoại / máy tính bảng ngang thấp: đoạn văn | câu hỏi cạnh nhau, mỗi bên cuộn riêng */
+@media(max-width:860px) and (orientation:landscape) and (max-height:560px){
+  .run-test{height:calc(100vh - var(--outer));height:calc(100dvh - var(--outer));min-height:0}
+  .run-test .split{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);align-items:stretch}
+  .run-test .split.one{grid-template-columns:minmax(0,1fr)}
+  .run-test .split .pane,.run-test .split .pane.pass{max-height:none;height:100%;min-height:0}
+  .runnav{max-height:30dvh}
+}
+
+/* --- Điện thoại --- */
+@media(max-width:640px){
+  .topbar{position:static;flex-direction:column;align-items:stretch;gap:0;padding-bottom:.25rem}
+  #nav{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:.2rem}
+  #nav::-webkit-scrollbar{display:none}
+  #nav a{flex:none}
+  body:not([data-route="assign"]) .run-hud{top:0}
+  .page-head{align-items:stretch}
+  .page-head>.row,.page-head .row.wrap{width:100%}
+  .row.end{flex-wrap:wrap}
+}
+@media(max-width:600px){
+  .run-hud{flex-wrap:nowrap;gap:.4rem;padding:.3rem .5rem}
+  .run-title{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.95rem}
+  .run-hud .grp{flex:0 0 auto;flex-wrap:nowrap;gap:.3rem;margin-left:auto}
+  .run-hud .pill{padding:.15rem .5rem;font-size:.85rem;white-space:nowrap}
+  .run-hud .btn.small{padding:.25rem .6rem}
+  .split .pane{padding:.75rem}
+  .qf{padding:.65rem}
+  .passage-text{font-size:1rem;line-height:1.7}
+  .qf .q-text{font-size:1.05rem}
+  .fill{font-size:1.05rem}
+  .dock{padding:.3rem .5rem}
+  .toast{max-width:calc(100vw - 1rem)}
+}
+@media(max-width:380px){.run-title{display:none}}
+
+/* --- Máy tính bảng dọc --- */
+@media(min-width:601px) and (max-width:860px){
+  .split .pane.pass{max-height:42dvh}
+  .split .pane{padding:.9rem}
+}
+
+/* --- Sửa khoảng trống dưới menu cuối: nút radio/checkbox ẩn (position:absolute) không còn "thoát" khỏi khung cuộn làm trang dài thêm --- */
+.opt{position:relative}
+.split .pane,.passage{position:relative}
+.dock .yt-box.compact{width:44px;max-width:44px}
+
+/* --- Thanh điều hướng dưới trên điện thoại: gọn, cuộn ngang thay vì xuống nhiều dòng --- */
+@media(max-width:600px){
+  .runnav{padding:.3rem .4rem;padding-bottom:max(.3rem,env(safe-area-inset-bottom))}
+  .nav-in{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;padding-bottom:.15rem}
+  .nav-in>*{flex:none}
+  .nav-sec{flex-wrap:nowrap;white-space:nowrap}
+  .nav-arrows{margin-top:.3rem}
+  .nav-arrows .btn{flex:1}
+}
+
+/* Thanh dưới: dãy phần + số câu | nút Phần trước / Phần sau (điện thoại: xếp dọc, nút chia đôi) */
+.runnav{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.runnav .nav-in{flex:1 1 auto;min-width:0}
+.runnav .nav-arrows{margin-top:0;flex:none}
+@media(max-width:600px){
+  .runnav{flex-direction:column;align-items:stretch;gap:.3rem}
+  .runnav .nav-arrows{display:flex;gap:.4rem}
+  .q-head .q-meta{flex:1 1 9rem}
+  .q-head .btn{margin-left:auto}
+}
+
+/* Máy tính bảng dọc: dãy phần co lại để hai nút Phần trước/sau nằm cùng hàng */
+@media(min-width:601px){.runnav .nav-in{flex:1 1 0}}
+
+/* Màn hình thấp (điện thoại xoay ngang): mọi thanh gọn lại để nhường chỗ cho đoạn văn và câu hỏi */
+@media(max-height:560px) and (orientation:landscape){
+  .topbar{position:static;padding-top:max(.2rem,env(safe-area-inset-top));padding-bottom:.2rem}
+  .brand,#nav a{min-height:36px}
+  body:not([data-route="assign"]) .run-hud{top:0}
+  .run-test{gap:.35rem}
+  .run-hud{padding:.2rem .5rem}
+  .run-hud .btn.small{min-height:40px}
+  .dock{padding:.2rem .5rem}
+  .dock .btn{min-height:40px}
+  .runnav{flex-direction:row;flex-wrap:nowrap;align-items:center;padding:.25rem .4rem;max-height:none}
+  .runnav .nav-in{flex:1 1 0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:0}
+  .runnav .nav-in>*{flex:none}
+  .runnav .nav-arrows{display:flex;gap:.3rem;flex:none}
+  .runnav .nav-arrows .btn{flex:none;min-height:40px}
+  .nav-sec{flex-wrap:nowrap;white-space:nowrap;min-height:40px}
+  .pal-b{min-width:40px;min-height:40px}
+}
+
+@media(max-height:560px) and (orientation:landscape){
+  main{padding-top:.5rem;padding-bottom:max(.5rem,env(safe-area-inset-bottom))}
+  body[data-route="assign"] main{padding-top:max(.5rem,env(safe-area-inset-top))}
+  .run-test{--outer:calc(1rem + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px))}
+  body:not([data-route="assign"]) .run-test{--outer:calc(1rem + 46px + env(safe-area-inset-bottom,0px))}
+  .run-hud .pill{padding:.1rem .6rem}
+  .run-hud .btn.small{padding:.15rem .7rem}
+}
