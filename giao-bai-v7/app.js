@@ -1129,7 +1129,7 @@ function SettingsView(root) {
       if (!r.ok) throw new Error(r.message || r.error);
       Settings.save(Object.assign(v, { teacherOk: !!r.teacher }));
       res.replaceChildren(h('p', { class: r.teacher ? 'ok' : 'err', text: r.teacher ? '✓ Kết nối thành công và Teacher Key hợp lệ.' : '⚠ Kết nối được máy chủ nhưng Teacher Key trống hoặc sai – chưa mở được Bảng thống kê.' }),
-        (r.v || 0) < 5 ? h('p', { class: 'err', text: '⚠ Apps Script chưa phải bản mới nhất (thiếu hỗ trợ đặt tên bài giao, lưu link, xóa dữ liệu bài hết hạn). Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → Version: New version.' }) : null);
+        (r.v || 0) < 6 ? h('p', { class: 'err', text: '⚠ Apps Script chưa phải bản mới nhất (thiếu hỗ trợ đặt tên bài giao, lưu link, xóa dữ liệu bài bất cứ lúc nào). Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → Version: New version.' }) : null);
       renderNav();
     } catch (e) { res.replaceChildren(h('p', { class: 'err', text: 'Không kết nối được: ' + e.message })); }
   }

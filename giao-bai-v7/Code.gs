@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 5;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 6;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -206,7 +206,7 @@ function submitTest_(b) {
 }
 
 
-/* ---------- XÓA DỮ LIỆU MỘT BÀI GIAO (chỉ khi đã hết hạn) ---------- */
+/* ---------- XÓA DỮ LIỆU MỘT BÀI GIAO (luôn cho phép, kể cả khi chưa hết hạn) ---------- */
 /** Xóa mọi dòng có cột col (0-based) = id; xóa theo khối liên tiếp từ dưới lên cho nhanh. Trả về số dòng đã xóa. */
 function deleteRows_(sh, col, id) {
   const n = sh.getLastRow(); if (n < 2) return 0;
@@ -223,7 +223,6 @@ function deleteAssignment_(b) {
   const id = String(b.id || '');
   if (!/^[\w-]{3,40}$/.test(id)) return { ok: false, error: 'bad_request', message: 'Mã bài không hợp lệ.' };
   const a = findAssignment_(id);
-  if (a && !(a.due > 0 && Date.now() > a.due)) return { ok: false, error: 'not_expired', message: 'Bài chưa hết hạn nộp nên chưa thể xóa dữ liệu.' };   // bài chưa đăng ký (chỉ còn kết quả mồ côi) thì cho xóa
   const out = {
     results: deleteRows_(sheet_(SHEET_RESULTS, RESULT_HEADERS), 1, id),
     testResults: deleteRows_(sheet_(SHEET_TRES, TRES_HEADERS), 1, id),
