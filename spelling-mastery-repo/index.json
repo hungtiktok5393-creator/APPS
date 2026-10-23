@@ -1,7 +1,7 @@
 {
  "app": "spelling-mastery",
  "version": 3,
- "exportedAt": "2026-10-23T13:25:42.679Z",
+ "exportedAt": "2026-10-23T13:46:00.576Z",
  "settings": {
   "theme": "dark",
   "sfx": true,
@@ -15,41 +15,6 @@
    "updatedAt": 1792541534728,
    "n": 8,
    "bytes": 518
-  },
-  {
-   "id": "967a7e4f-f2a1-405e-8a35-aa2b22d9005d",
-   "name": "Từ vựng mẫu – Du lịch (bản sao)",
-   "updatedAt": 1792543264062,
-   "n": 8,
-   "bytes": 529
-  },
-  {
-   "id": "f70c0201-b4c6-46fe-95cb-9137ec65dd75",
-   "name": "Từ vựng mẫu – Du lịch (bản sao) (bản sao)",
-   "updatedAt": 1792761810012,
-   "n": 8,
-   "bytes": 541
-  },
-  {
-   "id": "9da5562e-7fa7-4ea8-972c-095a1944125b",
-   "name": "Từ vựng mẫu – Du lịch (bản sao) (bản sao)",
-   "updatedAt": 1792761793844,
-   "n": 8,
-   "bytes": 541
-  },
-  {
-   "id": "a2e74f3d-2cd2-4158-a9d6-0655df3800f1",
-   "name": "Từ vựng mẫu – Du lịch (bản sao) (bản sao)",
-   "updatedAt": 1792761793039,
-   "n": 8,
-   "bytes": 541
-  },
-  {
-   "id": "119c64ce-bf89-4ebf-986b-8b7a09b492c6",
-   "name": "Từ vựng mẫu – Du lịch (bản sao) (bản sao)",
-   "updatedAt": 1792761792511,
-   "n": 8,
-   "bytes": 541
   },
   {
    "id": "b28e0f05-1fa6-48ee-a58f-9f83c59558c5",
@@ -68,67 +33,11 @@
    "bytes": 18778
   },
   {
-   "id": "07431f0d-69ba-4f5b-8ae6-ec90d669d9d3",
-   "name": "TEST 1 READING AND WRITING",
-   "updatedAt": 1792575426120,
-   "n": 32,
-   "bytes": 16040
-  },
-  {
-   "id": "5547b8e1-847e-42cc-a8be-76234a6cfa44",
-   "name": "TEST 1 READING AND WRITING (bản sao)",
-   "updatedAt": 1792761807212,
-   "n": 32,
-   "bytes": 16052
-  },
-  {
-   "id": "4ab46a07-1fe6-4f51-8fb8-595547901f11",
-   "name": "TEST 1 READING AND WRITING (bản sao)",
-   "updatedAt": 1792761799472,
-   "n": 32,
-   "bytes": 16052
-  },
-  {
-   "id": "34a698cd-d369-47fe-b1dd-635aa0452406",
-   "name": "TEST 1 READING AND WRITING (bản sao)",
-   "updatedAt": 1792761799112,
-   "n": 32,
-   "bytes": 16052
-  },
-  {
-   "id": "375375a9-d3e1-4384-8c2e-4e25c35b378d",
-   "name": "TEST 1 READING AND WRITING (bản sao)",
-   "updatedAt": 1792761798728,
-   "n": 32,
-   "bytes": 16052
-  },
-  {
-   "id": "193e5762-bab0-438a-ad12-7cdc18899acb",
-   "name": "TEST 1 READING AND WRITING (bản sao)",
-   "updatedAt": 1792761798307,
-   "n": 32,
-   "bytes": 16052
-  },
-  {
-   "id": "954cfedb-4c56-413e-bf1b-cf2410caf718",
-   "name": "TEST 1 READING AND WRITING (bản sao)",
-   "updatedAt": 1792761797760,
-   "n": 32,
-   "bytes": 16052
-  },
-  {
    "id": "115ddcdd-0412-4778-b70f-061a5967fc96",
    "name": "TEST 1 READING AND WRITING",
    "updatedAt": 1792574831698,
    "n": 27,
    "bytes": 15532
-  },
-  {
-   "id": "d6e1caa6-a6eb-4198-923d-977200c13981",
-   "name": "TEST 1 READING AND WRITING",
-   "updatedAt": 1792558812676,
-   "n": 32,
-   "bytes": 12818
   }
  ]
 }
