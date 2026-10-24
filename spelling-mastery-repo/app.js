@@ -854,7 +854,7 @@ function importFile(input, onDone) {
   const fr = new FileReader();
   fr.onload = () => {
     let obj; try { obj = JSON.parse(fr.result); } catch (_) { return toast('Tệp JSON bị lỗi cú pháp.', 'error'); }
-    if (obj && obj.version === 3 && Array.isArray(obj.sets) && Array.isArray(obj.tests)) return Modal.open('Đây là index.json', h('div', { class: 'stack' }, h('p', { text: 'index.json chỉ là danh mục của kho tách file, không chứa nội dung bộ từ / bài test. Hãy dùng “⟳ Đồng bộ” để tải từ repo, hoặc nhập tệp data.json (1 tệp) được xuất bằng nút “⬇ Xuất JSON”.' })));
+    if (obj && obj.version === 3 && Array.isArray(obj.sets) && Array.isArray(obj.tests)) return Modal.open('Đây là index.json', h('div', { class: 'stack' }, h('p', { text: 'index.json chỉ là danh mục của kho tách file, không chứa nội dung bộ từ / bài test. Hãy dùng “⟳ Đồng bộ” để tải từ repo, hoặc nhập tệp data.json (1 tệp) của bản cũ.' })));
     const errs = IO.validateJSON(obj);
     if (errs.length) return Modal.open('Tệp JSON không hợp lệ', h('div', null, h('ul', null, errs.slice(0, 8).map(e => h('li', { text: e }))), errs.length > 8 ? h('p', { class: 'muted', text: `…và ${errs.length - 8} lỗi khác.` }) : null));
     importDialog(obj, { onDone });
@@ -866,7 +866,7 @@ function openExport() {
   const key = h('input', { type: 'checkbox', id: 'ex-key' });
   const ch = RepoSync.changed(), nCh = ch.sets.length + ch.tests.length, total = Sets.list.length + Tests.list.length, hasRev = !!Object.keys(RepoSync.rev()).length;
   const only = h('input', { type: 'checkbox', id: 'ex-only', checked: hasRev && nCh < total });
-  const d = Modal.open('Xuất dữ liệu', h('div', { class: 'stack' },
+  const d = Modal.open('Xuất gói repo (.zip)', h('div', { class: 'stack' },
     h('p', { text: `${Sets.list.length} bộ từ và ${Tests.list.length} bài test, cùng thiết lập (giao diện, âm thanh, Apps Script URL).` }),
     h('label', { class: 'check', for: 'ex-key' }, key, 'Kèm Teacher Key'),
     h('div', { class: 'box warn', text: 'Không đưa tệp có Teacher Key lên repo công khai: ai cũng đọc được và xem được kết quả học sinh. Chỉ tick khi sao lưu riêng tư.' }),
@@ -874,20 +874,19 @@ function openExport() {
     h('p', { class: 'hint', text: 'Gói .zip gồm index.json và thư mục data/ (mỗi bộ từ / bài test một tệp). Giải nén vào thư mục gốc của repo (cùng chỗ với index.html), chép đè rồi commit. Các máy khác chỉ tải những tệp có updatedAt mới hơn.' }),
     h('div', { class: 'row wrap end' },
       h('button', { class: 'btn', onclick: () => d.close() }, 'Hủy'),
-      h('button', { class: 'btn', onclick: () => { const data = buildExport(key.checked); download('data.json', JSON.stringify(data), 'application/json'); RepoSync.mark(data.exportedAt, RepoSync.localRev()); d.close(); toast('Đã tạo data.json (1 tệp – dùng để sao lưu hoặc nhập lại).'); } }, '⬇ data.json (1 tệp)'),
       h('button', { class: 'btn primary', onclick: () => {
         const r = buildRepoFiles({ includeKey: key.checked, onlyChanged: only.checked });
         if (r.orphans.length) r.files.push({ path: '_tep-can-xoa.txt', text: 'Các tệp này không còn trong index.json (đã xóa trên máy). Xóa khỏi repo cho gọn – app bỏ qua chúng nên để lại cũng không sao:\n' + r.orphans.join('\n') + '\n' });
         download('spelling-mastery-data.zip', Zip.build(r.files));
         RepoSync.mark(r.index.exportedAt, RepoSync.localRev()); d.close();
         toast(`Đã tạo gói .zip: index.json + ${r.files.filter(f => f.path.startsWith('data/')).length} tệp dữ liệu.` + (r.skipped.length ? ` Bỏ qua ${r.skipped.length} mục có mã không hợp lệ.` : ''));
-      } }, '⬇ Gói repo (.zip)'))));
+      } }, '⬇ Tải gói .zip'))));
 }
 
 /* ===================== 9. THƯ VIỆN TRANG CHỦ: tìm kiếm · thư mục · thẻ · yêu thích · gần đây · phân trang ===================== */
 const LIB_PAGE = 24;
 const blankLib = () => ({ q: '', sort: '', folder: '*', tags: [], fav: false, page: 1 });   // folder: '*' = tất cả, '' = chưa phân loại
-const HomeState = { sets: blankLib(), tests: blankLib(), quick: 'recent' };
+const HomeState = { sets: blankLib(), tests: blankLib(), quick: 'recent', tab: 'sets' };   // tab: 'sets' | 'tests'
 /** Yêu thích + dùng gần đây: lưu RIÊNG trên từng máy (không nằm trong data/ nên đồng bộ repo không ghi đè). Thư mục / thẻ thì nằm trong dữ liệu và được đồng bộ. */
 const Prefs = {
   d: { fav: {}, recent: [] },
@@ -1049,26 +1048,66 @@ function HomeView(root) {
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn primary small', onclick: () => offer.open(() => { offer = null; render(); }) }, 'Xem & cập nhật'),
       h('button', { class: 'btn small', onclick: () => { offer = null; render(); } }, 'Để sau')));
-  function render() {
-    const ae = document.activeElement, fk = ae && ae.dataset && ae.dataset.fk;      // giữ lại vị trí bàn phím khi bấm ★
-    root.replaceChildren(
-      h('div', { class: 'page-head' },
-        h('h1', { text: 'Bộ từ vựng của tôi' }),
-        h('div', { class: 'row wrap' },
-          h('button', { class: 'btn primary', onclick: () => openEditor(null) }, '＋ Tạo bộ từ'),
-          h('label', { class: 'btn', style: 'margin:0;cursor:pointer' }, '⬆ Nhập JSON',
-            h('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: e => importFile(e.target, render) })),
-          h('button', { class: 'btn', onclick: () => openExport() }, '⬇ Xuất JSON'),
-          h('button', { class: 'btn', onclick: () => repoCheck({ manual: true, onApplied: render }) }, '⟳ Đồng bộ'))),
+  /* ============ DANH SÁCH NÚT CỦA TRANG CHỦ ============
+   Muốn thêm nút mới: thêm MỘT dòng vào mảng dưới đây, không cần sửa chỗ khác.
+     zone: 'create' → ô lớn ở phần "Tạo mới" · 'data' → nút nhỏ ở thanh "Dữ liệu" góc trên bên phải
+     icon, title, hint (chỉ ô lớn dùng)
+     run: () => … (bấm là chạy)  |  href: '#/…' (chuyển trang)  |  file: '.json' + onFile(input) (chọn tệp rồi xử lý) */
+  const actions = () => [
+    { id: 'new-set', zone: 'create', icon: '🔤', title: 'Tạo bộ từ', hint: 'Soạn danh sách từ để luyện chính tả', run: () => { HomeState.tab = 'sets'; openEditor(null); } },
+    { id: 'new-test', zone: 'create', icon: '📝', title: 'Tạo bài test', hint: 'Bài nhiều phần, nhiều dạng câu hỏi', href: '#/test-edit/new' },
+    { id: 'paste-test', zone: 'create', icon: '📄', title: 'Nhập đề từ văn bản', hint: 'Dán nguyên văn đề, app tự tách câu', run: () => tests.pasteText() },
+    { id: 'sync', zone: 'data', icon: '⟳', title: 'Đồng bộ', run: () => repoCheck({ manual: true, onApplied: render }) },
+    { id: 'import', zone: 'data', icon: '⬆', title: 'Nhập JSON', file: '.json,application/json', onFile: input => importFile(input, render) },
+    { id: 'export', zone: 'data', icon: '⬇', title: 'Xuất gói .zip', run: () => openExport() }
+  ];
+  const actTile = a => {
+    const kids = [h('span', { class: 'act-ico', 'aria-hidden': 'true', text: a.icon }),
+      h('span', { class: 'act-text' }, h('span', { class: 'act-title', text: a.title }), a.hint ? h('span', { class: 'act-hint', text: a.hint }) : null)];
+    return a.href ? h('a', { class: 'act', href: a.href }, kids) : h('button', { type: 'button', class: 'act', onclick: a.run }, kids);
+  };
+  const actBtn = a => {
+    const kids = [h('span', { 'aria-hidden': 'true', text: a.icon }), a.title];
+    if (a.file) {
+      const inp = h('input', { type: 'file', accept: a.file, style: 'display:none', tabindex: '-1', 'aria-hidden': 'true', onchange: e => a.onFile(e.target) });
+      return h('span', null, h('button', { type: 'button', class: 'btn small', onclick: () => inp.click() }, kids), inp);
+    }
+    return a.href ? h('a', { class: 'btn small', href: a.href }, kids) : h('button', { type: 'button', class: 'btn small', onclick: a.run }, kids);
+  };
+  /* ============ CÁC TAB THƯ VIỆN ============ thêm tab mới: thêm một dòng ở đây + một nhánh trong render() */
+  const tabs = () => [['sets', '🔤', 'Bộ từ vựng', Sets.list.length], ['tests', '📝', 'Bài test', Tests.list.length]];
+  function tabBar(cur) {
+    const defs = tabs();
+    return h('div', { class: 'home-tabs', role: 'tablist', 'aria-label': 'Thư viện của tôi' }, defs.map(([id, ico, label, n], i) =>
+      h('button', { type: 'button', role: 'tab', id: 'tab-' + id, class: 'home-tab', 'aria-selected': String(cur === id), 'aria-controls': 'home-panel', tabindex: cur === id ? '0' : '-1', 'data-fk': 'tab-' + id,
+        onclick: () => { HomeState.tab = id; render('tab-' + id); },
+        onkeydown: e => {
+          const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0; if (!d) return;
+          e.preventDefault(); const to = defs[(i + d + defs.length) % defs.length][0]; HomeState.tab = to; render('tab-' + to);
+        } },
+        h('span', { 'aria-hidden': 'true', text: ico }), h('span', { text: label }), h('span', { class: 'home-count', text: n.toLocaleString('vi-VN') }))));
+  }
+  const setsPanel = () => Sets.list.length
+    ? Library('set', { state: HomeState.sets, getItems: () => Sets.list, makeCard: card, placeholder: '🔍 Tìm bộ từ theo tên, thư mục, thẻ…', size: x => x.cards.length, sizeLabel: 'Nhiều từ nhất' })
+    : h('div', { class: 'card empty' }, h('h2', { text: 'Chưa có bộ từ nào' }),
+      h('p', { class: 'muted', text: 'Tạo bộ từ mới hoặc thử nhanh với 8 từ mẫu.' }),
+      h('div', { class: 'row wrap', style: 'justify-content:center' },
+        h('button', { class: 'btn primary', onclick: () => openEditor(null) }, '＋ Tạo bộ từ'),
+        h('button', { class: 'btn', onclick: addSample }, 'Thêm dữ liệu mẫu')));
+  let tests = null;
+  function render(focusKey) {
+    const ae = document.activeElement, fk = typeof focusKey === 'string' ? focusKey : (ae && ae.dataset && ae.dataset.fk);      // giữ lại vị trí bàn phím khi bấm ★ / đổi tab
+    const A = actions(), cur = HomeState.tab === 'tests' ? 'tests' : 'sets';
+    tests = TestHomeSection(render);
+    root.replaceChildren(h('div', { class: 'home' },
+      h('div', { class: 'home-head' },
+        h('div', null, h('h1', { text: 'Trang chủ' }), h('p', { class: 'muted small-text home-sub', text: `${Sets.list.length.toLocaleString('vi-VN')} bộ từ, ${Tests.list.length.toLocaleString('vi-VN')} bài test` })),
+        h('div', { class: 'home-tools', role: 'group', 'aria-label': 'Dữ liệu' }, A.filter(a => a.zone === 'data').map(actBtn))),
       offer ? banner() : null,
+      h('section', { class: 'home-create', 'aria-label': 'Tạo mới' }, A.filter(a => a.zone === 'create').map(actTile)),
       QuickPanel(),
-      Sets.list.length ? Library('set', { state: HomeState.sets, getItems: () => Sets.list, makeCard: card, placeholder: '🔍 Tìm bộ từ theo tên, thư mục, thẻ…', size: x => x.cards.length, sizeLabel: 'Nhiều từ nhất' })
-        : h('div', { class: 'card empty' }, h('h2', { text: 'Chưa có bộ từ nào' }),
-          h('p', { class: 'muted', text: 'Tạo bộ từ mới, nhập CSV/Excel, hoặc thử nhanh với 8 từ mẫu.' }),
-          h('div', { class: 'row wrap', style: 'justify-content:center' },
-            h('button', { class: 'btn primary', onclick: () => openEditor(null) }, '＋ Tạo bộ từ'),
-            h('button', { class: 'btn', onclick: addSample }, 'Thêm dữ liệu mẫu'))),
-      TestHomeSection(render));
+      tabBar(cur),
+      h('div', { class: 'home-panel', id: 'home-panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + cur, tabindex: '-1' }, cur === 'tests' ? tests.panel() : setsPanel())));
     if (fk) { const n = root.querySelector('[data-fk="' + fk + '"]'); if (n) n.focus({ preventScroll: true }); }
   }
   function card(s, ctx) {
@@ -1701,8 +1740,8 @@ function SettingsView(root) {
     (() => { const i = storageInfo(); return h('section', { class: 'card' }, h('h2', { text: 'Bộ nhớ trên máy' }),
       h('p', { text: `${Sets.list.length} bộ từ (${i.words.toLocaleString('vi-VN')} từ) · ${Tests.list.length} bài test (${i.qs.toLocaleString('vi-VN')} câu)` }),
       h('p', { class: 'hint', text: i.idb
-        ? `Lưu bằng IndexedDB (mỗi bộ từ / bài test một bản ghi riêng, không còn giới hạn ~5 MB). Đang dùng khoảng ${i.mb} MB` + (i.quotaMb ? ` trên tối đa khoảng ${i.quotaMb.toLocaleString('vi-VN')} MB trình duyệt cho phép.` : '.') + ' Hãy xuất data.json thường xuyên để sao lưu.'
-        : `Trình duyệt này không dùng được IndexedDB nên app lưu theo chế độ cũ (localStorage, khoảng 5 MB). Đang dùng khoảng ${i.mb} MB. Hãy xuất data.json thường xuyên để sao lưu.` })); })(),
+        ? `Lưu bằng IndexedDB (mỗi bộ từ / bài test một bản ghi riêng, không còn giới hạn ~5 MB). Đang dùng khoảng ${i.mb} MB` + (i.quotaMb ? ` trên tối đa khoảng ${i.quotaMb.toLocaleString('vi-VN')} MB trình duyệt cho phép.` : '.') + ' Hãy xuất gói .zip thường xuyên để sao lưu.'
+        : `Trình duyệt này không dùng được IndexedDB nên app lưu theo chế độ cũ (localStorage, khoảng 5 MB). Đang dùng khoảng ${i.mb} MB. Hãy xuất gói .zip thường xuyên để sao lưu.` })); })(),
     h('section', { class: 'card' }, h('h2', { text: 'Dữ liệu trên máy' }), h('button', { class: 'btn danger', onclick: wipe }, '🗑 Xóa dữ liệu local'))));
   return { destroy() {} };
 }
@@ -2999,14 +3038,6 @@ function TestHomeSection(rerender) {
     const t = normTest({ id: uid(), name: (r.meta && r.meta.name) || 'Bài test nhập từ văn bản', desc: '', limit: 0, shuffleQ: false, shuffleOpt: false, review: true, yt: defYt(1), sections: r.sections, updatedAt: Date.now() });
     Tests.list.unshift(t); if (Tests.save()) { toast(`Đã tạo bài test ${qCount(t)} câu. Hãy kiểm tra lại trong trình soạn.`); location.hash = '#/test-edit/' + t.id; }
   }
-  const fileIn = h('input', { type: 'file', accept: '.csv,.tsv,.xlsx,.xls', style: 'display:none', onchange: e => {
-    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-    pickTestFile(f, r => {
-      const t = normTest({ id: uid(), name: (r.meta && r.meta.name) || f.name.replace(/\.[^.]+$/, ''), desc: (r.meta && r.meta.desc) || '', limit: (r.meta && r.meta.limit) || 0, shuffleQ: false, shuffleOpt: false, review: true,
-        yt: r.meta && r.meta.yt ? Object.assign(defYt(1), r.meta.yt) : defYt(1), sections: r.sections, updatedAt: Date.now() });
-      Tests.list.unshift(t); if (Tests.save()) { toast(`Đã nhập ${qCount(t)} câu.`); location.hash = '#/test-edit/' + t.id; }
-    }, false);
-  } });
   function dupTest(t) {
     const c = Object.assign(JSON.parse(JSON.stringify(t)), { id: uid(), name: (t.name + ' (bản sao)').slice(0, 80), updatedAt: Date.now() });
     c.sections.forEach(s => { s.id = shortId(); s.questions.forEach(q => { q.id = shortId(); }); });
@@ -3036,13 +3067,7 @@ function TestHomeSection(rerender) {
     const i = Tests.list.indexOf(t); Tests.list.splice(i, 1); Tests.save(); rerender();
     toast('Đã xóa bài test.', 'info', { label: 'Hoàn tác', onClick: () => { Tests.list.splice(Math.min(i, Tests.list.length), 0, t); Tests.save(); rerender(); } });
   }
-  return h('section', { 'aria-label': 'Bài test', style: 'margin-top:2rem' },
-    h('div', { class: 'page-head' }, h('h1', { text: 'Bài test của tôi' }), h('div', { class: 'row wrap' },
-      h('a', { class: 'btn primary', href: '#/test-edit/new' }, '📝 Tạo bài test'),
-      h('button', { class: 'btn primary', onclick: () => openTextImport(textUse, false) }, '📄 Nhập từ văn bản (dán đề)'),
-      h('label', { class: 'btn', style: 'margin:0;cursor:pointer' }, '⬆ Nhập CSV/Excel', fileIn),
-      h('button', { class: 'btn', onclick: () => csvDownload('mau-bai-test.csv', SAMPLE_TEST) }, '⬇ File CSV mẫu'))),
-    Tests.list.length ? Library('test', { state: HomeState.tests, getItems: () => Tests.list, placeholder: '🔍 Tìm bài test theo tên, thư mục, thẻ…', size: x => qCount(x), sizeLabel: 'Nhiều câu nhất',
+  const panel = () => Tests.list.length ? Library('test', { state: HomeState.tests, getItems: () => Tests.list, placeholder: '🔍 Tìm bài test theo tên, thư mục, thẻ…', size: x => qCount(x), sizeLabel: 'Nhiều câu nhất',
       makeCard: (t, ctx) => h('article', { class: 'card', 'aria-label': 'Bài test ' + t.name },
         cardTop('test', t, rerender),
         h('p', { class: 'muted small-text', text: `${t.sections.length} phần · ${qCount(t)} câu · ` + (t.limit ? t.limit + ' phút' : 'không giới hạn giờ') + ((t.yt && t.yt.url) || t.sections.some(s => s.yt && s.yt.url) ? ' · 🎧' : '') }),
@@ -3051,7 +3076,12 @@ function TestHomeSection(rerender) {
           h('a', { class: 'btn', href: '#/test-edit/' + t.id }, '✎ Sửa'), h('button', { class: 'btn', onclick: () => del(t) }, '🗑 Xóa')),
         h('div', { class: 'actions-2' }, h('button', { class: 'btn small ghost', onclick: () => dupTest(t) }, '⧉ Nhân bản'), h('button', { class: 'btn small ghost', onclick: () => joinTest(t) }, '⛓ Gộp'),
           h('button', { class: 'btn small ghost', onclick: () => openClassify('test', t, rerender) }, '🏷 Phân loại'))) })
-      : h('div', { class: 'card empty' }, h('p', { class: 'muted', text: 'Chưa có bài test nào. Bấm “📝 Tạo bài test”, hoặc nhập từ file CSV/Excel (tải file mẫu để xem định dạng).' })));
+      : h('div', { class: 'card empty' }, h('h2', { text: 'Chưa có bài test nào' }),
+        h('p', { class: 'muted', text: 'Tạo bài test mới hoặc dán nguyên văn đề để app tự tách câu.' }),
+        h('div', { class: 'row wrap', style: 'justify-content:center' },
+          h('a', { class: 'btn primary', href: '#/test-edit/new' }, '📝 Tạo bài test'),
+          h('button', { class: 'btn', onclick: () => openTextImport(textUse, false) }, '📄 Nhập đề từ văn bản')));
+  return { panel, pasteText: () => openTextImport(textUse, false) };
 }
 
 /* ---------- Nhập từ VĂN BẢN (dán nguyên văn đề – không qua AI nên giữ 100% chữ gốc) ----------

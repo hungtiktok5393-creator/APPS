@@ -562,3 +562,27 @@ body.ds-row,body.ds-row *{cursor:row-resize!important}
 .tag{min-height:30px;font-size:.8rem;padding:.05rem .6rem;background:var(--bg)}
 .tag.folder{font-weight:600}
 .lib-pager{margin-top:1rem}
+
+/* ===== Trang chủ: đầu trang · tạo mới · tab thư viện ===== */
+.home-head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:.75rem 1rem;margin-bottom:1.1rem}
+.home-head h1{margin:0}
+.home-sub{margin:.1rem 0 0}
+.home-tools{display:flex;flex-wrap:wrap;gap:.4rem}
+.home-tools>span{display:contents}
+.home-create{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-bottom:1.25rem}
+.act{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:.8rem;min-height:64px;padding:.6rem .9rem;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;text-align:left;text-decoration:none;cursor:pointer;box-shadow:var(--shadow)}
+.act:hover{border-color:var(--primary)}
+.act-ico{display:grid;place-items:center;width:42px;height:42px;border-radius:10px;font-size:1.3rem;background:color-mix(in srgb,var(--primary) 14%,var(--surface))}
+.act-text{display:grid;min-width:0}
+.act-title{font-weight:700}
+.act-hint{font-size:.85rem;color:var(--muted)}
+.home .quick{margin-bottom:1.25rem}
+.home .quick .tiles{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:minmax(210px,230px);overflow-x:auto;padding-bottom:.4rem;scroll-snap-type:x proximity}
+.home .quick .tile{scroll-snap-align:start}
+.home-tabs{display:flex;gap:.25rem;border-bottom:1px solid var(--border);margin-bottom:1rem;overflow-x:auto}
+.home-tab{display:inline-flex;align-items:center;gap:.5rem;min-height:48px;padding:0 1rem;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;background:transparent;color:var(--muted);font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.home-tab:hover{color:var(--text)}
+.home-tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--primary)}
+.home-count{min-width:1.8em;padding:0 .5em;border-radius:999px;background:var(--bg);border:1px solid var(--border);font-size:.8rem;line-height:1.6;text-align:center}
+.home-tab[aria-selected="true"] .home-count{background:var(--primary);color:var(--primary-text);border-color:var(--primary)}
+.home-panel:focus{outline:none}
