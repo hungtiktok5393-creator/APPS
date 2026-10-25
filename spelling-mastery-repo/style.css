@@ -586,3 +586,27 @@ body.ds-row,body.ds-row *{cursor:row-resize!important}
 .home-count{min-width:1.8em;padding:0 .5em;border-radius:999px;background:var(--bg);border:1px solid var(--border);font-size:.8rem;line-height:1.6;text-align:center}
 .home-tab[aria-selected="true"] .home-count{background:var(--primary);color:var(--primary-text);border-color:var(--primary)}
 .home-panel:focus{outline:none}
+
+
+/* --- Định dạng chữ do giáo viên đặt trong đề: [b] [i] [u] [hl] --- */
+.tm-hl{color:#16181d;border-radius:3px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.tm-y{background:#fde047}.tm-g{background:#86efac}.tm-p{background:#f9a8d4}.tm-b{background:#93c5fd}.tm-o{background:#fdba74}
+.pre u{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:.16em}
+.pre strong{font-weight:800}
+/* Thanh định dạng trong trình soạn bài test (dính trên cùng khi cuộn) */
+.fmt-wrap{position:sticky;top:3.6rem;z-index:15;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:.45rem .65rem;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.fmt-bar{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem}
+.fmt-lbl{font-size:.85rem;font-weight:700;color:var(--muted);margin-right:.2rem}
+.fmt-btn{min-width:36px;min-height:36px;padding:0 .6rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.fmt-btn:hover{border-color:var(--primary)}
+.fmt-btn:active{transform:scale(.94)}
+.fmt-btn:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.fmt-btn.fi{font-style:italic}.fmt-btn.fu{text-decoration:underline;text-decoration-thickness:2px}
+.fmt-btn.fx{font-weight:600;font-size:.85rem}
+.fmt-sw{width:36px;padding:0;border-radius:50%;border:2px solid rgba(0,0,0,.28)}
+.fmt-sep{width:1px;align-self:stretch;background:var(--border);margin:0 .15rem}
+.fmt-hint{margin:.35rem 0 0}
+.fmt-prev{margin-top:.4rem;padding:.4rem .6rem;max-height:6.5rem;overflow:auto;border-left:4px solid var(--primary);background:var(--bg);border-radius:6px;font-size:.95rem}
+.fmt-prev[hidden]{display:none}
+@media(max-width:640px){.fmt-wrap{top:0}.fmt-hint{display:none}.fmt-lbl{display:none}}
+@media print{.fmt-wrap{display:none}}

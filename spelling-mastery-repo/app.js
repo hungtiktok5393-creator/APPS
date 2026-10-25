@@ -2845,6 +2845,107 @@ function AudioClip(q, used, review, label) {
   destroy() { dead = true; if (guardOff) guardOff(); killEngine(); } };
 }
 
+/* ---------- Định dạng chữ trong đề (giáo viên bôi đen rồi chọn) ----------
+   Lưu thẳng trong chuỗi văn bản bằng thẻ: [b]đậm[/b] [i]nghiêng[/i] [u]gạch chân[/u] [hl]tô vàng[/hl] [hl=g]tô xanh lá[/hl]
+   Màu: y vàng · g xanh lá · p hồng · b xanh dương · o cam. Hiển thị bằng rich() (dựng DOM, không dùng innerHTML → an toàn XSS);
+   thẻ thiếu đóng thì chỉ có hiệu lực đến hết đoạn, thẻ đóng thừa hiện nguyên văn. plain() bỏ thẻ để dùng cho so khớp / báo cáo. */
+const RT_SRC = '\\[(\\/?)(b|i|u|hl)(?:=([ygpbo]))?\\]';
+const plain = s => String(s == null ? '' : s).replace(new RegExp(RT_SRC, 'gi'), '');
+const hasRich = s => new RegExp(RT_SRC, 'i').test(String(s == null ? '' : s));
+/** Trả về DocumentFragment. st = { fmt: [] } (tùy chọn) để giữ định dạng đang mở qua nhiều đoạn văn (vd câu điền chỗ trống bị chia bởi ô nhập). */
+function rich(text, st) {
+  text = String(text == null ? '' : text);
+  const frag = document.createDocumentFragment(), fmt = (st && st.fmt) || [], re = new RegExp(RT_SRC, 'gi');
+  const put = s => {
+    if (!s) return; let n = document.createTextNode(s);
+    for (let k = fmt.length - 1; k >= 0; k--) {
+      const f = fmt[k], el = document.createElement(f.t === 'hl' ? 'span' : f.t === 'b' ? 'strong' : f.t === 'i' ? 'em' : 'u');
+      if (f.t === 'hl') el.className = 'tm-hl tm-' + f.c;
+      el.append(n); n = el;
+    }
+    frag.append(n);
+  };
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    put(text.slice(last, m.index)); last = m.index + m[0].length;
+    const t = m[2].toLowerCase();
+    if (!m[1]) { fmt.push({ t, c: (m[3] || 'y').toLowerCase() }); continue; }
+    let k = -1; for (let j = fmt.length - 1; j >= 0; j--) if (fmt[j].t === t) { k = j; break; }
+    if (k < 0) put(m[0]); else fmt.splice(k, 1);          // thẻ đóng không có thẻ mở → giữ nguyên văn
+  }
+  put(text.slice(last)); return frag;
+}
+/** Thanh định dạng cho trình soạn bài test: áp dụng lên ô văn bản [data-rich] đang/đã được chọn gần nhất */
+function FmtBar() {
+  const COLORS = [['y', 'Vàng', '#fde047'], ['g', 'Xanh lá', '#86efac'], ['p', 'Hồng', '#f9a8d4'], ['b', 'Xanh dương', '#93c5fd'], ['o', 'Cam', '#fdba74']];
+  let cur = null;
+  const prevLbl = h('strong', { text: 'Xem trước: ' }), prevBody = h('span'), prev = h('div', { class: 'fmt-prev pre', hidden: true, 'aria-live': 'off' }, prevLbl, prevBody);
+  const sync = () => {
+    const v = cur && cur.isConnected ? cur.value : '', has = hasRich(v);
+    prev.hidden = !has; if (has) prevBody.replaceChildren(rich(v));
+  };
+  /* Dùng execCommand để giữ lịch sử hoàn tác (Ctrl+Z); dự phòng setRangeText + phát sự kiện input */
+  const edit = (el, from, to, text, selFrom, selTo) => {
+    el.focus({ preventScroll: true }); el.setSelectionRange(from, to);
+    const want = el.value.slice(0, from) + text + el.value.slice(to); let ok = false;
+    try { ok = document.execCommand('insertText', false, text); } catch (_) { ok = false; }
+    if (!ok || el.value !== want) { el.value = want; el.dispatchEvent(new Event('input', { bubbles: true })); }
+    el.setSelectionRange(selFrom, selTo); sync();
+  };
+  function apply(el, kind, color) {
+    if (!el || !el.isConnected) return toast('Hãy bấm vào ô soạn (câu hỏi, đoạn văn, lựa chọn…) rồi bôi đen chữ cần định dạng.', 'info');
+    const v = el.value, s = el.selectionStart, e = el.selectionEnd;
+    if (s == null) return;
+    const isHl = kind === 'hl', c = color || 'y', open = isHl ? (c === 'y' ? '[hl]' : '[hl=' + c + ']') : '[' + kind + ']', close = '[/' + kind + ']';
+    const openRe = isHl ? '\\[hl(?:=([ygpbo]))?\\]' : '\\[' + kind + '\\]', sel = v.slice(s, e);
+    const reIn = new RegExp('^' + openRe, 'i'), reOut = new RegExp(openRe + '$', 'i');
+    const sameColor = m => !isHl || (m[1] || 'y').toLowerCase() === c;
+    let m;
+    // 1) vùng chọn đã gồm cả thẻ mở + thẻ đóng ở hai đầu → bỏ (hoặc đổi màu)
+    if ((m = sel.match(reIn)) && sel.toLowerCase().endsWith(close) && sel.length >= m[0].length + close.length) {
+      const inner = sel.slice(m[0].length, sel.length - close.length);
+      if (sameColor(m)) return edit(el, s, e, inner, s, s + inner.length);
+      return edit(el, s, e, open + inner + close, s, s + open.length + inner.length + close.length);
+    }
+    // 2) thẻ nằm ngay ngoài vùng chọn → bỏ (hoặc đổi màu)
+    const b = v.slice(0, s).match(reOut);
+    if (b && v.slice(e, e + close.length).toLowerCase() === close) {
+      const from = s - b[0].length, to = e + close.length;
+      if (sameColor(b)) return edit(el, from, to, sel, from, from + sel.length);
+      return edit(el, from, to, open + sel + close, from + open.length, from + open.length + sel.length);
+    }
+    // 3) thêm mới (đưa khoảng trắng đầu/cuối ra ngoài thẻ)
+    const lead = (sel.match(/^\s*/) || [''])[0], core = sel.trim() ? sel.slice(lead.length).replace(/\s+$/, '') : '', trail = core ? sel.slice(lead.length + core.length) : '';
+    const out = lead + open + core + close + trail, a = s + lead.length + open.length;
+    edit(el, s, e, out, a, a + core.length);
+  }
+  function clear(el) {
+    if (!el || !el.isConnected) return toast('Hãy bấm vào ô soạn rồi bôi đen chữ cần xóa định dạng.', 'info');
+    let s = el.selectionStart, e = el.selectionEnd; if (s === e) { s = 0; e = el.value.length; }
+    const old = el.value.slice(s, e), t = plain(old); if (t === old) return;
+    edit(el, s, e, t, s, s + t.length);
+  }
+  const btn = (label, title, cls, fn, style) => h('button', { type: 'button', class: 'fmt-btn ' + cls, title, 'aria-label': title, style, onmousedown: ev => ev.preventDefault(), onclick: fn }, label);
+  const el = h('div', { class: 'fmt-wrap' },
+    h('div', { class: 'fmt-bar', role: 'toolbar', 'aria-label': 'Định dạng chữ' },
+      h('span', { class: 'fmt-lbl', text: 'Định dạng chữ:' }),
+      btn('B', 'In đậm (Ctrl+B)', 'fb', () => apply(cur, 'b')), btn('I', 'In nghiêng (Ctrl+I)', 'fi', () => apply(cur, 'i')), btn('U', 'Gạch chân (Ctrl+U)', 'fu', () => apply(cur, 'u')),
+      h('span', { class: 'fmt-sep', 'aria-hidden': 'true' }),
+      COLORS.map(([k, name, bg]) => btn('', 'Tô màu ' + name, 'fmt-sw', () => apply(cur, 'hl', k), 'background:' + bg)),
+      h('span', { class: 'fmt-sep', 'aria-hidden': 'true' }),
+      btn('✕ Xóa định dạng', 'Xóa định dạng trong vùng chọn (không chọn = cả ô)', 'fx', () => clear(cur))),
+    h('p', { class: 'hint fmt-hint', text: 'Bôi đen chữ trong ô soạn (câu hỏi, đoạn văn, lựa chọn…) rồi bấm nút. Bấm lại lần nữa để bỏ. Định dạng hiện đúng khi học sinh làm bài.' }), prev);
+  return { el,
+    attach(page) {
+      page.addEventListener('focusin', ev => { const t = ev.target; if (t && t.matches && t.matches('[data-rich]')) { cur = t; sync(); } });
+      page.addEventListener('input', ev => { if (ev.target === cur) sync(); });
+      page.addEventListener('keydown', ev => {
+        const t = ev.target; if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.shiftKey || !t || !t.matches || !t.matches('[data-rich]')) return;
+        const k = String(ev.key).toLowerCase(); if (k === 'b' || k === 'i' || k === 'u') { ev.preventDefault(); cur = t; apply(t, k); }
+      });
+    } };
+}
+
 /* ---------- Mô hình câu hỏi ---------- */
 function newQ(type) {
   const q = { id: shortId(), type, text: '', pre: '', passage: '', img: '', yt: { url: '', start: '', end: '', plays: 2, hide: true }, points: Scoring.testDefault, expl: '' };
@@ -2983,9 +3084,13 @@ function ansText(q, v) {
     case 'match': s = q.pairs.map((p, i) => p[0] + '→' + ((v || [])[i] != null && (v || [])[i] !== '' ? q.pairs[v[i]][1] : '?')).join(' | '); break;
     case 'order': s = (v || q.oinit).map(x => q.items[x]).join(' > '); break;
   }
-  return String(s == null ? '' : s);
+  s = String(s == null ? '' : s);
+  return (q.type === 'short' || q.type === 'essay' || q.type === 'fill') ? s : plain(s);
 }
 function correctText(q) {
+  const t = correctText0(q); return (q.type === 'mcq' || q.type === 'multi' || q.type === 'match' || q.type === 'order') ? plain(t) : t;
+}
+function correctText0(q) {
   switch (q.type) {
     case 'mcq': case 'multi': return q.ans.map(i => q.opts[i]).join(' | ');
     case 'tf': return q.ans ? 'Đúng' : 'Sai';
@@ -3026,7 +3131,7 @@ function choiceList(q, items, sel, cor, multi, rv, set) {
     const on = sel.has(it.key), isC = !!cor && cor.has(it.key);
     const inp = h('input', { type: multi ? 'checkbox' : 'radio', name: 'q' + q.id, checked: on, disabled: !!rv });
     wrap.append(h('label', { class: 'opt' + (on ? ' on' : '') + (rv ? (isC ? ' right' : on ? ' wrong' : '') : '') }, inp,
-      h('span', { class: 'ltr', text: String.fromCharCode(65 + k) }), h('span', { class: 'ot pre', text: it.text }),
+      h('span', { class: 'ltr', text: String.fromCharCode(65 + k) }), h('span', { class: 'ot pre' }, rich(it.text)),
       rv && (isC || on) ? h('span', { class: 'mk', text: isC ? '✓' : '✗' }) : null));
   });
   if (!rv) wrap.addEventListener('change', () => {
@@ -3048,9 +3153,9 @@ const R = {
     if (!rv) ta.addEventListener('input', () => set(ta.value)); return ta;
   },
   fill(q, v, set, rv) {
-    const vals = (v || []).slice(), box = h('div', { class: 'fill pre' }); let bi = 0;
+    const vals = (v || []).slice(), box = h('div', { class: 'fill pre' }), rst = { fmt: [] }; let bi = 0;
     fillParts(q.text).forEach(p => {
-      if (p.t != null) return box.append(p.t);
+      if (p.t != null) return box.append(rich(p.t, rst));
       const i = bi++, inp = h('input', { type: 'text', class: 'blank' + (rv ? (blankOk(p, vals[i]) ? ' right' : ' wrong') : ''), value: vals[i] || '', disabled: !!rv, maxlength: 100,
         style: `width:${clamp(Math.max.apply(null, p.a.concat(['xxxxxx']).map(x => x.length)) + 3, 6, 28)}ch`, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Chỗ trống ' + (i + 1) });
       if (!rv) inp.addEventListener('input', () => { vals[i] = inp.value; set(vals.slice()); });
@@ -3062,10 +3167,10 @@ const R = {
     const vals = (v || []).slice(), box = h('div', { class: 'match' });
     q.pairs.forEach((p, i) => {
       const ok = vals[i] != null && vals[i] !== '' && q.pairs[vals[i]][1] === p[1];
-      const sel = h('select', { 'aria-label': 'Ghép với: ' + p[0], disabled: !!rv, class: rv ? (ok ? 'right' : 'wrong') : '' },
-        h('option', { value: '' }, '— chọn —'), q.rperm.map(j => h('option', { value: String(j), selected: vals[i] === j }, q.pairs[j][1])));
+      const sel = h('select', { 'aria-label': 'Ghép với: ' + plain(p[0]), disabled: !!rv, class: rv ? (ok ? 'right' : 'wrong') : '' },
+        h('option', { value: '' }, '— chọn —'), q.rperm.map(j => h('option', { value: String(j), selected: vals[i] === j }, plain(q.pairs[j][1]))));
       if (!rv) sel.addEventListener('change', () => { vals[i] = sel.value === '' ? '' : Number(sel.value); set(vals.slice()); });
-      box.append(h('div', { class: 'match-row' }, h('span', { class: 'ml pre', text: p[0] }), h('span', { 'aria-hidden': 'true', text: '→' }), sel));
+      box.append(h('div', { class: 'match-row' }, h('span', { class: 'ml pre' }, rich(p[0])), h('span', { 'aria-hidden': 'true', text: '→' }), sel));
     });
     return box;
   },
@@ -3074,7 +3179,7 @@ const R = {
     const box = h('ol', { class: 'ord' });
     const mv = (k, d) => { const x = cur[k]; cur[k] = cur[k + d]; cur[k + d] = x; set(cur.slice()); draw(); const li = box.children[k + d], bs = li && li.querySelectorAll('button'); if (bs) (bs[d < 0 ? 0 : 1].disabled ? bs[d < 0 ? 1 : 0] : bs[d < 0 ? 0 : 1]).focus(); };
     function draw() {
-      box.replaceChildren(cur.map((ix, k) => h('li', { class: rv ? (q.items[ix] === q.items[k] ? 'right' : 'wrong') : '' }, h('span', { class: 'ot pre', text: q.items[ix] }),
+      box.replaceChildren(cur.map((ix, k) => h('li', { class: rv ? (q.items[ix] === q.items[k] ? 'right' : 'wrong') : '' }, h('span', { class: 'ot pre' }, rich(q.items[ix])),
         rv ? null : h('span', { class: 'mv' },
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Chuyển lên', disabled: k === 0, onclick: () => mv(k, -1) }, '▲'),
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Chuyển xuống', disabled: k === cur.length - 1, onclick: () => mv(k, 1) }, '▼')))));
@@ -3157,11 +3262,11 @@ function QFrame(q, no, st) {
     flagBtn = h('button', { class: 'btn small ghost', type: 'button', 'aria-pressed': st.flags[q.id] ? 'true' : 'false', onclick: e => { st.flags[q.id] = !st.flags[q.id]; e.currentTarget.setAttribute('aria-pressed', st.flags[q.id] ? 'true' : 'false'); e.currentTarget.textContent = txt(); if (st.onFlag) st.onFlag(q); } }, txt());
   }
   kids.push(h('div', { class: 'q-head' }, h('span', { class: 'qno', text: String(no) }), h('span', { class: 'muted small-text q-meta', text: QTYPES[q.type] + (q.type === 'essay' ? '' : ` · ${q.points} điểm`) }), flagBtn));
-  if (q.pre) kids.unshift(h('div', { class: 'sec-instr pre', text: q.pre }));
-  if (q.passage) kids.push(h('div', { class: 'passage pre', text: q.passage }));
+  if (q.pre) kids.unshift(h('div', { class: 'sec-instr pre' }, rich(q.pre)));
+  if (q.passage) kids.push(h('div', { class: 'passage pre' }, rich(q.passage)));
   if (q.yt) { const a = AudioClip(q, st.used || {}, !!rv); kids.push(a.el); cleanup.push(a.destroy); }
   if (q.img) kids.push(zoomImg(q.img, 'Hình minh họa'));
-  kids.push(q.type === 'fill' ? h('p', { class: 'muted small-text', text: 'Điền vào chỗ trống:' }) : h('h3', { class: 'q-text pre', text: q.text }));
+  kids.push(q.type === 'fill' ? h('p', { class: 'muted small-text', text: 'Điền vào chỗ trống:' }) : h('h3', { class: 'q-text pre' }, rich(q.text)));
   kids.push(R[q.type](q, st.v, st.set || (() => {}), rv));
   if (rv) {
     const m = { right: ['ok', '✓ Chính xác'], partial: ['mid', '◐ Đúng một phần'], wrong: ['bad', '✗ Chưa đúng'], blank: ['bad', '— Chưa trả lời'], pending: ['mid', '✎ Chờ giáo viên chấm'] }[rv.ok];
@@ -3169,7 +3274,7 @@ function QFrame(q, no, st) {
     if (rv.ok !== 'right') {
       const ct = correctText(q);
       if (ct) kids.push(h('div', { class: 'box' }, h('strong', { text: q.type === 'essay' ? 'Gợi ý đáp án: ' : 'Đáp án đúng: ' }), h('span', { class: 'pre', text: ct })));
-      if (rv.ok !== 'pending' || q.expl) kids.push(h('div', { class: 'box expl' }, h('strong', { text: 'Giải thích: ' }), h('span', { class: 'pre', text: q.expl || 'Giáo viên chưa thêm giải thích cho câu này.' })));
+      if (rv.ok !== 'pending' || q.expl) kids.push(h('div', { class: 'box expl' }, h('strong', { text: 'Giải thích: ' }), h('span', { class: 'pre' }, q.expl ? rich(q.expl) : 'Giáo viên chưa thêm giải thích cho câu này.')));
     }
   }
   return { el: h('div', { class: 'stack qf', id: 'qb-' + q.id }, kids), destroy() { cleanup.forEach(f => f()); } };
@@ -3337,11 +3442,11 @@ function SectionView(sec, ctx) {
   const frames = sec.qs.map(q => QFrame(q, q.no, { v: ctx.ans[q.id], set: v => ctx.set(q, v), used: ctx.used, flags: rs ? null : ctx.flags, onFlag: ctx.onFlag, res: rs ? rs[q.id] : null }));
   frames.forEach(f => cleanup.push(f.destroy));
   const extra = [];
-  if (sec.instr) extra.push(h('div', { class: 'sec-instr pre', text: sec.instr }));
+  if (sec.instr) extra.push(h('div', { class: 'sec-instr pre' }, rich(sec.instr)));
   if (rs && sec.yt) { const a = AudioClip({ id: 'rv' + sec.id, yt: sec.yt }, {}, true, '🎧 Nghe lại'); extra.push(a.el); cleanup.push(a.destroy); }
   const pass = (sec.passage || sec.img) ? h('div', { class: 'pane pass', tabindex: '0', role: 'region', 'aria-label': 'Đoạn văn' }, h('div', { class: 'zin' },
     sec.title ? h('h2', { text: sec.title }) : null, sec.img ? zoomImg(sec.img, 'Hình minh họa của phần') : null,
-    sec.passage ? h('div', { class: 'pre passage-text', text: sec.passage }) : null)) : null;
+    sec.passage ? h('div', { class: 'pre passage-text' }, rich(sec.passage)) : null)) : null;
   const qpane = h('div', { class: 'pane qs', role: 'region', 'aria-label': 'Câu hỏi' }, h('div', { class: 'zin stack' }, !pass && sec.title ? h('h2', { text: sec.title }) : null, extra, frames.map(f => f.el)));
   const mkBar = dir => h('div', { class: 'split-bar bar-' + dir, role: 'separator', tabindex: '0', 'aria-orientation': dir === 'v' ? 'vertical' : 'horizontal', 'aria-valuemin': '0', 'aria-valuemax': '100',
     'aria-label': 'Thanh chia: kéo để đổi kích thước khung bài đọc và khung câu hỏi (chữ to/nhỏ theo khung). Bấm đúp để đặt lại.', title: 'Kéo để đổi kích thước hai khung · bấm đúp để đặt lại' }, h('span', { class: 'grip' }));
@@ -3385,7 +3490,7 @@ function TestRun(root, cfg) {
     if (finished) return; finished = true; clearInterval(tick); window.onbeforeunload = null; if (view) view.destroy(); dock.destroy();
     const rl = flat.map(q => grade(q, ans[q.id])), rs = {}; flat.forEach((q, i) => { rs[q.id] = rl[i]; });
     cfg.onFinish({ score: round2(rl.reduce((s, r) => s + r.got, 0)), max: round2(rl.reduce((s, r) => s + r.max, 0)), totalMs: Math.min(Date.now() - t0, deadline ? t.limit * 60000 : Infinity), secs, flat, ans, rs, auto: !!auto,
-      items: flat.map((q, i) => ({ q, r: rl[i] })).sort((a, b) => a.q.oi - b.q.oi).map(({ q, r }) => ({ id: q.id, q: q.text.slice(0, 80), t: q.type, a: ansText(q, ans[q.id]).slice(0, 120), g: r.got, m: r.max, ok: r.ok })) });   // theo thứ tự GỐC của đề (không theo thứ tự học sinh thấy)
+      items: flat.map((q, i) => ({ q, r: rl[i] })).sort((a, b) => a.q.oi - b.q.oi).map(({ q, r }) => ({ id: q.id, q: plain(q.text).slice(0, 80), t: q.type, a: ansText(q, ans[q.id]).slice(0, 120), g: r.got, m: r.max, ok: r.ok })) });   // theo thứ tự GỐC của đề (không theo thứ tự học sinh thấy)
   }
   const clock = () => {
     if (!deadline) { timerEl.textContent = '⏱ ' + fmtTime(Date.now() - t0); return; }
@@ -4209,8 +4314,8 @@ function openTextImport(onUse, canAppend) {
         res.warnings.length ? h('div', { class: 'box warn' }, h('ul', null, res.warnings.map(w => h('li', { text: w.msg })))) : null,
         h('div', { class: 'box', style: 'max-height:32vh;overflow:auto' }, res.sections.map(s => h('div', { class: 'stack', style: 'margin-bottom:.6rem' },
           h('strong', { text: (s.title || '(phần không tên)') + (s.passage ? `  📄 ${s.passage.length.toLocaleString('vi-VN')} ký tự` : '') }),
-          s.instr ? h('div', { class: 'muted small-text', text: 'Hướng dẫn: ' + s.instr.slice(0, 120) }) : null,
-          s.questions.map((q, i) => h('div', { class: 'small-text', text: `• ${QTYPES[q.type].split(' (')[0]}: ${q.text.slice(0, 80) || '(chỗ trống)'}${q.type === 'mcq' || q.type === 'multi' ? ` [${q.opts.length} lựa chọn]` : ''} ${res.missQ.has(q) ? '⚠' : ''}` }))))));
+          s.instr ? h('div', { class: 'muted small-text', text: 'Hướng dẫn: ' + plain(s.instr).slice(0, 120) }) : null,
+          s.questions.map((q, i) => h('div', { class: 'small-text', text: `• ${QTYPES[q.type].split(' (')[0]}: ${plain(q.text).slice(0, 80) || '(chỗ trống)'}${q.type === 'mcq' || q.type === 'multi' ? ` [${q.opts.length} lựa chọn]` : ''} ${res.missQ.has(q) ? '⚠' : ''}` }))))));
     }, 250);
   }
   [txt, ans, nameEl].forEach(el => el.addEventListener('input', run)); unwrap.addEventListener('change', run);
@@ -4316,7 +4421,7 @@ function TestEditView(root, id) {
     const draw = () => box.replaceChildren(h('p', { class: 'hint', text: multi ? 'Tích vào tất cả đáp án đúng.' : 'Chọn một đáp án đúng.' }),
       q.opts.map((o, k) => {
         const c = h('input', { type: multi ? 'checkbox' : 'radio', name: 'c' + q.id, checked: q.ans.includes(k), 'aria-label': 'Là đáp án đúng', onchange: () => { q.ans = multi ? (c.checked ? q.ans.concat(k) : q.ans.filter(x => x !== k)) : [k]; touch(); } });
-        const tx = h('input', { type: 'text', value: o, placeholder: 'Lựa chọn ' + String.fromCharCode(65 + k), 'aria-label': 'Lựa chọn ' + String.fromCharCode(65 + k), oninput: () => { q.opts[k] = tx.value; touch(); } });
+        const tx = h('input', { type: 'text', 'data-rich': '1', value: o, placeholder: 'Lựa chọn ' + String.fromCharCode(65 + k), 'aria-label': 'Lựa chọn ' + String.fromCharCode(65 + k), oninput: () => { q.opts[k] = tx.value; touch(); } });
         return h('div', { class: 'row' }, c, tx, h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Xóa lựa chọn', disabled: q.opts.length <= 2, onclick: () => { q.opts.splice(k, 1); q.ans = q.ans.filter(x => x !== k).map(x => x > k ? x - 1 : x); draw(); touch(); } }, '✕'));
       }), h('button', { class: 'btn small', type: 'button', disabled: q.opts.length >= 8, onclick: () => { q.opts.push(''); draw(); touch(); } }, '＋ Thêm lựa chọn'));
     draw(); return box;
@@ -4324,7 +4429,7 @@ function TestEditView(root, id) {
   function pairsEd(q) {
     const box = h('div', { class: 'stack' });
     const draw = () => box.replaceChildren(h('p', { class: 'hint', text: 'Mỗi dòng là một cặp đúng (vế trái – vế phải). Học sinh sẽ thấy vế phải bị xáo trộn.' }),
-      q.pairs.map((p, k) => h('div', { class: 'row' }, h('input', { type: 'text', value: p[0], 'aria-label': 'Vế trái ' + (k + 1), placeholder: 'Vế trái', oninput: e => { p[0] = e.target.value; touch(); } }), h('span', { 'aria-hidden': 'true', text: '↔' }),
+      q.pairs.map((p, k) => h('div', { class: 'row' }, h('input', { type: 'text', 'data-rich': '1', value: p[0], 'aria-label': 'Vế trái ' + (k + 1), placeholder: 'Vế trái', oninput: e => { p[0] = e.target.value; touch(); } }), h('span', { 'aria-hidden': 'true', text: '↔' }),
         h('input', { type: 'text', value: p[1], 'aria-label': 'Vế phải ' + (k + 1), placeholder: 'Vế phải', oninput: e => { p[1] = e.target.value; touch(); } }),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Xóa cặp', disabled: q.pairs.length <= 2, onclick: () => { q.pairs.splice(k, 1); draw(); touch(); } }, '✕'))),
       h('button', { class: 'btn small', type: 'button', disabled: q.pairs.length >= 10, onclick: () => { q.pairs.push(['', '']); draw(); touch(); } }, '＋ Thêm cặp'));
@@ -4333,7 +4438,7 @@ function TestEditView(root, id) {
   function orderEd(q) {
     const box = h('div', { class: 'stack' });
     const draw = () => box.replaceChildren(h('p', { class: 'hint', text: 'Nhập các mục theo ĐÚNG thứ tự. Học sinh sẽ thấy thứ tự bị xáo trộn.' }),
-      q.items.map((it, k) => h('div', { class: 'row' }, h('span', { class: 'pill', text: String(k + 1) }), h('input', { type: 'text', value: it, 'aria-label': 'Mục ' + (k + 1), oninput: e => { q.items[k] = e.target.value; touch(); } }),
+      q.items.map((it, k) => h('div', { class: 'row' }, h('span', { class: 'pill', text: String(k + 1) }), h('input', { type: 'text', 'data-rich': '1', value: it, 'aria-label': 'Mục ' + (k + 1), oninput: e => { q.items[k] = e.target.value; touch(); } }),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Lên', disabled: k === 0, onclick: () => { q.items.splice(k - 1, 0, q.items.splice(k, 1)[0]); draw(); touch(); } }, '▲'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Xuống', disabled: k === q.items.length - 1, onclick: () => { q.items.splice(k + 1, 0, q.items.splice(k, 1)[0]); draw(); touch(); } }, '▼'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Xóa mục', disabled: q.items.length <= 2, onclick: () => { q.items.splice(k, 1); draw(); touch(); } }, '✕'))),
@@ -4358,12 +4463,12 @@ function TestEditView(root, id) {
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Nhân đôi câu', onclick: () => { sec.questions.splice(i + 1, 0, Object.assign(normQ(q), { id: shortId() })); drawAll(); touch(); } }, '⧉'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Xóa câu', onclick: () => { const x = sec.questions.splice(i, 1)[0]; drawAll(); touch(); toast('Đã xóa câu ' + no + '.', 'info', { label: 'Hoàn tác', onClick: () => { sec.questions.splice(Math.min(i, sec.questions.length), 0, x); drawAll(); touch(); } }); } }, '🗑')),
       prob ? h('p', { class: 'err small-text', text: '⚠ ' + prob }) : null,
-      lab('Hướng dẫn nhóm câu (hiện phía trên câu này, vd “Questions 6–10 …”) – tùy chọn', area(q, 'pre', { rows: 2 })),
-      lab(q.type === 'fill' ? 'Nội dung (đặt đáp án trong {{ }})' : 'Câu hỏi', area(q, 'text', { rows: 2, placeholder: q.type === 'fill' ? "I {{am|'m}} a student." : 'Nhập câu hỏi…' })),
+      lab('Hướng dẫn nhóm câu (hiện phía trên câu này, vd “Questions 6–10 …”) – tùy chọn', area(q, 'pre', { rows: 2, 'data-rich': '1' })),
+      lab(q.type === 'fill' ? 'Nội dung (đặt đáp án trong {{ }})' : 'Câu hỏi', area(q, 'text', { rows: 2, 'data-rich': '1', placeholder: q.type === 'fill' ? "I {{am|'m}} a student." : 'Nhập câu hỏi…' })),
       bodies[q.type](q),
       h('details', { class: 'box', open: !!(q.passage || q.img || yt.url) }, h('summary', { text: 'Riêng cho câu này: đoạn văn · âm thanh · hình ảnh (tùy chọn – nếu dùng chung cả phần hãy đặt ở phần)' }), h('div', { class: 'stack' },
-        lab('Đoạn văn riêng của câu', area(q, 'passage', { rows: 3 })), ytFields(yt), lab('Link hình ảnh (https://…)', inp(q, 'img', { type: 'url', placeholder: 'https://…' })))),
-      lab('Giải thích (hiện cho học sinh khi làm sai)', area(q, 'expl', { rows: 2 })));
+        lab('Đoạn văn riêng của câu', area(q, 'passage', { rows: 3, 'data-rich': '1' })), ytFields(yt), lab('Link hình ảnh (https://…)', inp(q, 'img', { type: 'url', placeholder: 'https://…' })))),
+      lab('Giải thích (hiện cho học sinh khi làm sai)', area(q, 'expl', { rows: 2, 'data-rich': '1' })));
   }
   function secEditor(s, si, offset) {
     const sum = h('summary', { class: 'sec-sum' }), body = h('div', { class: 'stack sec-body' });
@@ -4374,13 +4479,13 @@ function TestEditView(root, id) {
     function build() {
       built = true;
       const ti = inp(s, 'title', { maxlength: 100, placeholder: 'Ví dụ: Part 1 / Reading Passage 1 / Listening – Section 2' }); ti.addEventListener('input', setSum);
-      const ps = area(s, 'passage', { rows: 8, class: 'sec-passage', placeholder: 'Dán đoạn văn dùng chung cho cả phần vào đây (nếu có). Giữ nguyên xuống dòng.' }); ps.addEventListener('input', setSum);
+      const ps = area(s, 'passage', { rows: 8, 'data-rich': '1', class: 'sec-passage', placeholder: 'Dán đoạn văn dùng chung cho cả phần vào đây (nếu có). Giữ nguyên xuống dòng.' }); ps.addEventListener('input', setSum);
       body.replaceChildren(
         h('div', { class: 'row wrap' }, h('strong', { text: 'Thiết lập phần' }), h('span', { style: 'flex:1' }),
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Chuyển phần lên', disabled: si === 0, onclick: () => mvS(-1) }, '▲'), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Chuyển phần xuống', disabled: si === t.sections.length - 1, onclick: () => mvS(1) }, '▼'),
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Nhân đôi phần', onclick: () => { const c = normSec(s); c.id = shortId(); c.title = (s.title + ' (bản sao)').trim(); c.questions.forEach(q => { q.id = shortId(); }); t.sections.splice(si + 1, 0, c); openSecs.add(c.id); drawAll(); touch(); } }, '⧉'),
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Xóa phần', onclick: async () => { if (s.questions.length && !await Modal.confirm(`Xóa "${s.title || 'Phần ' + (si + 1)}" cùng ${s.questions.length} câu hỏi?`, 'Xóa phần', true)) return; const x = t.sections.splice(si, 1)[0]; if (!t.sections.length) t.sections.push(newSec('Phần 1')); drawAll(); touch(); toast('Đã xóa phần.', 'info', { label: 'Hoàn tác', onClick: () => { t.sections.splice(Math.min(si, t.sections.length), 0, x); drawAll(); touch(); } }); } }, '🗑')),
-        lab('Tiêu đề phần', ti), lab('Hướng dẫn làm phần (hiện đầu danh sách câu hỏi)', area(s, 'instr', { rows: 2, placeholder: 'Ví dụ: Read the text and answer questions 1–5.' })),
+        lab('Tiêu đề phần', ti), lab('Hướng dẫn làm phần (hiện đầu danh sách câu hỏi)', area(s, 'instr', { rows: 2, 'data-rich': '1', placeholder: 'Ví dụ: Read the text and answer questions 1–5.' })),
         lab('Đoạn văn dùng chung – hiện bên trái, các câu hỏi của phần hiện bên phải', ps), lab('Link hình ảnh dùng chung (https://…)', inp(s, 'img', { type: 'url' })),
         h('details', { class: 'box', open: !!s.yt.url }, h('summary', { text: '🎧 Âm thanh / video dùng chung cho cả phần (YouTube, Drive, mp3…)' }), ytFields(s.yt, 'Bài nghe nằm cố định trên đầu màn hình suốt thời gian học sinh làm các câu của phần này; học sinh bấm Nghe một lần, không tạm dừng/tua được.')),
         h('h3', { text: 'Câu hỏi của phần' }), s.questions.length ? s.questions.map((q, i) => qEditor(q, s, i, offset + i + 1)) : h('p', { class: 'muted', text: 'Chưa có câu hỏi trong phần này.' }),
@@ -4444,9 +4549,11 @@ function TestEditView(root, id) {
     drawAll(); touch();
     toast(`Đã xáo trộn thứ tự ${t.sections.length} phần.`, 'info', { label: 'Hoàn tác', onClick: () => { t.sections = before; before.forEach(s => { s.title = titles.get(s); }); drawAll(); touch(); } });
   } }, '🔀 Xáo trộn phần');
+  const fmt = FmtBar();
   root.replaceChildren(h('div', { class: 'stack' },
     h('div', { class: 'page-head' }, h('h1', { text: id === 'new' ? 'Tạo bài test' : 'Sửa bài test' }), h('div', { class: 'row wrap' }, saved,
       h('a', { class: 'btn', href: '#/', onclick: persist }, '‹ Về trang chủ'), h('button', { class: 'btn primary', onclick: () => { persist(); toast('Đã lưu bài test.'); } }, '💾 Lưu'))),
+    fmt.el,
     h('section', { class: 'card' }, h('label', { for: 'te-name', text: 'Tên bài test' }), nameEl, h('label', { for: 'te-desc', text: 'Mô tả / hướng dẫn (tùy chọn)' }), descEl,
       h('label', { for: 'te-lim', text: 'Thời gian làm bài (phút, 0 = không giới hạn)' }), limEl,
       h('label', { for: 'te-pts', text: 'Điểm mặc định mỗi câu' }), h('div', { class: 'row wrap' }, ptsEl, applyPts),
@@ -4464,7 +4571,7 @@ function TestEditView(root, id) {
       h('button', { class: 'btn', onclick: () => { if (!qCount(t)) return flash('Chưa có câu hỏi.'); csvDownload((t.name || 'bai-test').replace(/[^\w\-]+/g, '_') + '.csv', t); } }, '⬇ Xuất bài này ra CSV'))),
     h('div', { class: 'row wrap' }, h('a', { class: 'btn', href: '#/test-practice/' + t.id, onclick: e => { persist(); if (!Tests.get(t.id)) { e.preventDefault(); flash('Hãy thêm tên hoặc câu hỏi trước.'); } } }, '▶ Làm thử'),
       h('button', { class: 'btn', onclick: () => { persist(); if (Tests.get(t.id)) openAssignTest(t); else flash('Hãy thêm tên hoặc câu hỏi trước.'); } }, '📤 Giao bài'))));
-  drawAll();
+  drawAll(); fmt.attach(root.firstElementChild);
   return { destroy() { if (dirty) persist(); clearTimeout(timer); } };
 }
 
