@@ -1,0 +1,43 @@
+/* Trang học sinh – dùng biến màu của style.css (sáng/tối tự theo hệ thống) */
+main{max-width:760px;padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px))}
+.st-login{max-width:420px;margin:2rem auto}
+.st-login .btn{width:100%;margin-top:.5rem}
+.st-hero{background:color-mix(in srgb,var(--primary) 9%,var(--surface));margin-bottom:1rem}
+.st-label{margin:0}
+.st-bal{margin:.1rem 0;font-size:clamp(3.4rem,17vw,6rem);line-height:1;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums;color:var(--primary)}
+.st-stats{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;margin:.6rem 0}
+.st-stats>div{min-width:6rem}
+.st-stats dt{font-size:.85rem;color:var(--muted)}
+.st-stats dd{margin:0;font-size:1.2rem;font-weight:700;font-variant-numeric:tabular-nums}
+.pos{color:var(--success)}.neg{color:var(--danger)}
+#p-ho-so>.card,#p-xep-hang{margin-bottom:1rem}
+.st-chart{display:block;width:100%;height:auto}
+.st-chart .line{fill:none;stroke:var(--primary);stroke-width:2.5;stroke-linejoin:round}
+.st-chart .area{fill:color-mix(in srgb,var(--primary) 16%,transparent);stroke:none}
+.st-chart .dot{fill:var(--primary);stroke:var(--surface);stroke-width:2}
+.st-ledger,.st-board{list-style:none;margin:.6rem 0 0;padding:0}
+.st-ledger li,.st-board li{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid var(--border)}
+.st-ledger .m,.st-ledger .v{display:grid;min-width:0}
+.st-ledger .v{text-align:right;font-variant-numeric:tabular-nums}
+.st-board li{padding:.5rem .6rem;border-radius:10px;border-bottom:0}
+.st-board li:nth-child(even){background:var(--bg)}
+.st-board .rk{flex:none;width:2.4rem;text-align:center;font-weight:700;font-size:1.15rem}
+.st-board .cd{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em}
+.st-board li.me{background:color-mix(in srgb,var(--primary) 18%,var(--surface));outline:2px solid var(--primary)}
+.st-gbar{position:sticky;top:3.4rem;z-index:15;display:flex;align-items:center;gap:.5rem;padding:.4rem 0;background:var(--bg)}
+.st-gbar .pill{margin-left:auto}
+.st-gtabs{display:flex;gap:.4rem;overflow-x:auto;padding:.3rem 0 .5rem}
+.st-gtab{flex:none;min-height:44px;padding:0 .9rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.st-gtab[aria-selected="true"]{background:var(--primary);color:var(--primary-text);border-color:var(--primary)}
+.st-bet{margin:.5rem 0}
+.st-bet input[type=number]{width:7rem;font-size:1.2rem;font-weight:700}
+.st-sum{display:flex;flex-wrap:wrap;margin:.5rem 0;font-size:.9rem;color:var(--muted)}
+.st-stagewrap{position:relative}
+#game-stage{min-height:280px;padding:1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.st-lock{position:absolute;inset:0;display:grid;place-items:center;padding:1.5rem;text-align:center;font-weight:700;border-radius:var(--radius);background:color-mix(in srgb,var(--bg) 88%,transparent)}
+.st-lock[hidden]{display:none}
+.st-rules{margin-top:1rem}
+.st-rules summary{cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center}
+.st-rules li{margin:.3rem 0}
+[hidden]{display:none!important}
+@media(max-width:420px){.st-gbar .btn.danger{padding:.5rem .6rem}}

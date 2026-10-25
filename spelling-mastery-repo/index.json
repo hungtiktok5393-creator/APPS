@@ -1,7 +1,7 @@
 {
  "app": "spelling-mastery",
  "version": 3,
- "exportedAt": "2026-10-24T08:21:37.574Z",
+ "exportedAt": "2026-10-23T08:05:03.000Z",
  "settings": {
   "theme": "dark",
   "sfx": true,
@@ -10,76 +10,48 @@
  },
  "sets": [
   {
-   "id": "b946a551-2e42-4315-97f4-0814bef5b31e",
-   "name": "Bộ từ KET (đến O)",
-   "updatedAt": 1792829958305,
-   "n": 1025,
-   "bytes": 44063
+   "id": "fc70fe16-83b5-41a7-a070-bfc2617140ad",
+   "name": "Từ vựng mẫu – Du lịch",
+   "updatedAt": 1792541534728,
+   "n": 8,
+   "bytes": 518
   },
   {
-   "id": "b6c0e05c-f084-467b-8a8c-e1e8ec2e8ffb",
-   "name": "100 động từ bất quy tắc",
-   "updatedAt": 1792826536646,
-   "n": 100,
-   "bytes": 4727
-  },
-  {
-   "id": "5fe23d14-4d2d-4b73-bc07-537cf274b644",
-   "name": "Bộ từ Flyers",
-   "updatedAt": 1792829073590,
-   "n": 520,
-   "bytes": 20937
-  },
-  {
-   "id": "826d8397-f201-4c38-995d-bcf99767e487",
-   "name": "Bộ từ Movers",
-   "updatedAt": 1792826539717,
-   "n": 421,
-   "bytes": 16982
-  },
-  {
-   "id": "beb2be67-c1fa-4ba1-b4f5-234cbfaf2d7a",
-   "name": "Mẫu câu Flyers",
-   "updatedAt": 1792825539704,
-   "n": 43,
-   "bytes": 4678
-  },
-  {
-   "id": "aee104b5-bc1c-4381-8e48-f44634fa5900",
-   "name": "Mẫu câu Movers",
-   "updatedAt": 1792825609406,
-   "n": 47,
-   "bytes": 4090
-  },
-  {
-   "id": "43e97991-557e-4cb0-b54b-f6b456cb7356",
-   "name": "Mẫu câu Starters",
-   "updatedAt": 1792811600816,
-   "n": 44,
-   "bytes": 3842
-  },
-  {
-   "id": "8528fc13-a60e-4210-9384-d278beb32feb",
-   "name": "Bộ từ Starters",
-   "updatedAt": 1792811240751,
-   "n": 453,
-   "bytes": 17471
+   "id": "967a7e4f-f2a1-405e-8a35-aa2b22d9005d",
+   "name": "Từ vựng mẫu – Du lịch (bản sao)",
+   "updatedAt": 1792543264062,
+   "n": 8,
+   "bytes": 529
   }
  ],
  "tests": [
   {
    "id": "66c96f63-8711-427e-9191-0abc3b968001",
    "name": "READING AND WRITING",
-   "updatedAt": 1792829980481,
+   "updatedAt": 1792627380433,
    "n": 32,
-   "bytes": 18777
+   "bytes": 18756
+  },
+  {
+   "id": "07431f0d-69ba-4f5b-8ae6-ec90d669d9d3",
+   "name": "TEST 1 READING AND WRITING",
+   "updatedAt": 1792575426120,
+   "n": 32,
+   "bytes": 16018
   },
   {
    "id": "115ddcdd-0412-4778-b70f-061a5967fc96",
    "name": "TEST 1 READING AND WRITING",
    "updatedAt": 1792574831698,
    "n": 27,
-   "bytes": 15532
+   "bytes": 15510
+  },
+  {
+   "id": "d6e1caa6-a6eb-4198-923d-977200c13981",
+   "name": "TEST 1 READING AND WRITING",
+   "updatedAt": 1792558812676,
+   "n": 32,
+   "bytes": 12796
   }
  ]
 }

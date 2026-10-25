@@ -1,21 +1,23 @@
 /* Spelling Mastery – service worker (chạy offline)
- *  Lưu sẵn: index.html, style.css, app.js, vendor/*.js  → mở được khi không có mạng.
- *  KHÔNG đụng vào: index.json, data/*, data.json, Apps Script, YouTube/Drive… (luôn đi thẳng ra mạng, nên đồng bộ luôn lấy bản mới).
- *  Dữ liệu của người dùng nằm trong IndexedDB của trang, không nằm ở đây.
- *  Số phiên bản lấy từ sw.js?v=… (app.js đăng ký kèm số ?v= trong index.html). */
+ *  Lưu sẵn: index.html, hoc-sinh.html, style.css, app.js, student.js/css, games.js/css, vendor/*.js → mở được khi không có mạng.
+ *  KHÔNG đụng vào: index.json, data/*, data.json, Apps Script (API trò chơi/điểm), YouTube/Drive… (luôn đi thẳng ra mạng).
+ *  Tệp lõi thiếu → hủy cài; tệp tùy chọn (trang học sinh, games.*) thiếu → bỏ qua, không hỏng lần cài.
+ *  Số phiên bản lấy từ sw.js?v=… (index.html và hoc-sinh.html đăng ký kèm cùng số ?v=). */
 'use strict';
 const V = new URL(self.location.href).searchParams.get('v') || 'dev';
 const CACHE = 'sm-shell-' + V;
 const SCOPE = self.registration.scope;
 const abs = p => new URL(p, SCOPE).href;
-const ASSETS = ['style.css?v=' + V, 'app.js?v=' + V, 'vendor/lz-string.min.js', 'vendor/papaparse.min.js', 'vendor/xlsx.full.min.js', 'vendor/jspdf.umd.min.js', 'vendor/qrcode.min.js'];
-const PAGE = abs('index.html');
-const KEEP = new Set(['index.html'].concat(ASSETS).map(abs));
+const CORE = ['style.css?v=' + V, 'app.js?v=' + V, 'vendor/lz-string.min.js', 'vendor/papaparse.min.js', 'vendor/xlsx.full.min.js', 'vendor/jspdf.umd.min.js', 'vendor/qrcode.min.js'];
+const OPT = ['student.js?v=' + V, 'student.css?v=' + V, 'games.js?v=' + V, 'games.css?v=' + V];
+const PAGE = abs('index.html'), STUDENT = abs('hoc-sinh.html');
+const KEEP = new Set(CORE.concat(OPT).map(abs));
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
-    const c = await caches.open(CACHE);
-    await c.addAll([PAGE].concat(ASSETS.map(abs)).map(u => new Request(u, { cache: 'reload' })));   // bỏ qua cache HTTP để lấy đúng bản mới; thiếu một tệp là hủy cả lần cài
+    const c = await caches.open(CACHE), rq = u => new Request(abs(u), { cache: 'reload' });
+    await c.addAll([new Request(PAGE, { cache: 'reload' })].concat(CORE.map(rq)));            // lõi: thiếu một tệp là hủy cả lần cài
+    await Promise.all([new Request(STUDENT, { cache: 'reload' })].concat(OPT.map(rq)).map(r => c.add(r).catch(() => {})));   // tùy chọn: thiếu thì bỏ qua
     self.skipWaiting();
   })());
 });
@@ -26,18 +28,19 @@ self.addEventListener('activate', e => {
   })());
 });
 
-/* Trang: ưu tiên mạng (luôn thấy bản mới khi online), quá 4 giây hoặc mất mạng thì dùng bản đã lưu */
+/* Trang: ưu tiên mạng, quá 4 giây hoặc mất mạng thì dùng bản đã lưu (mỗi trang một khóa riêng, bỏ ?code=…) */
 async function page(req) {
+  const key = new URL(req.url).pathname.endsWith('/hoc-sinh.html') ? STUDENT : PAGE;
   const c = await caches.open(CACHE), ac = new AbortController(), t = setTimeout(() => ac.abort(), 4000);
   try {
     const res = await fetch(req, { signal: ac.signal });
-    if (res.ok) c.put(PAGE, res.clone());
+    if (res.ok) c.put(key, res.clone());
     return res;
   } catch (_) {
-    return (await c.match(PAGE)) || Response.error();
+    return (await c.match(key)) || Response.error();
   } finally { clearTimeout(t); }
 }
-/* Tệp tĩnh: trả ngay bản đã lưu, đồng thời làm mới ở nền (phòng khi quên đổi ?v=) */
+/* Tệp tĩnh: trả ngay bản đã lưu, đồng thời làm mới ở nền */
 async function asset(req) {
   const c = await caches.open(CACHE), hit = await c.match(req);
   const net = fetch(req).then(res => { if (res.ok) c.put(req, res.clone()); return res; });
@@ -46,7 +49,7 @@ async function asset(req) {
 }
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET') return;                                  // POST gửi bài lên Apps Script: không chặn
+  if (req.method !== 'GET') return;                                  // POST gửi lên Apps Script: không chặn
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || url.href.indexOf(SCOPE) !== 0) return;
   if (req.mode === 'navigate') { e.respondWith(page(req)); return; }

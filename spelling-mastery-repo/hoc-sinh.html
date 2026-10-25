@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3b4cca">
+  <meta name="color-scheme" content="light dark">
+  <title>Trang học sinh – Spelling Mastery</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%93%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=20261025c">
+  <link rel="stylesheet" href="student.css?v=20261025c">
+  <link rel="stylesheet" href="games.css?v=20261025c">
+</head>
+<body>
+  <a class="skip" href="#app">Bỏ qua điều hướng</a>
+  <header class="topbar">
+    <a class="brand" href="hoc-sinh.html" aria-label="Spelling Mastery – trang học sinh">🔤 Spelling Mastery</a>
+    <a class="btn small ghost" href="index.html">Trang giáo viên</a>
+  </header>
+  <main id="app" tabindex="-1">
+    <section id="view-login" class="card st-login" hidden>
+      <h1>Vào trang học sinh</h1>
+      <form id="login-form" autocomplete="off" novalidate>
+        <label for="code-in">Mã học sinh</label>
+        <input type="text" id="code-in" maxlength="16" autocapitalize="characters" spellcheck="false" aria-describedby="login-err" placeholder="Ví dụ: AB3K7M">
+        <div id="url-box" hidden>
+          <label for="url-in">Địa chỉ máy chủ (Apps Script)</label>
+          <input type="url" id="url-in" placeholder="https://script.google.com/macros/s/…/exec">
+          <p class="hint">Giáo viên cung cấp địa chỉ này. Máy sẽ nhớ lại.</p>
+        </div>
+        <p id="login-err" class="err" role="alert"></p>
+        <button class="btn primary big" type="submit" id="login-btn">Vào</button>
+      </form>
+    </section>
+
+    <div id="view-main" hidden>
+      <section class="card st-hero" aria-label="Số dư điểm">
+        <p class="st-label">Số dư của <b id="who"></b></p>
+        <p id="bal" class="st-bal" aria-live="polite">0</p>
+        <dl class="st-stats">
+          <div><dt>Tổng đã kiếm</dt><dd id="st-earned">–</dd></div>
+          <div><dt>Thứ hạng</dt><dd id="st-rank">–</dd></div>
+        </dl>
+        <div class="row wrap">
+          <button class="btn small" id="btn-refresh" type="button">Làm mới</button>
+          <button class="btn small ghost" id="btn-change" type="button">Đổi mã</button>
+        </div>
+      </section>
+
+      <div class="home-tabs" role="tablist" aria-label="Khu vực" id="tabs">
+        <button class="home-tab" role="tab" id="t-ho-so" aria-controls="p-ho-so" data-tab="ho-so">Hồ sơ</button>
+        <button class="home-tab" role="tab" id="t-xep-hang" aria-controls="p-xep-hang" data-tab="xep-hang">Xếp hạng</button>
+        <button class="home-tab" role="tab" id="t-tro-choi" aria-controls="p-tro-choi" data-tab="tro-choi">Trò chơi</button>
+      </div>
+
+      <section id="p-ho-so" role="tabpanel" aria-labelledby="t-ho-so" class="stack" hidden>
+        <div class="card"><h2>Số dư theo thời gian</h2><div id="chart"></div></div>
+        <div class="card"><h2>Thống kê trò chơi</h2><div id="gstats"></div></div>
+        <div class="card">
+          <h2>Lịch sử gần đây</h2>
+          <div class="seg" id="filters" role="group" aria-label="Lọc lịch sử"></div>
+          <ul id="ledger" class="st-ledger"></ul>
+        </div>
+      </section>
+
+      <section id="p-xep-hang" role="tabpanel" aria-labelledby="t-xep-hang" class="card" hidden>
+        <div class="page-head"><h2>Top 50</h2><button class="btn small" id="btn-board" type="button">Làm mới</button></div>
+        <p class="hint">Xếp theo tổng điểm đã kiếm từ học từ và làm bài test (theo máy chủ). Mã đã được che.</p>
+        <ol id="board" class="st-board"></ol>
+        <p id="board-me" class="hint"></p>
+      </section>
+
+      <section id="p-tro-choi" role="tabpanel" aria-labelledby="t-tro-choi" hidden>
+        <div class="st-gbar">
+          <button class="btn danger" id="btn-stop" type="button">Dừng &amp; quay lại</button>
+          <span class="pill" aria-label="Số dư">💰 <b id="gbal">0</b></span>
+          <button class="btn small ghost" id="btn-snd" type="button" aria-pressed="true" aria-label="Âm thanh">🔊</button>
+        </div>
+        <p class="box warn">Điểm ảo để luyện tập, không đổi ra tiền.</p>
+        <div class="st-gtabs" id="gtabs" role="tablist" aria-label="Chọn trò chơi"></div>
+        <div class="card st-bet">
+          <label for="bet">Mức cược</label>
+          <div class="row wrap">
+            <input type="number" id="bet" min="0" step="1" inputmode="numeric" aria-describedby="bet-hint">
+            <span id="quick" class="row wrap"></span>
+          </div>
+          <p id="bet-hint" class="hint"></p>
+        </div>
+        <div class="st-sum" aria-live="polite"><span id="g-sum"></span><span id="g-loss"></span></div>
+        <div class="st-stagewrap">
+          <div id="game-stage" role="region" aria-label="Khu vực trò chơi"></div>
+          <div id="game-lock" class="st-lock" hidden role="status"></div>
+        </div>
+        <details class="card st-rules"><summary>Luật chơi</summary><ul id="rules"></ul></details>
+      </section>
+    </div>
+  </main>
+  <dialog class="modal" id="break-dlg" aria-labelledby="break-t">
+    <div class="modal-body">
+      <h2 id="break-t">Nghỉ một chút nhé</h2>
+      <p>Bạn vừa chơi 20 ván. Hãy nghỉ mắt, uống nước rồi quay lại.</p>
+      <div class="row wrap end"><button class="btn danger" id="break-stop" type="button">Dừng chơi</button><button class="btn primary" id="break-go" type="button">Chơi tiếp</button></div>
+    </div>
+  </dialog>
+  <div id="toasts" aria-live="polite"></div>
+  <noscript><p class="center">Cần bật JavaScript.</p></noscript>
+  <script src="student.js?v=20261025c" defer></script>
+  <script src="games.js?v=20261025c" defer></script>
+</body>
+</html>
