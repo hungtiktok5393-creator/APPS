@@ -5,7 +5,7 @@
  * Sự kiện trên document: smgame:select {game,stage} · smgame:stop · smgame:resume {game,state}. Game tự stage.replaceChildren() khi gắn.
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx8f637B3hm-SWPXLa8GZpzvd3pM75miSxMCgU7qtNyme5Jm8fNS1Xg-ThXx69HzMlqCw/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
 const VER = '20261025c', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
