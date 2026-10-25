@@ -5,8 +5,8 @@
  * Sự kiện trên document: smgame:select {game,stage} · smgame:stop · smgame:resume {game,state}. Game tự stage.replaceChildren() khi gắn.
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261025c', BREAK_EVERY = 20;
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx8f637B3hm-SWPXLa8GZpzvd3pM75miSxMCgU7qtNyme5Jm8fNS1Xg-ThXx69HzMlqCw/exec';
+const VER = '20261025d', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
 const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash']];
@@ -35,7 +35,8 @@ async function call(action, params, retry) {
   if (!d || d.ok === false) {
     const code = d && d.error || 'server_error';
     if (code === 'rate_limited' && !retry) { await sleep(1300); return call(action, params, 1); }
-    throw Object.assign(new Error(ERR[code] || (d && d.message) || 'Có lỗi xảy ra.'), { code, raw: d });
+    const stale = code === 'bad_request' && /Hành động không hợp lệ/.test((d && d.message) || '');   // máy chủ Apps Script là bản cũ / sai địa chỉ
+    throw Object.assign(new Error(stale ? 'Máy chủ chưa được cập nhật hoặc sai địa chỉ. Hãy báo giáo viên.' : (ERR[code] || (d && d.message) || 'Có lỗi xảy ra.')), { code, raw: d });
   }
   return d;
 }
@@ -182,7 +183,7 @@ function show(t) {
   if (was !== t && t === 'tro-choi') { loadCfg(); if (!S.game) pick(GAMES.some(g => g[0] === LS.get('sm_game')) ? LS.get('sm_game') : 'slots'); }
   if (was === 'tro-choi' && t !== 'tro-choi') document.dispatchEvent(new CustomEvent('smgame:stop'));
 }
-const norm = v => String(v || '').toUpperCase().replace(/\s+/g, '');
+const norm = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);   // giống máy chủ: bỏ dấu, chỉ chữ+số
 function loginView(msg) { $('view-main').hidden = true; $('view-login').hidden = false; $('url-box').hidden = !!SCRIPT_URL; $('login-err').textContent = msg || ''; $('login-btn').disabled = false; }
 async function enter(code, quiet) {
   $('login-btn').disabled = true; $('login-err').textContent = quiet ? '' : 'Đang kiểm tra…';
@@ -199,7 +200,7 @@ function init() {
   $('login-form').onsubmit = ev => {
     ev.preventDefault(); const u = $('url-in').value.trim();
     if (!SCRIPT_URL) { if (!/^https:\/\//.test(u)) return ($('login-err').textContent = 'Nhập địa chỉ máy chủ bắt đầu bằng https://'); LS.set('sm_script_url', u); }
-    const c = norm($('code-in').value); $('code-in').value = c; if (!/^[A-Z0-9]{4,16}$/.test(c)) return ($('login-err').textContent = 'Mã gồm chữ và số, không dấu.'); enter(c);
+    const c = norm($('code-in').value); $('code-in').value = c; if (!/^[A-Z0-9]{3,16}$/.test(c)) return ($('login-err').textContent = 'Mã gồm 3–16 chữ hoặc số.'); enter(c);
   };
   $('code-in').oninput = e => { e.target.value = norm(e.target.value); };
   $('btn-change').onclick = () => { LS.set('sm_code', null); S.code = ''; document.dispatchEvent(new CustomEvent('smgame:stop')); S.rounds = S.pnl = S.sinceBreak = 0; S.game = null; S.tab = ''; sum(); loginView(); $('code-in').value = ''; $('code-in').focus(); };

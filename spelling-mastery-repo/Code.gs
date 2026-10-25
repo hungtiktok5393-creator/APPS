@@ -376,7 +376,13 @@ function teacherKey_() {
 }
 function requireTeacher_(key) { if (!isTeacher_(key)) throw apiError_('unauthorized', 'Teacher Key không đúng.'); return true; }
 function clampInt_(v, min, max, def) { let n = Math.floor(Number(v)); if (!isFinite(n)) n = (def === undefined ? min : def); return Math.max(min, Math.min(max, n)); }
-function normCode_(v) { return String(v == null ? '' : v).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12); }
+const CODE_MIN = 3, CODE_MAX = 16;   // mã tự đặt: 3–16 ký tự chữ/số (mã tạo ngẫu nhiên vẫn 6 ký tự)
+function foldCode_(v) {              // bỏ dấu tiếng Việt, đ→d, viết hoa, chỉ giữ A–Z và 0–9 → "Bé An 1" = "BEAN1"
+  let s = String(v == null ? '' : v);
+  try { s = s.normalize('NFD'); } catch (e) {}
+  return s.replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+function normCode_(v) { return foldCode_(v).slice(0, CODE_MAX); }
 function isActive_(v) { return !(v === false || String(v).toLowerCase() === 'false'); }
 function maskCode_(c) { return c.slice(0, Math.max(1, c.length - 2)) + '**'; }
 function rateLimit_(code, action) {   // ≤ 1 yêu cầu / giây / (mã, action)
@@ -442,7 +448,7 @@ function getStudent_(code) {
 }
 function requireStudent_(code, rlAction) {
   code = normCode_(code);
-  if (code.length < 4) throw apiError_('invalid_code', 'Mã không hợp lệ.');
+  if (code.length < CODE_MIN) throw apiError_('invalid_code', 'Mã không hợp lệ.');
   if (rlAction) rateLimit_(code, rlAction);
   const s = getStudent_(code);
   if (!s) throw apiError_('invalid_code', 'Mã không tồn tại.');
@@ -532,7 +538,7 @@ function getProfile_(p) {
 }
 function getLeaderboard_(p) {
   const limit = clampInt_(p.limit, 1, 50, 10), me = normCode_(p.code);
-  if (me.length >= 4) rateLimit_(me, 'getLeaderboard');
+  if (me.length >= CODE_MIN) rateLimit_(me, 'getLeaderboard');
   const all = ranked_(), out = []; let mine = null;
   all.forEach(function (e) {
     const isMe = e[0] === me;
@@ -544,7 +550,30 @@ function getLeaderboard_(p) {
 function getPublicConfig_() { return { ok: true, config: cfgMap_() }; }
 
 /* ---------- API giáo viên ---------- */
+/** Giáo viên tự đặt mã: p.codes = ['AN123', 'Bé Hoa 7', {code:'X1Y2', note:'Lớp 6A'}] (tối đa 200). Mã được chuẩn hoá như lúc học sinh nhập. */
+function createCustomCodes_(p) {
+  const items = p.codes.slice(0, 200), note = safe_(String(p.note || '').trim().slice(0, 100));
+  return withLock_(function () {
+    const sh = stSh_(), have = {}, rows = [], codes = [], existing = [], invalid = [], now = new Date().toISOString();
+    cols_(sh, 1, 1).forEach(function (r) { have[String(r[0])] = 1; });
+    items.forEach(function (it) {
+      const obj = it && typeof it === 'object', raw = obj ? it.code : it, full = foldCode_(raw), c = full.slice(0, CODE_MAX);
+      if (full.length < CODE_MIN || full.length > CODE_MAX) { invalid.push(String(raw == null ? '' : raw).slice(0, 30)); return; }
+      if (have[c]) { if (existing.indexOf(c) < 0) existing.push(c); return; }
+      have[c] = 1; codes.push(c);
+      rows.push([c, now, obj && it.note != null ? safe_(String(it.note).trim().slice(0, 100)) : note, true, 0, 0, '']);
+    });
+    if (rows.length) {
+      const start = sh.getLastRow() + 1, need = start + rows.length - 1;
+      if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
+      sh.getRange(start, 1, rows.length, 1).setNumberFormat('@');          // mã toàn số (vd 123456) không bị Sheets đổi thành số
+      sh.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
+    }
+    return { ok: true, custom: true, codes: codes, created: codes.length, requested: items.length, existing: existing, invalid: invalid };
+  });
+}
 function createCodes_(p) {
+  if (Array.isArray(p.codes)) return createCustomCodes_(p);
   const count = clampInt_(p.count, 1, 200, 1), note = safe_(String(p.note || '').trim().slice(0, 100));
   const prefix = String(p.prefix || '').toUpperCase().split('').filter(function (ch) { return CODE_ALPHABET.indexOf(ch) >= 0; }).join('').slice(0, 3);
   return withLock_(function () {

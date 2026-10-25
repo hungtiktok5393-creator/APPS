@@ -576,7 +576,7 @@ function statusChip(sid) {
 }
 
 /** Mã học sinh: tự viết hoa, bỏ mọi khoảng trắng */
-const normCode = v => String(v == null ? '' : v).toUpperCase().replace(/\s+/g, '');
+const normCode = v => String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);   // giống máy chủ (foldCode_)
 const fmtDelta = n => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n);
 const codeErrorMsg = r => ({
   invalid_code: 'Mã học sinh không đúng. Hãy kiểm tra lại từng ký tự (mã không có chữ O, I, L và số 0, 1) hoặc hỏi giáo viên.',
@@ -1716,7 +1716,7 @@ function AssignView(root, q) {
       if (checking || dead) return;
       const c = code || normCode(codeIn.value);
       if (!c) { err.textContent = 'Vui lòng nhập Mã học sinh.'; return codeIn.focus(); }
-      if (!/^[A-Z0-9]{4,12}$/.test(c)) { err.textContent = 'Mã học sinh chỉ gồm chữ và số (thường dài 6 ký tự). Hãy kiểm tra lại.'; return codeIn.focus(); }
+      if (!/^[A-Z0-9]{3,16}$/.test(c)) { err.textContent = 'Mã học sinh gồm 3–16 chữ hoặc số. Hãy kiểm tra lại.'; return codeIn.focus(); }
       if (!API.validUrl(a.scriptUrl)) { err.textContent = 'Bài này chưa có máy chủ nhận điểm nên không kiểm tra được mã. Hãy báo giáo viên.'; return; }
       err.textContent = ''; checking = true; startBtn.disabled = true; startBtn.textContent = 'Đang kiểm tra mã…';
       const reset = () => { checking = false; startBtn.textContent = '▶ Vào làm bài'; startBtn.disabled = expired || !!(a.max && attempts() >= a.max); };
@@ -2115,21 +2115,65 @@ function exportStudentsCsv(rows) {
 
 /* ---------- Tạo mã ---------- */
 function openCreateCodes() {
+  const mode = h('select', { id: 'cc-mode', 'aria-label': 'Cách tạo mã', onchange: () => paintMode() },
+    h('option', { value: 'rand' }, '🎲 Tạo ngẫu nhiên'), h('option', { value: 'own' }, '✍️ Tự đặt mã'));
   const count = h('input', { type: 'number', id: 'cc-n', min: 1, max: 200, step: 1, value: 10, inputmode: 'numeric' });
   const prefix = h('input', { type: 'text', id: 'cc-p', maxlength: 3, placeholder: 'Tùy chọn, vd: 6A', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false',
     oninput: () => { prefix.value = Array.from(prefix.value.toUpperCase()).filter(c => CODE_ALPHABET.includes(c)).join('').slice(0, 3); } });
+  const list = h('textarea', { id: 'cc-list', rows: 6, class: 't-codes', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off',
+    placeholder: 'AN123\nBinh2015 | Nguyễn Văn Bình\nHoa07 | Lớp 6A', oninput: () => paintOwn() });
+  const ownHint = h('p', { class: 'hint', 'aria-live': 'polite' });
   const note = h('input', { type: 'text', id: 'cc-note', maxlength: 100, placeholder: 'Vd: Lớp 6A – học kỳ 1', autocomplete: 'off' });
   const err = h('div', { role: 'alert', 'aria-live': 'polite' });
   const go = h('button', { class: 'btn primary', type: 'submit' }, 'Tạo mã');
   const body = h('div', { class: 'stack' });
+  const randBox = h('div', { class: 'stack' },
+    h('label', { for: 'cc-n', text: 'Số lượng mã (1–200)' }), count,
+    h('label', { for: 'cc-p', text: 'Tiền tố (tối đa 3 ký tự)' }), prefix,
+    h('p', { class: 'hint', text: 'Mã gồm 6 ký tự (chữ A–Z trừ I, L, O và số 2–9). Tiền tố chiếm các ký tự đầu, phần còn lại ngẫu nhiên.' }));
+  const ownBox = h('div', { class: 'stack' },
+    h('label', { for: 'cc-list', text: 'Danh sách mã (mỗi dòng một mã, tối đa 200)' }), list,
+    h('p', { class: 'hint', text: 'Ghi mã thế nào cũng được: hệ thống tự bỏ dấu, bỏ khoảng trắng/ký tự đặc biệt và viết hoa (“Bé An 7” → BEAN7). Mã dài 3–16 chữ hoặc số. Muốn ghi chú riêng cho từng mã thì thêm sau dấu | (vd: AN123 | Nguyễn Văn An).' }), ownHint);
   const d = Modal.open('Tạo mã học sinh', body);
+  const fold = v => String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  /** Đọc danh sách tự đặt → { items (đã bỏ trùng), bad (mã sai độ dài), dup (số dòng trùng trong danh sách) } */
+  function parseOwn() {
+    const seen = new Set(), items = [], bad = []; let dup = 0;
+    list.value.split(/\r?\n|;/).forEach(line => {
+      line = line.trim(); if (!line) return;
+      const i = line.search(/[|\t]/), raw = i < 0 ? line : line.slice(0, i), nt = i < 0 ? '' : line.slice(i + 1).trim().slice(0, 100), c = fold(raw);
+      if (c.length < 3 || c.length > 16) return bad.push(raw.trim().slice(0, 30) || '(trống)');
+      if (seen.has(c)) return dup++;
+      seen.add(c); items.push(nt ? { code: c, note: nt } : c);
+    });
+    return { items, bad, dup };
+  }
+  function paintOwn() {
+    const p = parseOwn();
+    ownHint.className = 'hint' + (p.bad.length ? ' err' : '');
+    ownHint.textContent = `${p.items.length} mã hợp lệ` + (p.dup ? ` · bỏ ${p.dup} dòng trùng` : '') + (p.bad.length ? ` · ${p.bad.length} dòng sai độ dài (3–16 ký tự): ${p.bad.slice(0, 3).join(', ')}${p.bad.length > 3 ? '…' : ''}` : '');
+  }
+  function paintMode() {
+    const own = mode.value === 'own';
+    randBox.style.display = own ? 'none' : ''; ownBox.style.display = own ? '' : 'none';
+    err.replaceChildren(); if (own) paintOwn();
+  }
   async function submit(e) {
     e.preventDefault();
-    const n = parseInt(count.value, 10), noteV = note.value.trim().slice(0, 100), pre = prefix.value.trim();
-    if (!(n >= 1 && n <= 200)) return err.replaceChildren(h('p', { class: 'err', text: 'Số lượng phải từ 1 đến 200.' }));
+    const own = mode.value === 'own', noteV = note.value.trim().slice(0, 100);
+    let n = parseInt(count.value, 10), items = null;
+    if (own) {
+      const p = parseOwn();
+      if (!p.items.length) return err.replaceChildren(h('p', { class: 'err', text: 'Chưa có mã hợp lệ nào. Mỗi dòng một mã, dài 3–16 chữ hoặc số.' }));
+      if (p.items.length > 200) return err.replaceChildren(h('p', { class: 'err', text: 'Mỗi lần tối đa 200 mã. Hãy chia thành nhiều đợt.' }));
+      if (p.bad.length && !await Modal.confirm(`Có ${p.bad.length} dòng sai độ dài sẽ bị bỏ qua. Vẫn tạo ${p.items.length} mã hợp lệ?`, 'Vẫn tạo')) return;
+      items = p.items; n = items.length;
+    } else if (!(n >= 1 && n <= 200)) return err.replaceChildren(h('p', { class: 'err', text: 'Số lượng phải từ 1 đến 200.' }));
     go.disabled = true; err.replaceChildren(loading('Đang tạo mã…'));
     try {
-      const r = await TA.call('createCodes', { count: n, prefix: pre, note: noteV }, { ms: 45000 });
+      const r = own ? await TA.call('createCodes', { codes: items, note: noteV }, { ms: 45000 })
+        : await TA.call('createCodes', { count: n, prefix: prefix.value.trim(), note: noteV }, { ms: 45000 });
+      if (own && r.custom !== true) throw Object.assign(new Error('Apps Script chưa có tính năng tự đặt mã. Hãy dán lại Code.gs mới rồi Deploy → Manage deployments → New version. (Máy chủ cũ có thể đã tạo nhầm 1 mã ngẫu nhiên – hãy kiểm tra trong danh sách.)'), { code: 'stale' });
       showResult(r, n, noteV); Stu.page = 1; Stu.load();
     } catch (ex) {
       go.disabled = false;
@@ -2137,26 +2181,26 @@ function openCreateCodes() {
     }
   }
   function showResult(r, requested, noteV) {
-    const codes = (Array.isArray(r.codes) ? r.codes : []).map(String);
+    const codes = (Array.isArray(r.codes) ? r.codes : []).map(String), exist = (Array.isArray(r.existing) ? r.existing : []).map(String), inval = (Array.isArray(r.invalid) ? r.invalid : []).map(String);
     const ta = h('textarea', { readonly: true, class: 't-codes', rows: Math.min(10, codes.length + 1), 'aria-label': 'Danh sách mã vừa tạo', onfocus: e => e.target.select() });
     ta.value = codes.join('\n');
     const created = Number(r.created); const made = isFinite(created) ? created : codes.length;
     body.replaceChildren(
       h('p', { class: made >= requested ? 'ok' : 'err', role: 'status', text: made >= requested ? `✓ Đã tạo ${made} mã.` : `Chỉ tạo được ${made}/${requested} mã.` }),
-      h('p', { class: 'hint', text: 'Hãy lưu hoặc in danh sách này – mã cũng luôn xem lại được trong bảng học sinh.' }), ta,
+      exist.length ? h('p', { class: 'err', text: `Đã tồn tại từ trước (không tạo lại): ${exist.join(', ')}. Nếu mã bị xóa, hãy lọc “Đã xóa” và bấm Khôi phục.` }) : null,
+      inval.length ? h('p', { class: 'err', text: `Bỏ qua vì sai độ dài (3–16 ký tự): ${inval.join(', ')}` }) : null,
+      made ? h('p', { class: 'hint', text: 'Hãy lưu hoặc in danh sách này – mã cũng luôn xem lại được trong bảng học sinh.' }) : null, made ? ta : null,
       h('div', { class: 'row wrap' },
-        h('button', { type: 'button', class: 'btn primary', onclick: async () => toast(await copyText(ta.value, ta) ? 'Đã sao chép danh sách mã.' : 'Không sao chép được – hãy chọn và copy thủ công.') }, '📋 Sao chép'),
-        h('button', { type: 'button', class: 'btn', onclick: () => { download('ma-hoc-sinh-' + dayStamp() + '.csv', csvText([['Mã', 'Ghi chú', 'Link']].concat(codes.map(c => [c, noteV, studentLink(c)]))), 'text/csv;charset=utf-8'); toast('Đã tải CSV.'); } }, '⬇ Tải CSV'),
-        h('button', { type: 'button', class: 'btn', onclick: e => printCards(codes.map(c => ({ code: c, note: noteV })), e.currentTarget) }, '🖨 In thẻ mã'),
+        made ? h('button', { type: 'button', class: 'btn primary', onclick: async () => toast(await copyText(ta.value, ta) ? 'Đã sao chép danh sách mã.' : 'Không sao chép được – hãy chọn và copy thủ công.') }, '📋 Sao chép') : null,
+        made ? h('button', { type: 'button', class: 'btn', onclick: () => { download('ma-hoc-sinh-' + dayStamp() + '.csv', csvText([['Mã', 'Ghi chú', 'Link']].concat(codes.map(c => [c, noteV, studentLink(c)]))), 'text/csv;charset=utf-8'); toast('Đã tải CSV.'); } }, '⬇ Tải CSV') : null,
+        made ? h('button', { type: 'button', class: 'btn', onclick: e => printCards(codes.map(c => ({ code: c, note: noteV })), e.currentTarget) }, '🖨 In thẻ mã') : null,
         h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Đóng')));
   }
   body.replaceChildren(h('form', { class: 'stack', onsubmit: submit, novalidate: true },
-    h('label', { for: 'cc-n', text: 'Số lượng mã (1–200)' }), count,
-    h('label', { for: 'cc-p', text: 'Tiền tố (tối đa 3 ký tự)' }), prefix,
-    h('p', { class: 'hint', text: 'Mã gồm 6 ký tự (chữ A–Z trừ I, L, O và số 2–9). Tiền tố chiếm các ký tự đầu, phần còn lại ngẫu nhiên.' }),
+    h('label', { for: 'cc-mode', text: 'Cách tạo' }), mode, randBox, ownBox,
     h('label', { for: 'cc-note', text: 'Ghi chú (tùy chọn, áp dụng cho cả đợt)' }), note, err,
     h('div', { class: 'row end' }, h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Hủy'), go)));
-  count.focus();
+  paintMode(); count.focus();
 }
 
 /* ---------- In thẻ mã (mỗi thẻ có QR → hoc-sinh.html?code=…) ---------- */
