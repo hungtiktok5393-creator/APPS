@@ -1,7 +1,7 @@
 {
  "app": "spelling-mastery",
  "version": 3,
- "exportedAt": "2026-10-23T08:05:03.000Z",
+ "exportedAt": "2026-10-26T09:12:53.856Z",
  "settings": {
   "theme": "dark",
   "sfx": true,
@@ -10,48 +10,167 @@
  },
  "sets": [
   {
-   "id": "fc70fe16-83b5-41a7-a070-bfc2617140ad",
-   "name": "Từ vựng mẫu – Du lịch",
-   "updatedAt": 1792541534728,
-   "n": 8,
-   "bytes": 518
+   "id": "34f1cc6b-fee8-4874-98e9-a25d96bea57f",
+   "name": "Bộ từ PET",
+   "updatedAt": 1793002988657,
+   "n": 1330,
+   "bytes": 62696
   },
   {
-   "id": "967a7e4f-f2a1-405e-8a35-aa2b22d9005d",
-   "name": "Từ vựng mẫu – Du lịch (bản sao)",
-   "updatedAt": 1792543264062,
-   "n": 8,
-   "bytes": 529
+   "id": "b946a551-2e42-4315-97f4-0814bef5b31e",
+   "name": "Bộ từ KET",
+   "updatedAt": 1793002197314,
+   "n": 549,
+   "bytes": 24641
+  },
+  {
+   "id": "b6c0e05c-f084-467b-8a8c-e1e8ec2e8ffb",
+   "name": "100 động từ bất quy tắc",
+   "updatedAt": 1792894898429,
+   "n": 100,
+   "bytes": 4727
+  },
+  {
+   "id": "5fe23d14-4d2d-4b73-bc07-537cf274b644",
+   "name": "Bộ từ Flyers",
+   "updatedAt": 1792829073590,
+   "n": 520,
+   "bytes": 20937
+  },
+  {
+   "id": "826d8397-f201-4c38-995d-bcf99767e487",
+   "name": "Bộ từ Movers",
+   "updatedAt": 1792826539717,
+   "n": 421,
+   "bytes": 16982
+  },
+  {
+   "id": "beb2be67-c1fa-4ba1-b4f5-234cbfaf2d7a",
+   "name": "Mẫu câu Flyers",
+   "updatedAt": 1792904142306,
+   "n": 43,
+   "bytes": 4677
+  },
+  {
+   "id": "aee104b5-bc1c-4381-8e48-f44634fa5900",
+   "name": "Mẫu câu Movers",
+   "updatedAt": 1792825609406,
+   "n": 47,
+   "bytes": 4090
+  },
+  {
+   "id": "43e97991-557e-4cb0-b54b-f6b456cb7356",
+   "name": "Mẫu câu Starters",
+   "updatedAt": 1792811600816,
+   "n": 44,
+   "bytes": 3842
+  },
+  {
+   "id": "8528fc13-a60e-4210-9384-d278beb32feb",
+   "name": "Bộ từ Starters",
+   "updatedAt": 1792811240751,
+   "n": 453,
+   "bytes": 17471
   }
  ],
  "tests": [
   {
-   "id": "66c96f63-8711-427e-9191-0abc3b968001",
-   "name": "READING AND WRITING",
-   "updatedAt": 1792627380433,
-   "n": 32,
-   "bytes": 18756
+   "id": "bb702773-2ef8-493f-a6a2-4b3254db1ea2",
+   "name": "Bài 10 – Tổng ôn ngữ pháp nền tảng",
+   "updatedAt": 1793005429032,
+   "n": 10,
+   "bytes": 6678
   },
   {
-   "id": "07431f0d-69ba-4f5b-8ae6-ec90d669d9d3",
-   "name": "TEST 1 READING AND WRITING",
-   "updatedAt": 1792575426120,
+   "id": "a3b58677-2067-46b9-815b-e5b6bd20b372",
+   "name": "Bài 9 – Cụm từ, mệnh đề và cấu trúc câu",
+   "updatedAt": 1793005425457,
+   "n": 8,
+   "bytes": 6886
+  },
+  {
+   "id": "01bba15a-27eb-4110-9d62-d113cf42ad17",
+   "name": "Bài 8 – Các loại câu theo mục đích",
+   "updatedAt": 1793005420777,
+   "n": 8,
+   "bytes": 6199
+  },
+  {
+   "id": "d89a2b27-bc02-48a0-9ea6-6960d84a63ec",
+   "name": "Bài 7 – Thành phần của câu (Sentence Components)",
+   "updatedAt": 1793005416743,
+   "n": 8,
+   "bytes": 6778
+  },
+  {
+   "id": "e7cbcd84-502d-4268-930a-9ccc46480482",
+   "name": "Bài 6 – Ôn tập 8 loại từ",
+   "updatedAt": 1793005412124,
+   "n": 8,
+   "bytes": 6128
+  },
+  {
+   "id": "3f09e647-927e-442c-b11e-b533b5786cae",
+   "name": "Bài 5 – Giới từ, liên từ, mạo từ, thán từ",
+   "updatedAt": 1793005406583,
+   "n": 8,
+   "bytes": 5867
+  },
+  {
+   "id": "a754a5a7-9caa-4a94-850d-08dbac7b5a0b",
+   "name": "Bài 4 – Tính từ và trạng từ (Adjectives & Adverbs)",
+   "updatedAt": 1793004837511,
+   "n": 8,
+   "bytes": 6432
+  },
+  {
+   "id": "9a4c83b6-b7eb-4aa4-8313-a2283a52af3c",
+   "name": "Bài 3 – Động từ (Verbs)",
+   "updatedAt": 1793004833779,
+   "n": 8,
+   "bytes": 6783
+  },
+  {
+   "id": "ce56e19f-c1f3-44f2-a8ea-8ca8fce004fa",
+   "name": "Bài 2 – Đại từ (Pronouns)",
+   "updatedAt": 1793004829308,
+   "n": 8,
+   "bytes": 6267
+  },
+  {
+   "id": "c4b9c9a7-e1f4-4259-92c6-49ea865e1fe2",
+   "name": "Bài 1 – Danh từ (Nouns)",
+   "updatedAt": 1793004823199,
+   "n": 8,
+   "bytes": 6637
+  },
+  {
+   "id": "59638deb-13a7-4a7d-a70e-ffd7e7e2d170",
+   "name": "ĐỀ DỰ ĐOÁN THI TUYỂN SINH LỚP 10 TRUNG HỌC PHỔ THÔNG - TPHCM - Môn thi: ANH VĂN",
+   "updatedAt": 1792941325358,
+   "n": 40,
+   "bytes": 34053
+  },
+  {
+   "id": "88f6c981-e1e6-4d4c-b3d5-b3ef308bef48",
+   "name": "TEST 1",
+   "updatedAt": 1792939485462,
+   "n": 36,
+   "bytes": 27605
+  },
+  {
+   "id": "66c96f63-8711-427e-9191-0abc3b968001",
+   "name": "READING AND WRITING",
+   "updatedAt": 1792829980481,
    "n": 32,
-   "bytes": 16018
+   "bytes": 18827
   },
   {
    "id": "115ddcdd-0412-4778-b70f-061a5967fc96",
    "name": "TEST 1 READING AND WRITING",
    "updatedAt": 1792574831698,
    "n": 27,
-   "bytes": 15510
-  },
-  {
-   "id": "d6e1caa6-a6eb-4198-923d-977200c13981",
-   "name": "TEST 1 READING AND WRITING",
-   "updatedAt": 1792558812676,
-   "n": 32,
-   "bytes": 12796
+   "bytes": 15582
   }
  ]
 }
