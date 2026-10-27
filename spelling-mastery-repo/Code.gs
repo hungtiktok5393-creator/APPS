@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 12;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 13;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -118,6 +118,7 @@ function legacyPost_(action, body) {
     if (action === 'submitTest') return json_(submitTest_(body));
     if (action === 'saveTest') return json_(saveTest_(body));
     if (action === 'deleteAssignment') return json_(deleteAssignment_(body));
+    if (action === 'deleteAssignments') return json_(deleteAssignments_(body));
     return json_({ ok: false, error: 'bad_request', message: 'Hành động không hợp lệ.' });
   });
 }
@@ -267,10 +268,11 @@ function submitTest_(b) {
 
 /* ---------- XÓA DỮ LIỆU MỘT BÀI GIAO (luôn cho phép, kể cả khi chưa hết hạn) ---------- */
 /** Xóa mọi dòng có cột col (0-based) = id. Ít khối liên tiếp → xóa từng khối (từ dưới lên); nhiều khối rời → ghi lại cả bảng MỘT lần (nhanh hơn nhiều so với hàng chục lệnh deleteRows). Trả về số dòng đã xóa. */
-function deleteRows_(sh, col, id) {
+function deleteRows_(sh, col, id) {   // id: một mã bài, hoặc object { mã: true } để xóa nhiều bài trong MỘT lượt
   const n = sh.getLastRow(); if (n < 2) return 0;
+  const own = Object.prototype.hasOwnProperty, match = typeof id === 'string' ? function (v) { return v === id; } : function (v) { return own.call(id, v); };
   const vals = sh.getRange(2, col + 1, n - 1, 1).getValues(), hit = [];
-  vals.forEach(function (v, i) { if (String(v[0]) === id) hit.push(i + 2); });
+  vals.forEach(function (v, i) { if (match(String(v[0]))) hit.push(i + 2); });
   if (!hit.length) return 0;
   const blocks = [];
   hit.forEach(function (r) { const b = blocks[blocks.length - 1]; if (b && r === b[1] + 1) b[1] = r; else blocks.push([r, r]); });
@@ -279,7 +281,7 @@ function deleteRows_(sh, col, id) {
     for (let k = blocks.length - 1; k >= 0; k--) sh.deleteRows(blocks[k][0], blocks[k][1] - blocks[k][0] + 1);
   } else {
     const lc = sh.getLastColumn(), all = sh.getRange(2, 1, n - 1, lc).getValues();
-    const keep = all.filter(function (_, i) { return String(vals[i][0]) !== id; }).map(function (r) { return r.map(function (c) { return typeof c === 'string' ? safe_(c) : c; }); });   // safe_: không để ô văn bản bị hiểu thành công thức khi ghi lại
+    const keep = all.filter(function (_, i) { return !match(String(vals[i][0])); }).map(function (r) { return r.map(function (c) { return typeof c === 'string' ? safe_(c) : c; }); });   // safe_: không để ô văn bản bị hiểu thành công thức khi ghi lại
     sh.getRange(2, 1, n - 1, lc).clearContent();
     if (keep.length) sh.getRange(2, 1, keep.length, lc).setValues(keep);
   }
@@ -297,6 +299,21 @@ function deleteAssignment_(b) {
   };
   cdel_(id);
   return { ok: true, deleted: out };
+}
+/** Xóa hàng loạt: ids = mảng mã bài (tối đa 200). Mỗi bảng chỉ quét / ghi lại một lần cho mọi bài. */
+function deleteAssignments_(b) {
+  if (!isTeacher_(b.teacherKey)) return { ok: false, error: 'unauthorized', message: 'Teacher Key không đúng.' };
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(function (x) { return /^[\w-]{3,40}$/.test(x); }).slice(0, 200);
+  if (!ids.length) return { ok: false, error: 'bad_request', message: 'Chưa chọn bài nào.' };
+  const set = {}; ids.forEach(function (x) { set[x] = true; });
+  const out = {
+    assignment: deleteRows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), 0, set),
+    tests: deleteRows_(sheet_(SHEET_TESTS, TESTS_HEADERS), 0, set),
+    results: deleteRows_(sheet_(SHEET_RESULTS, RESULT_HEADERS), 1, set),
+    testResults: deleteRows_(sheet_(SHEET_TRES, TRES_HEADERS), 1, set)
+  };
+  ids.forEach(cdel_);
+  return { ok: true, ids: ids, deleted: out };
 }
 
 /* ---------- GET: ping / lấy bài / thống kê ---------- */
