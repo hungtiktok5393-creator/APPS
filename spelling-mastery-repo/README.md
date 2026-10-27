@@ -237,3 +237,7 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 - Số liệu 30 ngày gần nhất, giờ Việt Nam; máy chủ lưu đệm 2 phút (nút ↻ Cập nhật lấy mới).
 
 **Nút ☀️/🌙** có trên thanh trên cùng của trang giáo viên, học sinh, phụ huynh và trên màn hình vào làm bài; lựa chọn dùng chung mọi trang (`theme.js`).
+
+## 🐾 Thú cưng (Pet.gs)
+Tab mới trên trang học sinh, cạnh Khu vườn. Học sinh dùng điểm làm bài để nuôi thú; **mỗi ngày phải chi ≥ 25 điểm cho đồ ăn + chăm sóc, không thì thú mất**. Không tính vào báo cáo phụ huynh.
+Cài: dán `Pet.gs` + `Code.gs` (VERSION 14) vào Apps Script rồi Deploy → New version. Chi tiết: `PET_SPEC.md`.
