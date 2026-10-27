@@ -230,7 +230,8 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 **Góc phụ huynh (`phu-huynh.html`)**
 - Giáo viên tạo ở tab **👪 Phụ huynh**: mã phụ huynh + mật khẩu tự đặt + danh sách mã các con (tối đa 20). Nút **🔗 Lời mời** sao chép sẵn link + mã + mật khẩu để gửi Zalo.
 - Phụ huynh đăng nhập **một lần**, xem được tất cả các con (chạm tên con để chuyển, không phải đăng nhập lại).
-- Mỗi con có: đánh giá **Chăm chỉ** (số ngày học / 7 ngày, bài bỏ lỡ) và **Độ chính xác** (% đúng từ vựng / test); 4 chỉ số chính; lịch học 4 tuần (có đánh dấu ngày chơi trò chơi); bài chưa làm & bài bỏ lỡ; kết quả từng lần làm (đúng ngay lần đầu, bỏ qua, xem lại, thời gian); **từ con hay sai** để ôn cùng con; điểm thưởng và số ván trò chơi (có cảnh báo khi chơi nhiều hơn học).
+- **Đánh giá chỉ tính bài giao riêng** (bài có chọn mã học sinh). Bài giao chung cho cả lớp (hạn rất dài, để ôn kiến thức cơ bản và kiếm điểm) chỉ hiện ở mục **📚 Ôn tập tự chọn**, không tính vào Chăm chỉ, Độ chính xác, Bài chưa làm, Bài bỏ lỡ.
+- Mỗi con có: đánh giá **Chăm chỉ** (làm đủ / đúng hạn bài giao riêng) và **Độ chính xác** (% đúng bài giao riêng); 4 chỉ số chính; lịch học 4 tuần (có đánh dấu ngày chơi trò chơi); bài chưa làm & bài bỏ lỡ; kết quả từng lần làm (đúng ngay lần đầu, bỏ qua, xem lại, thời gian); **từ con hay sai** để ôn cùng con; điểm thưởng và số ván trò chơi (có cảnh báo khi chơi nhiều hơn học).
 - Số liệu 30 ngày gần nhất, giờ Việt Nam; máy chủ lưu đệm 2 phút (nút ↻ Cập nhật lấy mới).
 
 **Nút ☀️/🌙** có trên thanh trên cùng của trang giáo viên, học sinh, phụ huynh và trên màn hình vào làm bài; lựa chọn dùng chung mọi trang (`theme.js`).

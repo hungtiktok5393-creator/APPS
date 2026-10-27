@@ -881,29 +881,41 @@ function rowsAt_(sh, nums, ncol) {
   return res;
 }
 function familyReport_(codes) {
+  // v11.1: ĐÁNH GIÁ chỉ dựa trên BÀI GIAO RIÊNG (bài có chọn mã học sinh). Bài giao chung (cho mọi mã, hạn rất dài) là ôn tập / kiếm điểm
+  // → chỉ hiện ở mục "Ôn tập", không tính vào chăm chỉ, độ chính xác, bài chưa làm, bài bỏ lỡ.
   const now = Date.now(), from = now - P_DAYS * DAY_MS, set = {}, R = {};
   codes.forEach(function (c) { set[c] = 1; R[c] = { code: c, exists: false, note: '', active: false, balance: 0, totalEarned: 0, rank: null, totalStudents: 0, createdAt: '', lastActive: '',
-    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, garden: 0, teacher: 0 }, games7: 0, gamesNet7: 0, allAttempts: 0 }; });
-  const day = function (c, d) { const o = R[c].days; return o[d] || (o[d] = { v: 0, t: 0, ms: 0, g: 0 }); };
+    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, garden: 0, teacher: 0 }, games7: 0, gamesNet7: 0, allAttempts: 0,
+    practice: { attempts: 0, ms: 0, days: 0, words: 0, score: 0, max: 0, tests: 0 } }; });
+  const day = function (c, d) { const o = R[c].days; return o[d] || (o[d] = { v: 0, t: 0, ms: 0, g: 0, p: 0, pms: 0 }); };
+  // 0) Bài giao: id → danh sách mã (rỗng = giao chung)
+  const A = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)), own = {};
+  A.forEach(function (r) { const id = String(r[0]); if (id) own[id] = codesList_(r[13]); });
+  const isOwn = function (aid, c) { const L = own[aid]; return !!(L && L.length && L.indexOf(c) >= 0); };
   // 1) Hồ sơ + hạng
   cols_(stSh_(), 1, 7).forEach(function (r) { const c = String(r[0]); if (!set[c]) return; const x = R[c];
     x.exists = true; x.createdAt = iso_(r[1]); x.note = String(r[2]); x.active = isActive_(r[3]); x.balance = Number(r[4]) || 0; x.totalEarned = Number(r[5]) || 0; x.lastActive = iso_(r[6]); });
   const rk = ranked_(); rk.forEach(function (e) { if (set[e[0]]) R[e[0]].rank = e[2]; }); codes.forEach(function (c) { R[c].totalStudents = rk.length; });
-  // 2) Bài từ vựng (Results): cột nhẹ cho cả sheet, chi tiết từng từ chỉ đọc cho tối đa 40 lần gần nhất / con
-  const done = {};   // done[code][assignmentId] = [số lần, % tốt nhất]
+  // 2) Bài từ vựng (Results): cột nhẹ cho cả sheet; chi tiết từng từ chỉ đọc cho ≤ 40 lần làm bài riêng + ≤ 20 lần ôn tập gần nhất / con
+  const done = {}, pDays = {};
   const rsh = sheet_(SHEET_RESULTS, RESULT_HEADERS), light = cols_(rsh, 1, 9), stc = cols_(rsh, 12, 2), want = {};
   light.forEach(function (r, i) {
     const c = normCode_(r[4]); if (!set[c]) return;
     const aid = String(r[1]); (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1; R[c].allAttempts++;
     const t = msOf_(r[3]); if (t < from) return;
-    const d = dayOf_(r[3]), o = day(c, d); o.v++; o.ms += Number(r[7]) || 0;
-    R[c].vocab.push({ row: i + 2, t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, ms: Number(r[7]) || 0, late: String(r[8]) === 'yes', status: String(stc[i] && stc[i][0] || 'done'), total: Number(stc[i] && stc[i][1]) || 0 });
+    const mine = isOwn(aid, c), d = dayOf_(r[3]), o = day(c, d), ms = Number(r[7]) || 0;
+    if (mine) { o.v++; o.ms += ms; } else { o.p++; o.pms += ms; R[c].practice.attempts++; R[c].practice.ms += ms; (pDays[c] || (pDays[c] = {}))[d] = 1; }
+    R[c].vocab.push({ row: i + 2, own: mine, t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, ms: ms, late: String(r[8]) === 'yes', status: String(stc[i] && stc[i][0] || 'done'), total: Number(stc[i] && stc[i][1]) || 0 });
   });
-  codes.forEach(function (c) { R[c].vocab.sort(function (a, b) { return b.t - a.t; }); R[c].vocab.slice(0, 40).forEach(function (v) { want[v.row] = 1; }); });
+  codes.forEach(function (c) {
+    const L = R[c].vocab.sort(function (a, b) { return b.t - a.t; });
+    R[c].vocab = L.filter(function (v) { return v.own; }).slice(0, 40).concat(L.filter(function (v) { return !v.own; }).slice(0, 20));
+    R[c].vocab.forEach(function (v) { want[v.row] = 1; });
+  });
   const full = rowsAt_(rsh, Object.keys(want).map(Number), RESULT_HEADERS.length);
   codes.forEach(function (c) {
-    const W = R[c].words;
-    R[c].vocab = R[c].vocab.slice(0, 40).map(function (v) {
+    const W = R[c].words, P = R[c].practice;
+    R[c].vocab = R[c].vocab.map(function (v) {
       let d = []; try { d = JSON.parse(detailsOf_(full[v.row] || []) || '[]'); } catch (e) {}
       if (!Array.isArray(d)) d = [];
       let first = 0, skip = 0, peeks = 0, wrong = 0;
@@ -913,29 +925,34 @@ function familyReport_(codes) {
         peeks += Math.max(0, vw - 1); if (wc > 0) wrong++;
         if (k) { const s = W[k] || (W[k] = [0, 0, 0]); s[0]++; if (w.skipped || wc > 0 || vw >= 3) s[1]++; if (v.t > s[2]) s[2] = v.t; }
       });
-      return { t: v.t, aid: v.aid, name: v.name, score: v.score, n: d.length, first: first, skip: skip, peeks: peeks, wrong: wrong, ms: v.ms, late: v.late, status: v.status, total: v.total };
-    });
-    const hard = Object.keys(W).filter(function (k) { return W[k][1] > 0; }).map(function (k) { return [k, W[k][0], W[k][1]]; })
-      .sort(function (a, b) { return (b[2] - a[2]) || (b[2] / b[1] - a[2] / a[1]); }).slice(0, 20);
-    R[c].words = hard;   // [từ, số lần gặp, số lần sai/bỏ qua/xem ≥3]
+      if (!v.own) { P.words += d.length; P.score += v.score; P.max += d.length * 10; }
+      return { t: v.t, own: v.own, aid: v.aid, name: v.name, score: v.score, n: d.length, first: first, skip: skip, peeks: peeks, wrong: wrong, ms: v.ms, late: v.late, status: v.status, total: v.total };
+    }).sort(function (a, b) { return b.t - a.t; });
+    R[c].words = Object.keys(W).filter(function (k) { return W[k][1] > 0; }).map(function (k) { return [k, W[k][0], W[k][1]]; })
+      .sort(function (a, b) { return (b[2] - a[2]) || (b[2] / b[1] - a[2] / a[1]); }).slice(0, 20);   // [từ, số lần gặp, số lần sai/bỏ qua/xem ≥3] – gồm cả bài ôn tập (để phụ huynh ôn cùng con)
   });
-  // 3) Bài test (TestResults) – cột nhẹ (không đọc cột items)
+  // 3) Bài test (TestResults) – cột nhẹ
   cols_(sheet_(SHEET_TRES, TRES_HEADERS), 1, 10).forEach(function (r) {
     const c = normCode_(r[4]); if (!set[c]) return;
     const aid = String(r[1]); (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1; R[c].allAttempts++;
     const t = msOf_(r[3]); if (t < from) return;
-    const o = day(c, dayOf_(r[3])); o.t++; o.ms += Number(r[8]) || 0;
-    R[c].tests.push({ t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, max: Number(r[7]) || 0, ms: Number(r[8]) || 0, late: String(r[9]) === 'yes' });
+    const mine = isOwn(aid, c), d = dayOf_(r[3]), o = day(c, d), ms = Number(r[8]) || 0, P = R[c].practice;
+    if (mine) { o.t++; o.ms += ms; } else { o.p++; o.pms += ms; P.attempts++; P.tests++; P.ms += ms; P.score += Number(r[6]) || 0; P.max += Number(r[7]) || 0; (pDays[c] || (pDays[c] = {}))[d] = 1; }
+    R[c].tests.push({ t: t, own: mine, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, max: Number(r[7]) || 0, ms: ms, late: String(r[9]) === 'yes' });
   });
-  codes.forEach(function (c) { R[c].tests.sort(function (a, b) { return b.t - a.t; }); R[c].tests = R[c].tests.slice(0, 40); });
-  // 4) Bài được giao: còn hạn, hoặc hết hạn trong 30 ngày qua
-  rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)).forEach(function (r) {
+  codes.forEach(function (c) {
+    const L = R[c].tests.sort(function (a, b) { return b.t - a.t; });
+    R[c].tests = L.filter(function (v) { return v.own; }).slice(0, 40).concat(L.filter(function (v) { return !v.own; }).slice(0, 20));
+    R[c].practice.days = Object.keys(pDays[c] || {}).length;
+  });
+  // 4) Bài GIAO RIÊNG cho con: còn hạn, hoặc hết hạn trong 30 ngày qua (bài giao chung không tính)
+  A.forEach(function (r) {
     const id = String(r[0]), due = Number(r[2]) || 0; if (!id || !due || due < from) return;
-    const L = codesList_(r[13]), created = msOf_(r[5]);
+    const L = own[id] || [], created = msOf_(r[5]); if (!L.length) return;
     codes.forEach(function (c) {
-      if (L.length && L.indexOf(c) < 0) return;
-      const x = R[c], born = msOf_(x.createdAt); if (born && due < born) return;   // bài hết hạn trước khi con có mã → bỏ
-      x.asg.push({ id: id, name: String(r[1]), kind: String(r[9]) === 'test' ? 'test' : 'vocab', due: due, created: created, personal: L.length > 0, max: Number(r[3]) || 0, done: (done[c] && done[c][id]) || 0 });
+      if (L.indexOf(c) < 0) return;
+      const x = R[c], born = msOf_(x.createdAt); if (born && due < born) return;
+      x.asg.push({ id: id, name: String(r[1]), kind: String(r[9]) === 'test' ? 'test' : 'vocab', due: due, created: created, personal: true, max: Number(r[3]) || 0, done: (done[c] && done[c][id]) || 0 });
     });
   });
   codes.forEach(function (c) { R[c].asg.sort(function (a, b) { return b.due - a.due; }); R[c].asg = R[c].asg.slice(0, 80); });
