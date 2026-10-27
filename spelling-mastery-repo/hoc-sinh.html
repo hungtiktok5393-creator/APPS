@@ -5,19 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3b4cca">
   <meta name="color-scheme" content="light dark">
-  <title>Trang học sinh – Spelling Mastery</title>
+  <title>Trang học sinh – Nhà Thầy Hưng</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%93%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=20261027f">
-  <link rel="stylesheet" href="student.css?v=20261027f">
-  <link rel="stylesheet" href="games.css?v=20261027f">
-  <link rel="stylesheet" href="games2.css?v=20261027f">
-  <link rel="stylesheet" href="garden.css?v=20261027f">
+  <link rel="stylesheet" href="style.css?v=20261027g">
+  <link rel="stylesheet" href="student.css?v=20261027g">
+  <link rel="stylesheet" href="games.css?v=20261027g">
+  <link rel="stylesheet" href="games2.css?v=20261027g">
+  <link rel="stylesheet" href="garden.css?v=20261027g">
+  <script src="theme.js?v=20261027g"></script>
 </head>
 <body>
   <a class="skip" href="#app">Bỏ qua điều hướng</a>
   <header class="topbar">
-    <a class="brand" href="hoc-sinh.html" aria-label="Spelling Mastery – trang học sinh">🔤 Spelling Mastery</a>
-    <a class="btn small ghost" href="index.html">Trang giáo viên</a>
+    <a class="brand" href="hoc-sinh.html" aria-label="Nhà Thầy Hưng – trang học sinh">🏠 Nhà Thầy Hưng</a>
+    <div class="topbar-tools">
+      <a class="btn small ghost" href="phu-huynh.html">👪 Phụ huynh</a>
+      <a class="btn small ghost" href="index.html">Giáo viên</a>
+    </div>
   </header>
   <main id="app" tabindex="-1">
     <section id="view-login" class="card st-login" hidden>
@@ -25,6 +29,12 @@
       <form id="login-form" autocomplete="off" novalidate>
         <label for="code-in">Mã học sinh</label>
         <input type="text" id="code-in" maxlength="16" autocapitalize="characters" spellcheck="false" aria-describedby="login-err" placeholder="Ví dụ: AB3K7M">
+        <label for="pw-in">Mật khẩu</label>
+        <div class="pw-row">
+          <input type="password" id="pw-in" maxlength="32" autocomplete="current-password" autocapitalize="off" spellcheck="false" aria-describedby="login-err pw-hint" placeholder="Mật khẩu giáo viên đã cho">
+          <button class="btn" type="button" id="pw-eye" aria-label="Hiện mật khẩu" aria-pressed="false">👁</button>
+        </div>
+        <p class="hint" id="pw-hint">Để trống nếu giáo viên chưa đặt mật khẩu cho bạn. Máy sẽ nhớ đăng nhập.</p>
         <div id="url-box" hidden>
           <label for="url-in">Địa chỉ máy chủ (Apps Script)</label>
           <input type="url" id="url-in" placeholder="https://script.google.com/macros/s/…/exec">
@@ -50,17 +60,24 @@
       </section>
 
       <div class="home-tabs" role="tablist" aria-label="Khu vực" id="tabs">
-        <button class="home-tab" role="tab" id="t-bai-giao" aria-controls="p-bai-giao" data-tab="bai-giao">📋 Bài được giao <span class="home-count" id="bg-count" hidden></span></button>
+        <button class="home-tab" role="tab" id="t-bai-chung" aria-controls="p-bai-chung" data-tab="bai-chung">📚 Bài chung <span class="home-count" id="bc-count" hidden></span></button>
+        <button class="home-tab" role="tab" id="t-bai-rieng" aria-controls="p-bai-rieng" data-tab="bai-rieng">👤 Bài của riêng bạn <span class="home-count" id="br-count" hidden></span></button>
         <button class="home-tab" role="tab" id="t-ho-so" aria-controls="p-ho-so" data-tab="ho-so">Hồ sơ</button>
         <button class="home-tab" role="tab" id="t-xep-hang" aria-controls="p-xep-hang" data-tab="xep-hang">Xếp hạng</button>
         <button class="home-tab" role="tab" id="t-tro-choi" aria-controls="p-tro-choi" data-tab="tro-choi">Trò chơi</button>
         <button class="home-tab" role="tab" id="t-khu-vuon" aria-controls="p-khu-vuon" data-tab="khu-vuon">Khu vườn</button>
       </div>
 
-      <section id="p-bai-giao" role="tabpanel" aria-labelledby="t-bai-giao" class="card" hidden>
-        <div class="page-head"><h2>Bài được giao</h2><button class="btn small" id="btn-open" type="button">Làm mới</button></div>
-        <p class="hint">Bài giáo viên giao cho bạn và còn hạn nộp. Bấm vào một bài để làm – làm xong, điểm được cộng vào số dư.</p>
+      <section id="p-bai-chung" role="tabpanel" aria-labelledby="t-bai-chung" class="card" hidden>
+        <div class="page-head"><h2>📚 Bài chung</h2><button class="btn small" id="btn-open" type="button">Làm mới</button></div>
+        <p class="hint">Bài giáo viên giao cho cả lớp (mọi mã học sinh) và còn hạn nộp. Bấm vào một bài để làm – làm xong, điểm được cộng vào số dư.</p>
         <ul id="open-list" class="st-open" aria-live="polite"></ul>
+      </section>
+
+      <section id="p-bai-rieng" role="tabpanel" aria-labelledby="t-bai-rieng" class="card" hidden>
+        <div class="page-head"><h2>👤 Bài của riêng bạn</h2><button class="btn small" id="btn-open2" type="button">Làm mới</button></div>
+        <p class="hint">Bài giáo viên giao riêng cho mã của bạn và còn hạn nộp. Bạn khác không nhìn thấy những bài này.</p>
+        <ul id="own-list" class="st-open" aria-live="polite"></ul>
       </section>
 
       <section id="p-ho-so" role="tabpanel" aria-labelledby="t-ho-so" class="stack" hidden>
@@ -75,7 +92,7 @@
 
       <section id="p-xep-hang" role="tabpanel" aria-labelledby="t-xep-hang" class="card" hidden>
         <div class="page-head"><h2>Top 50</h2><button class="btn small" id="btn-board" type="button">Làm mới</button></div>
-        <p class="hint">Xếp theo tổng điểm đã kiếm từ học từ và làm bài test (theo máy chủ). Mã đã được che.</p>
+        <p class="hint">Xếp theo tổng điểm đã kiếm từ học từ và làm bài test (theo máy chủ).</p>
         <ol id="board" class="st-board"></ol>
         <p id="board-me" class="hint"></p>
       </section>
@@ -119,10 +136,10 @@
   </dialog>
   <div id="toasts" aria-live="polite"></div>
   <noscript><p class="center">Cần bật JavaScript.</p></noscript>
-  <script src="student.js?v=20261027f" defer></script>
-  <script src="games.js?v=20261027f" defer></script>
-  <script src="games2.js?v=20261027f" defer></script>
-  <script src="garden.js?v=20261027f" defer></script>
-  <script src="garden-ui.js?v=20261027f" defer></script>
+  <script src="student.js?v=20261027g" defer></script>
+  <script src="games.js?v=20261027g" defer></script>
+  <script src="games2.js?v=20261027g" defer></script>
+  <script src="garden.js?v=20261027g" defer></script>
+  <script src="garden-ui.js?v=20261027g" defer></script>
 </body>
 </html>

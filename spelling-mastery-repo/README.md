@@ -1,4 +1,4 @@
-# 🔤 Spelling Mastery
+# 🏠 Nhà Thầy Hưng (Spelling Mastery)
 
 SPA tĩnh giúp giáo viên tiếng Anh giao bài chính tả từ vựng và theo dõi kết quả học sinh.
 Giao **bài chính tả từ vựng** và **bài test nhiều dạng câu hỏi** (xem mục 10). Chạy 100 % trên **GitHub Pages** (không backend riêng); kết quả học sinh được ghi vào **Google Sheet** qua **Google Apps Script**.
@@ -213,3 +213,24 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 - **Nếu không đọc được dữ liệu** khi mở app, app **chặn ghi** và báo lỗi để không đè mất dữ liệu; tải lại trang là thường được.
 - **Trang chủ:** khi có hơn 8 bộ từ / bài test sẽ hiện ô **tìm theo tên**, sắp xếp (thứ tự của tôi / mới sửa / A→Z) và chỉ vẽ 48 thẻ mỗi lần, bấm **Hiện thêm** để xem tiếp. Nhờ vậy cuộn vẫn mượt với hàng nghìn mục.
 - **Giới hạn còn lại (biết trước):** danh sách vẫn được nạp hết vào RAM khi mở app, nên 1 triệu từ + hàng chục nghìn câu có thể chiếm vài trăm MB RAM trên máy yếu. `data.json` trên GitHub vẫn là một file (tối đa 100 MB) và được tải lại mỗi lần mở trang chủ; với kho rất lớn, nên dùng **Xuất JSON** để sao lưu thủ công thay vì đồng bộ qua repo, hoặc chia dữ liệu thành nhiều file ở bước nâng cấp sau. Hai tab cùng sửa một dữ liệu: bản lưu sau cùng thắng ở mức từng bộ / bài.
+
+
+## 19. Mật khẩu học sinh · Góc phụ huynh · Nút sáng/tối (v11)
+**Sau khi dán `Code.gs` mới: Deploy → Manage deployments → ✎ → New version.** Sheet `Students` tự có thêm cột `password`, sheet `Parents` tự được tạo.
+
+**Mật khẩu học sinh**
+- Giáo viên đặt tự do (tối đa 32 ký tự, phân biệt hoa/thường): khi tạo mã (dòng `MÃ | ghi chú | mật khẩu`, hoặc tích "Tự tạo mật khẩu 4 chữ số"), nút 🔑 ở từng dòng, hoặc **🔑 Mật khẩu hàng loạt**. Ô trống = mã không cần mật khẩu.
+- Cần mã + mật khẩu để vào **trang học sinh** và **làm bài được giao**. Đăng nhập đúng → máy nhớ (token), lần sau vào thẳng. Đổi mật khẩu → mọi máy phải đăng nhập lại. Sai 6 lần / 10 phút → khóa 10 phút.
+- Máy chủ kiểm tra token ở mọi thao tác của học sinh (hồ sơ, bài giao, nộp bài, cộng điểm, trò chơi, khu vườn) – không chỉ ở giao diện.
+- Mật khẩu hiện trong bảng học sinh, CSV và thẻ in.
+- **Mã học sinh không còn bị che** ở bất kỳ đâu (bảng xếp hạng, khu vườn).
+
+**Trang học sinh:** tab "Bài được giao" tách thành **📚 Bài chung** (giao cho mọi mã) và **👤 Bài của riêng bạn** (chỉ giao cho mã đó).
+
+**Góc phụ huynh (`phu-huynh.html`)**
+- Giáo viên tạo ở tab **👪 Phụ huynh**: mã phụ huynh + mật khẩu tự đặt + danh sách mã các con (tối đa 20). Nút **🔗 Lời mời** sao chép sẵn link + mã + mật khẩu để gửi Zalo.
+- Phụ huynh đăng nhập **một lần**, xem được tất cả các con (chạm tên con để chuyển, không phải đăng nhập lại).
+- Mỗi con có: đánh giá **Chăm chỉ** (số ngày học / 7 ngày, bài bỏ lỡ) và **Độ chính xác** (% đúng từ vựng / test); 4 chỉ số chính; lịch học 4 tuần (có đánh dấu ngày chơi trò chơi); bài chưa làm & bài bỏ lỡ; kết quả từng lần làm (đúng ngay lần đầu, bỏ qua, xem lại, thời gian); **từ con hay sai** để ôn cùng con; điểm thưởng và số ván trò chơi (có cảnh báo khi chơi nhiều hơn học).
+- Số liệu 30 ngày gần nhất, giờ Việt Nam; máy chủ lưu đệm 2 phút (nút ↻ Cập nhật lấy mới).
+
+**Nút ☀️/🌙** có trên thanh trên cùng của trang giáo viên, học sinh, phụ huynh và trên màn hình vào làm bài; lựa chọn dùng chung mọi trang (`theme.js`).

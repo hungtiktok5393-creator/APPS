@@ -1,5 +1,5 @@
 /* =====================================================================
- * Spelling Mastery – app.js
+ * Nhà Thầy Hưng (Spelling Mastery) – app.js
  * SPA tĩnh (GitHub Pages), Vanilla JS ES6+. Các module trong file:
  *  1. Tiện ích (Utils, toast, Modal)      7. Scoring (chấm điểm)
  *  2. Store & Settings                    8. API & Sync (Apps Script, hàng đợi)
@@ -151,11 +151,14 @@ const Settings = {
   data: null,
   load() {
     this.data = Object.assign({ scriptUrl: '', teacherKey: '', teacherOk: false, theme: 'auto', sfx: true, autoRead: true, autoSync: false, vk: null }, Store.get('settings', {}));
+    if (window.SMTheme) this.data.theme = SMTheme.get();      // nút ☀️/🌙 trên thanh trên cùng (theme.js) là nguồn chính, dùng chung mọi trang
     this.apply();
+    document.addEventListener('sm-theme', e => { this.data.theme = e.detail.theme; Store.set('settings', this.data); const sel = document.getElementById('st-theme'); if (sel) sel.value = e.detail.theme; });
   },
   save(patch) { Object.assign(this.data, patch); Store.set('settings', this.data); this.apply(); },
   apply() {
     const t = this.data.theme;
+    if (window.SMTheme) { SMTheme.set(t); return; }
     if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
   }
 };
@@ -545,10 +548,13 @@ const Sync = {
         for (const item of this.queue()) {
           this.emit(item.submissionId, 'sending');
           try {
-            const r = await API.post(item.url, item.payload);
+            const pl = item.payload;
+            if (pl && pl.code && pl.code === normCode(Store.get('studentCode', '')) && Store.get('studentTok', '')) pl.token = Store.get('studentTok', '');   // mật khẩu vừa đổi → dùng token mới nhất trên máy
+            const r = await API.post(item.url, pl);
             if (!r.ok && r.error === 'bad_request' && /Hành động/.test(r.message || '')) this.emit(item.submissionId, 'error', 'Apps Script chưa cập nhật bản mới (cần Deploy → New version). Bài vẫn được giữ trên máy, bấm Thử lại sau khi cập nhật.');
             else if (r.ok) { this.replies[item.submissionId] = r; if (this.remove(item.submissionId, item.rev)) this.emit(item.submissionId, 'sent'); else again = true; }
             else if (['expired', 'max_attempts', 'bad_request', 'too_large', 'invalid_code', 'code_disabled'].includes(r.error)) { this.remove(item.submissionId, item.rev); this.emit(item.submissionId, 'rejected', r.message || r.error); }
+            else if (['auth_required', 'wrong_password'].includes(r.error)) this.emit(item.submissionId, 'error', 'Cần đăng nhập lại bằng mã và mật khẩu (bài vẫn được giữ trên máy, sẽ tự gửi sau khi đăng nhập).');
             else { this.emit(item.submissionId, 'error', r.message || r.error || 'Lỗi máy chủ'); if (['rate_limited', 'busy'].includes(r.error)) setTimeout(() => Sync.flush(), 2500); }
           } catch (e) { this.emit(item.submissionId, 'error', e.message); return; }   // mất mạng → dừng, thử lại sau
         }
@@ -594,7 +600,10 @@ const codeErrorMsg = r => ({
   rate_limited: 'Bạn bấm hơi nhanh. Đợi 2–3 giây rồi bấm lại nhé.',
   busy: 'Máy chủ đang bận. Hãy thử lại sau vài giây.',
   bad_request: 'Mã học sinh không hợp lệ. Hãy nhập lại.',
-  not_assigned: 'Bài này không được giao cho mã học sinh của bạn. Hãy kiểm tra lại mã hoặc hỏi giáo viên.'
+  not_assigned: 'Bài này không được giao cho mã học sinh của bạn. Hãy kiểm tra lại mã hoặc hỏi giáo viên.',
+  auth_required: 'Mã này có mật khẩu. Hãy nhập mật khẩu giáo viên đã cho bạn.',
+  wrong_password: 'Mật khẩu không đúng. Hãy kiểm tra lại (phân biệt chữ hoa / thường) hoặc hỏi giáo viên.',
+  locked: 'Nhập sai mật khẩu quá nhiều lần. Hãy đợi 10 phút rồi thử lại.'
 })[r && r.error] || (r && r.message) || 'Không kiểm tra được mã học sinh. Hãy thử lại.';
 /** Khung "điểm bài này + số dư mới" (tự cập nhật theo hàng đợi gửi). est = điểm dự kiến tính trên máy */
 function pointsPanel(psid, code, est) {
@@ -1138,7 +1147,7 @@ function HomeView(root) {
     return a.href ? h('a', { class: 'btn small', href: a.href }, kids) : h('button', { type: 'button', class: 'btn small', onclick: a.run }, kids);
   };
   /* ============ CÁC TAB THƯ VIỆN ============ thêm tab mới: thêm một dòng ở đây + một nhánh trong render() */
-  const tabs = () => [['sets', '🔤', 'Bộ từ vựng', Sets.list.length], ['tests', '📝', 'Bài test', Tests.list.length], ['students', '🎓', 'Học sinh', Stu.rows ? Stu.rows.length : null], ['points', '⚙️', 'Điểm & trò chơi', null]];
+  const tabs = () => [['sets', '🔤', 'Bộ từ vựng', Sets.list.length], ['tests', '📝', 'Bài test', Tests.list.length], ['students', '🎓', 'Học sinh', Stu.rows ? Stu.rows.length : null], ['parents', '👪', 'Phụ huynh', Par.rows ? Par.rows.length : null], ['points', '⚙️', 'Điểm & trò chơi', null]];
   function tabBar(cur) {
     const defs = tabs();
     return h('div', { class: 'home-tabs', role: 'tablist', 'aria-label': 'Thư viện của tôi' }, defs.map(([id, ico, label, n], i) =>
@@ -1160,7 +1169,7 @@ function HomeView(root) {
   let tests = null;
   function render(focusKey) {
     const ae = document.activeElement, fk = typeof focusKey === 'string' ? focusKey : (ae && ae.dataset && ae.dataset.fk);      // giữ lại vị trí bàn phím khi bấm ★ / đổi tab
-    const A = actions(), cur = ['tests', 'students', 'points'].includes(HomeState.tab) ? HomeState.tab : 'sets';
+    const A = actions(), cur = ['tests', 'students', 'parents', 'points'].includes(HomeState.tab) ? HomeState.tab : 'sets';
     tests = TestHomeSection(render);
     root.replaceChildren(h('div', { class: 'home' },
       h('div', { class: 'home-head' },
@@ -1170,7 +1179,7 @@ function HomeView(root) {
       h('section', { class: 'home-create', 'aria-label': 'Tạo mới' }, A.filter(a => a.zone === 'create').map(actTile)),
       QuickPanel(),
       tabBar(cur),
-      h('div', { class: 'home-panel', id: 'home-panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + cur, tabindex: '-1' }, cur === 'tests' ? tests.panel() : cur === 'students' ? StudentsPanel() : cur === 'points' ? ConfigPanel() : setsPanel())));
+      h('div', { class: 'home-panel', id: 'home-panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + cur, tabindex: '-1' }, cur === 'tests' ? tests.panel() : cur === 'students' ? StudentsPanel() : cur === 'parents' ? ParentsPanel() : cur === 'points' ? ConfigPanel() : setsPanel())));
     if (fk) { const n = root.querySelector('[data-fk="' + fk + '"]'); if (n) n.focus({ preventScroll: true }); }
   }
   function card(s, ctx) {
@@ -1287,7 +1296,7 @@ function HomeView(root) {
       h('label', { for: 'v-lang', text: 'Giọng' }), lang, h('label', { for: 'v-voice', text: 'Voice cụ thể' }), voice, note,
       h('label', { for: 'v-rate' }, 'Tốc độ: ', rateOut), rate,
       h('div', { class: 'row end' },
-        h('button', { class: 'btn', onclick: () => TTS.speak(s.cards[0] ? s.cards[0].en : 'Spelling Mastery', t) }, '▶ Nghe thử'),
+        h('button', { class: 'btn', onclick: () => TTS.speak(s.cards[0] ? s.cards[0].en : 'Hello', t) }, '▶ Nghe thử'),
         h('button', { class: 'btn primary', onclick: () => d.close() }, 'Xong'))),
       () => { s.updatedAt = Date.now(); Sets.save(); render(); });
     fill();
@@ -1714,10 +1723,17 @@ function AssignView(root, q) {
     const codeIn = h('input', { type: 'text', id: 's-code', maxlength: 12, autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', placeholder: 'VD: AB3K7M', 'aria-describedby': 's-err',
       oninput: () => { const v = normCode(codeIn.value); if (v !== codeIn.value) codeIn.value = v; } });
     const codeBox = h('div');
+    let needPw = false;                                    // máy chủ báo mã này có mật khẩu mà máy chưa có token hợp lệ
+    const pwIn = h('input', { type: 'password', id: 's-pw', maxlength: 32, autocomplete: 'current-password', autocapitalize: 'off', spellcheck: 'false', placeholder: 'Mật khẩu giáo viên đã cho', 'aria-describedby': 's-err',
+      onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); begin(); } } });
+    const eye = h('button', { type: 'button', class: 'btn small ghost', 'aria-label': 'Hiện mật khẩu', 'aria-pressed': 'false', onclick: () => { const on = pwIn.type === 'password'; pwIn.type = on ? 'text' : 'password'; eye.textContent = on ? '🙈' : '👁'; eye.setAttribute('aria-pressed', String(on)); eye.setAttribute('aria-label', on ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'); } }, '👁');
+    const pwBox = () => h('div', null, h('label', { for: 's-pw', text: 'Mật khẩu' }), h('div', { class: 'pw-row' }, pwIn, eye),
+      h('p', { class: 'hint', text: needPw ? 'Mã này có mật khẩu. Nhập một lần, máy sẽ nhớ cho các lần sau.' : 'Để trống nếu giáo viên chưa đặt mật khẩu cho bạn.' }));
+    const forget = () => { code = ''; needPw = false; pwIn.value = ''; Store.set('studentCode', ''); Store.set('studentTok', ''); err.textContent = ''; drawCode(); codeIn.focus(); };
     const drawCode = () => {
       if (code) codeBox.replaceChildren(h('div', { class: 'row wrap', style: 'align-items:center' }, h('span', null, 'Mã học sinh: ', h('strong', { text: code })),
-        h('button', { type: 'button', class: 'btn small', onclick: () => { code = ''; Store.set('studentCode', ''); err.textContent = ''; drawCode(); codeIn.focus(); } }, 'Đổi mã')));
-      else codeBox.replaceChildren(h('label', { for: 's-code', text: 'Mã học sinh *' }), codeIn, h('p', { class: 'hint', text: 'Nhập mã giáo viên đã phát cho bạn (tự viết hoa, không cần gõ dấu cách).' }));
+        h('button', { type: 'button', class: 'btn small', onclick: forget }, 'Đổi mã')), needPw ? pwBox() : null);
+      else codeBox.replaceChildren(h('label', { for: 's-code', text: 'Mã học sinh *' }), codeIn, h('p', { class: 'hint', text: 'Nhập mã giáo viên đã phát cho bạn (tự viết hoa, không cần gõ dấu cách).' }), pwBox());
     };
     const err = h('p', { class: 'err', id: 's-err', role: 'alert' });
     const cd = h('strong', { 'aria-live': 'off' });
@@ -1741,7 +1757,9 @@ function AssignView(root, q) {
       a.max ? h('p', { class: 'muted', text: `Số lần làm: ${attempts()}/${a.max}` }) : null,
       !a.scriptUrl ? h('div', { class: 'box warn', text: 'Bài này chưa có máy chủ nhận điểm nên chưa thể kiểm tra Mã học sinh. Hãy báo giáo viên tạo lại link.' }) : null,
       lock, codeBox, err, startBtn,
-      q.hs ? h('a', { class: 'btn ghost', href: 'hoc-sinh.html#bai-giao' }, '← Về trang học sinh') : null));
+      h('div', { class: 'row wrap', style: 'justify-content:space-between;align-items:center' },
+        q.hs ? h('a', { class: 'btn ghost', href: 'hoc-sinh.html#bai-giao' }, '← Về trang học sinh') : h('span'),
+        window.SMTheme ? SMTheme.button() : null)));
     tick(); timer = setInterval(tick, 1000);
 
     async function begin() {
@@ -1753,15 +1771,23 @@ function AssignView(root, q) {
       err.textContent = ''; checking = true; startBtn.disabled = true; startBtn.textContent = 'Đang kiểm tra mã…';
       const reset = () => { checking = false; startBtn.textContent = '▶ Vào làm bài'; startBtn.disabled = expired || !!(a.max && attempts() >= a.max); };
       let r;
-      try { r = await withRetry(() => API.post(a.scriptUrl, { action: 'checkCode', code: c, refId: a.id }), 2); }
+      const pw = pwIn.value.trim(), tok = code && code === normCode(Store.get('studentCode', '')) ? Store.get('studentTok', '') : '';
+      const body = { action: 'checkCode', code: c, refId: a.id };
+      if (pw) body.password = pw; else if (tok) body.token = tok;
+      try { r = await withRetry(() => API.post(a.scriptUrl, body), 2); }
       catch (e) { if (dead) return; err.textContent = 'Không kiểm tra được mã: ' + e.message + ' (cần có mạng để vào làm bài).'; return reset(); }
       if (dead) return;
       if (!r.ok || r.valid === false) {
         err.textContent = codeErrorMsg(r.ok ? { error: 'invalid_code' } : r);
-        if (!r.ok ? ['invalid_code', 'code_disabled'].includes(r.error) : true) { Store.set('studentCode', ''); code = ''; drawCode(); }
+        if (!r.ok && ['auth_required', 'wrong_password', 'locked'].includes(r.error)) {          // giữ mã, chỉ hỏi mật khẩu
+          if (!code) { code = c; Store.set('studentCode', c); }
+          Store.set('studentTok', ''); const first = !needPw; needPw = true; pwIn.value = '';
+          if (first) drawCode(); reset(); return setTimeout(() => pwIn.focus(), 0);
+        }
+        if (!r.ok ? ['invalid_code', 'code_disabled'].includes(r.error) : true) { Store.set('studentCode', ''); Store.set('studentTok', ''); code = ''; drawCode(); }
         return reset();
       }
-      code = normCode(r.code || c); Store.set('studentCode', code);
+      code = normCode(r.code || c); Store.set('studentCode', code); Store.set('studentTok', r.token || '');
       await Scoring.load(a.scriptUrl);                  // hằng số điểm từ server (offline → mặc định 5 / 1 / 10)
       if (dead) return;
       if (a.test) Scoring.clearOverride(); else Scoring.useOverride(a.correctPts, a.peekPenalty);   // điểm riêng của bài (chỉ hiển thị)
@@ -1778,7 +1804,7 @@ function AssignView(root, q) {
   /** Điểm chính thức (submitResult) chỉ gửi MỘT lần khi kết thúc bài (hoàn thành / dừng / hết 30 phút): server chống trùng theo submissionId nên bản lưu tạm không được gửi bằng action này */
   function finalStatus(a, code, kind, sid, est, body) {
     const psid = sid + '-pts';
-    if (API.validUrl(a.scriptUrl)) Sync.upsert({ submissionId: psid, url: a.scriptUrl, payload: Object.assign({ action: 'submitResult', code, kind, refId: a.id, submissionId: sid }, body) });
+    if (API.validUrl(a.scriptUrl)) Sync.upsert({ submissionId: psid, url: a.scriptUrl, payload: Object.assign({ action: 'submitResult', code, token: Store.get('studentTok', ''), kind, refId: a.id, submissionId: sid }, body) });
     else Sync.emit(psid, 'rejected', 'Bài chưa cấu hình máy chủ.');
     return h('div', { class: 'stack' }, pointsPanel(psid, code, est), statusChip(sid));
   }
@@ -1787,7 +1813,7 @@ function AssignView(root, q) {
     if (!res.words.length) return false;
     if (!counted.has(sid)) { counted.add(sid); const att = Store.get('attempts', {}); att[a.id] = (att[a.id] || 0) + 1; Store.set('attempts', att); }
     if (!API.validUrl(a.scriptUrl)) { Sync.emit(sid, 'rejected', 'Bài chưa cấu hình nơi nhận kết quả.'); return true; }
-    Sync.upsert({ submissionId: sid, url: a.scriptUrl, payload: { action: 'submit', submissionId: sid, code, assignmentId: a.id, assignmentName: a.name, name: code, cls: '', score: res.score, maxScore: res.maxScore, totalMs: res.totalMs,
+    Sync.upsert({ submissionId: sid, url: a.scriptUrl, payload: { action: 'submit', submissionId: sid, code, token: Store.get('studentTok', ''), assignmentId: a.id, assignmentName: a.name, name: code, cls: '', score: res.score, maxScore: res.maxScore, totalMs: res.totalMs,
       details: res.words, totalWords: res.totalWords, status, submittedAt: new Date().toISOString(), userAgent: navigator.userAgent, due: a.due, max: a.max } }, opt);
     return true;
   }
@@ -2020,7 +2046,7 @@ function teacherCss() {
     '#sm-print .pc-card{border:1px dashed #666;padding:4mm;text-align:center;break-inside:avoid;page-break-inside:avoid;font-family:system-ui,sans-serif}',
     '#sm-print .pc-app{font-size:9pt;font-weight:700}#sm-print img{width:38mm;height:38mm;display:block;margin:2mm auto}',
     '#sm-print .pc-code{font:700 16pt/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.12em}',
-    '#sm-print .pc-note{font-size:9pt;min-height:1.2em}#sm-print .pc-url{font-size:7pt;color:#333;word-break:break-all}',
+    '#sm-print .pc-pw{font:600 11pt/1.3 ui-monospace,Menlo,Consolas,monospace}#sm-print .pc-note{font-size:9pt;min-height:1.2em}#sm-print .pc-url{font-size:7pt;color:#333;word-break:break-all}',
     '@page{margin:10mm}}'
   ].join('\n');
   document.head.append(st);
@@ -2067,7 +2093,7 @@ const normStudent = x => {
   x = x || {};
   const active = !(x.active === false || /^(false|0|no)$/i.test(String(x.active)));
   return { code: String(x.code == null ? '' : x.code), createdAt: tsOf(x.createdAt), note: String(x.note == null ? '' : x.note), active, st: active ? 1 : 0,
-    balance: Number(x.balance) || 0, totalEarned: Number(x.totalEarned) || 0, lastActive: tsOf(x.lastActive) };
+    balance: Number(x.balance) || 0, totalEarned: Number(x.totalEarned) || 0, lastActive: tsOf(x.lastActive), password: String(x.password == null ? '' : x.password) };
 };
 const Stu = {
   rows: null, loading: false, err: '', at: 0, q: '', filter: 'all', sort: { key: 'lastActive', dir: -1 }, page: 1, busy: new Set(), subs: new Set(),
@@ -2104,8 +2130,9 @@ function StudentsPanel() {
   const bar = h('div', { class: 't-bar' }, qIn, filt, sortSel,
     h('button', { type: 'button', class: 'btn', onclick: () => Stu.load() }, '↻ Tải lại'),
     h('button', { type: 'button', class: 'btn primary', onclick: () => openCreateCodes() }, '＋ Tạo mã'),
+    h('button', { type: 'button', class: 'btn', onclick: () => openBulkPw(view().filter(r => r.active)) }, '🔑 Mật khẩu hàng loạt'),
     h('button', { type: 'button', class: 'btn', onclick: () => exportStudentsCsv(view()) }, '⬇ Tải CSV'),
-    h('button', { type: 'button', class: 'btn', onclick: e => printCards(view().filter(r => r.active).map(r => ({ code: r.code, note: r.note })), e.currentTarget) }, '🖨 In thẻ mã'));
+    h('button', { type: 'button', class: 'btn', onclick: e => printCards(view().filter(r => r.active).map(r => ({ code: r.code, note: r.note, password: r.password })), e.currentTarget) }, '🖨 In thẻ mã'));
   function paintTop() {
     if (!TA.ready()) {
       top.replaceChildren(h('h2', { text: 'Học sinh' }), h('p', { class: 'muted', text: 'Nhập Teacher Key để tạo mã, cộng/trừ điểm và xem sổ điểm của học sinh.' }), teacherKeyBox());
@@ -2132,6 +2159,7 @@ function StudentsPanel() {
     const total = Stu.rows.length, act = Stu.rows.filter(r => r.active).length;
     const cols = [
       { k: 'code', label: 'Mã', el: r => h('span', { class: 't-code', text: r.code }) },
+      { k: 'password', label: 'Mật khẩu', el: r => r.password ? h('span', { class: 't-code', text: r.password }) : h('span', { class: 'muted small-text', text: 'chưa đặt' }) },
       { k: 'balance', label: 'Số dư', num: true, get: r => nfmt(r.balance) },
       { k: 'totalEarned', label: 'Tổng điểm', num: true, get: r => nfmt(r.totalEarned) },
       { k: 'lastActive', label: 'Hoạt động cuối', get: r => r.lastActive ? fmtDate(r.lastActive) : '—' },
@@ -2149,6 +2177,7 @@ function StudentsPanel() {
     const b = Stu.busy.has(r.code);
     return h('div', { class: 'row wrap t-acts' },
       h('button', { type: 'button', class: 'btn small', disabled: b || !r.active, 'aria-label': 'Cộng hoặc trừ điểm cho ' + r.code, onclick: () => openAdjust(r.code) }, '± Điểm'),
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Đặt mật khẩu cho ' + r.code, onclick: () => openPassword(r.code) }, '🔑'),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Xem sổ điểm của ' + r.code, onclick: () => openLedger(r.code) }, '📒 Sổ'),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Sao chép link của ' + r.code, onclick: async () => toast(await copyAny(studentLink(r.code)) ? 'Đã sao chép link của ' + r.code + '.' : 'Không sao chép được.', 'info') }, '🔗'),
       r.active ? h('button', { type: 'button', class: 'btn small danger', disabled: b, 'aria-label': 'Xóa mã ' + r.code, onclick: () => toggleActive(r.code, false) }, '🗑 Xóa')
@@ -2179,10 +2208,213 @@ async function toggleActive(code, active) {
   finally { Stu.busy.delete(code); Stu.notify(); }
 }
 
+/* ---------- Mật khẩu học sinh (giáo viên đặt tự do; ô trống = không cần mật khẩu) ---------- */
+const randPw = () => { const b = new Uint8Array(4); (crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.random() * 256; }); return Array.from(b, x => x % 10).join(''); };
+async function savePasswords(items) {
+  const r = await TA.call('setPasswords', { items }, { ms: 45000 });
+  const pws = r.passwords || {};
+  Object.keys(pws).forEach(c => { const row = Stu.row(c); if (row) row.password = String(pws[c]); });
+  Stu.notify(); return r;
+}
+function openPassword(code) {
+  const r0 = Stu.row(code) || { password: '' };
+  const pw = h('input', { type: 'text', id: 'pw-one', maxlength: 32, value: r0.password || '', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off', class: 't-codes', placeholder: 'Ví dụ: 1234 hoặc an@2015' });
+  const err = h('div', { role: 'alert' }), go = h('button', { class: 'btn primary', type: 'submit' }, 'Lưu mật khẩu');
+  const d = Modal.open('Mật khẩu – ' + code, h('form', { class: 'stack', novalidate: true, onsubmit: async e => {
+    e.preventDefault();
+    const v = pw.value.trim();
+    if (!v && r0.password && !await Modal.confirm(`Bỏ mật khẩu của ${code}? Ai biết mã cũng vào được trang học sinh và làm bài.`, 'Bỏ mật khẩu', true)) return;
+    go.disabled = true; err.replaceChildren(loading('Đang lưu…'));
+    try { await savePasswords([{ code, password: v }]); d.close(); toast(v ? `Đã đặt mật khẩu cho ${code}.` : `Đã bỏ mật khẩu của ${code}.`); }
+    catch (ex) { go.disabled = false; err.replaceChildren(h('p', { class: 'err', text: ex.message })); }
+  } },
+    h('p', null, 'Học sinh: ', h('strong', { class: 't-code', text: code })),
+    h('label', { for: 'pw-one', text: 'Mật khẩu (tối đa 32 ký tự, phân biệt hoa / thường)' }), pw,
+    h('div', { class: 'row wrap' }, h('button', { type: 'button', class: 'btn small', onclick: () => { pw.value = randPw(); pw.focus(); } }, '🎲 Tạo ngẫu nhiên 4 số'),
+      h('button', { type: 'button', class: 'btn small', onclick: () => { pw.value = ''; pw.focus(); } }, 'Xóa trắng')),
+    h('p', { class: 'hint', text: 'Học sinh dùng mã + mật khẩu này để vào trang học sinh và làm bài được giao. Đổi mật khẩu thì các máy đang đăng nhập phải nhập lại. Để trống = không cần mật khẩu.' }),
+    err, h('div', { class: 'row end' }, h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Hủy'), go)));
+  pw.focus(); pw.select();
+}
+function openBulkPw(rows) {
+  if (!rows.length) return toast('Không có mã nào (đang lọc) để đặt mật khẩu.', 'error');
+  const ta = h('textarea', { id: 'pw-bulk', rows: 8, class: 't-codes', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', placeholder: 'AN123 | 1234\nHOA07 | hoa@07' });
+  ta.value = rows.map(r => r.code + ' | ' + (r.password || '')).join('\n');
+  const info = h('p', { class: 'hint', 'aria-live': 'polite' }), err = h('div', { role: 'alert' }), go = h('button', { class: 'btn primary', type: 'submit' }, 'Lưu tất cả');
+  const parse = () => {
+    const out = [], seen = new Set(); let bad = 0;
+    ta.value.split(/\r?\n/).forEach(l => { if (!l.trim()) return; const i = l.search(/[|\t,;]/), c = normCode(i < 0 ? l : l.slice(0, i)), p = i < 0 ? '' : l.slice(i + 1).trim().slice(0, 32);
+      if (c.length < 3) { bad++; return; } if (seen.has(c)) return; seen.add(c); out.push({ code: c, password: p }); });
+    return { out, bad };
+  };
+  const count = () => { const p = parse(), set = p.out.filter(x => x.password).length; info.textContent = `${p.out.length} mã · ${set} có mật khẩu · ${p.out.length - set} để trống (= không cần mật khẩu)` + (p.bad ? ` · ${p.bad} dòng lỗi bị bỏ qua` : ''); };
+  ta.addEventListener('input', count);
+  const fill = all => { ta.value = parse().out.map(x => x.code + ' | ' + (all || !x.password ? randPw() : x.password)).join('\n'); count(); };
+  const d = Modal.open('Đặt mật khẩu hàng loạt', h('form', { class: 'stack', novalidate: true, onsubmit: async e => {
+    e.preventDefault();
+    const p = parse(); if (!p.out.length) return err.replaceChildren(h('p', { class: 'err', text: 'Chưa có dòng hợp lệ nào.' }));
+    const empty = p.out.filter(x => !x.password && (Stu.row(x.code) || {}).password).length;
+    if (empty && !await Modal.confirm(`${empty} mã đang có mật khẩu sẽ bị BỎ mật khẩu (dòng để trống). Tiếp tục?`, 'Tiếp tục', true)) return;
+    go.disabled = true; err.replaceChildren(loading('Đang lưu…'));
+    try {
+      const r = await savePasswords(p.out); d.close();
+      toast(`Đã cập nhật mật khẩu cho ${r.updated} mã.` + (r.missing && r.missing.length ? ` Không tìm thấy: ${r.missing.slice(0, 5).join(', ')}${r.missing.length > 5 ? '…' : ''}` : ''));
+    } catch (ex) { go.disabled = false; err.replaceChildren(h('p', { class: 'err', text: ex.message })); }
+  } },
+    h('label', { for: 'pw-bulk', text: 'Mỗi dòng: MÃ | mật khẩu' }), ta, info,
+    h('div', { class: 'row wrap' },
+      h('button', { type: 'button', class: 'btn small', onclick: () => fill(false) }, '🎲 Tạo 4 số cho mã chưa có'),
+      h('button', { type: 'button', class: 'btn small', onclick: () => fill(true) }, '🎲 Tạo mới cho tất cả')),
+    h('p', { class: 'hint', text: 'Sửa trực tiếp trong ô, có thể dán từ Excel (cột mã và cột mật khẩu). Dòng để trống mật khẩu = mã đó không cần mật khẩu. Sau khi lưu, bấm “🖨 In thẻ mã” để in thẻ có cả mật khẩu.' }),
+    err, h('div', { class: 'row end' }, h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Hủy'), go)));
+  count(); ta.focus();
+}
+
+/* ---------- Phụ huynh: mã + mật khẩu do giáo viên đặt, mỗi phụ huynh gắn với một hoặc nhiều mã học sinh (con) ---------- */
+const parentBase = () => new URL('phu-huynh.html', location.href).href;
+const parentLink = code => parentBase() + '?code=' + encodeURIComponent(code);
+const Par = {
+  rows: null, loading: false, err: '', at: 0, q: '', subs: new Set(),
+  notify() { Array.from(this.subs).forEach(f => f()); },
+  set(list) {
+    this.rows = (Array.isArray(list) ? list : []).filter(x => x && x.code).map(x => ({ code: String(x.code), password: String(x.password == null ? '' : x.password), name: String(x.name || ''),
+      children: Array.isArray(x.children) ? x.children.map(String) : splitCodes(x.children), note: String(x.note || ''), active: !(x.active === false || /^(false|0)$/i.test(String(x.active))), lastActive: tsOf(x.lastActive), createdAt: tsOf(x.createdAt) }));
+    this.at = Date.now(); this.err = '';
+  },
+  async load() {
+    if (this.loading || !TA.ready()) return;
+    this.loading = true; this.err = ''; this.notify();
+    try { const r = await TA.call('listParents', {}, { retry: true }); this.set(r.parents); }
+    catch (e) { this.err = e.message; }
+    finally { this.loading = false; this.notify(); }
+  }
+};
+function ParentsPanel() {
+  teacherCss();
+  const root = h('div', { class: 't-panel stack' }), top = h('div', { class: 'stack' }), list = h('div', { class: 'stack' });
+  root.append(top, list);
+  let shownReady = null, timer = null;
+  const noteOf = c => { const r = Stu.row(c); return r && r.note ? r.note : ''; };
+  const qIn = h('input', { type: 'search', placeholder: '🔍 Tìm theo mã, tên phụ huynh, mã con…', value: Par.q, autocomplete: 'off', 'aria-label': 'Tìm phụ huynh',
+    oninput: () => { clearTimeout(timer); timer = setTimeout(() => { Par.q = qIn.value; paintList(); }, 150); } });
+  const view = () => { const q = fold(Par.q.trim()); return (Par.rows || []).filter(r => !q || fold([r.code, r.name, r.note, r.children.join(' '), r.children.map(noteOf).join(' ')].join(' ')).includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'vi') || a.code.localeCompare(b.code)); };
+  function paintTop() {
+    if (!TA.ready()) { top.replaceChildren(h('h2', { text: 'Phụ huynh' }), h('p', { class: 'muted', text: 'Nhập Teacher Key để tạo tài khoản phụ huynh.' }), teacherKeyBox()); return; }
+    const linkIn = h('input', { type: 'text', id: 'par-link', readonly: true, value: parentBase(), 'aria-label': 'Link trang phụ huynh', onfocus: e => e.target.select() });
+    top.replaceChildren(
+      h('section', { class: 'card stack' },
+        h('div', { class: 'row wrap', style: 'justify-content:space-between;align-items:center' }, h('h2', { text: 'Phụ huynh' }), keyState()),
+        h('label', { for: 'par-link', text: 'Link trang phụ huynh' }),
+        h('div', { class: 't-copy' }, linkIn, h('button', { type: 'button', class: 'btn', onclick: async () => toast(await copyText(linkIn.value, linkIn) ? 'Đã sao chép link trang phụ huynh.' : 'Không sao chép được.') }, '📋 Sao chép')),
+        h('p', { class: 'hint', text: 'Phụ huynh đăng nhập MỘT lần bằng mã + mật khẩu và xem được tất cả các con: chăm hay lười, đúng nhiều hay ít, bài chưa làm, từ hay sai. Một phụ huynh gắn được tối đa 20 mã học sinh.' })),
+      h('div', { class: 't-bar' }, qIn,
+        h('button', { type: 'button', class: 'btn', onclick: () => Par.load() }, '↻ Tải lại'),
+        h('button', { type: 'button', class: 'btn primary', onclick: () => openParent(null) }, '＋ Thêm phụ huynh'),
+        h('button', { type: 'button', class: 'btn', onclick: () => exportParentsCsv(view()) }, '⬇ Tải CSV')));
+  }
+  function paintList() {
+    if (!TA.ready()) return list.replaceChildren();
+    if (!Par.rows) {
+      if (Par.loading) return list.replaceChildren(loading('Đang tải danh sách phụ huynh…'));
+      return list.replaceChildren(h('div', { class: 'box error', role: 'alert' }, h('p', { text: Par.err || 'Chưa tải được danh sách.' }), h('button', { type: 'button', class: 'btn', onclick: () => Par.load() }, '↻ Thử lại')));
+    }
+    const all = view();
+    const kids = r => h('div', { class: 'stack', style: 'gap:.1rem;min-width:9rem' }, r.children.length ? r.children.map(c => h('div', null, h('span', { class: 't-code', text: c }), noteOf(c) ? h('span', { class: 'muted small-text', text: ' · ' + noteOf(c) }) : null, Stu.rows && !Stu.row(c) ? h('span', { class: 'err small-text', text: ' (mã không tồn tại)' }) : null)) : h('span', { class: 'muted', text: '—' }));
+    const cols = [
+      { nosort: true, k: 'code', label: 'Mã PH', el: r => h('span', { class: 't-code' + (r.active ? '' : ' t-dim'), text: r.code }) },
+      { nosort: true, k: 'password', label: 'Mật khẩu', el: r => h('span', { class: 't-code', text: r.password }) },
+      { nosort: true, k: 'name', label: 'Phụ huynh', el: r => h('span', { class: 't-note', text: (r.name || '—') + (r.active ? '' : ' (đã khóa)') }) },
+      { k: 'children', label: 'Các con', nosort: true, el: kids },
+      { nosort: true, k: 'lastActive', label: 'Đăng nhập cuối', get: r => r.lastActive ? fmtDate(r.lastActive) : '—' },
+      { k: 'act', label: 'Thao tác', nosort: true, el: r => h('div', { class: 'row wrap t-acts' },
+        h('button', { type: 'button', class: 'btn small', 'aria-label': 'Sửa ' + r.code, onclick: () => openParent(r) }, '✏️ Sửa'),
+        h('button', { type: 'button', class: 'btn small', 'aria-label': 'Sao chép link + mật khẩu của ' + r.code, onclick: async () => toast(await copyAny(parentInvite(r)) ? 'Đã sao chép lời mời (link + mã + mật khẩu).' : 'Không sao chép được.', 'info') }, '🔗 Lời mời'),
+        h('button', { type: 'button', class: 'btn small danger', 'aria-label': 'Xóa ' + r.code, onclick: () => removeParent(r) }, '🗑')) }];
+    list.replaceChildren(
+      h('p', { class: 'muted small-text', role: 'status', text: `${nfmt(Par.rows.length)} phụ huynh · đang hiển thị ${nfmt(all.length)}` + (Par.loading ? ' · đang cập nhật…' : '') }),
+      Par.err ? h('div', { class: 'box warn', role: 'alert', text: 'Không cập nhật được: ' + Par.err }) : null,
+      all.length ? sortTable('Danh sách phụ huynh', cols, all, { key: '', dir: 1 }, () => {})
+        : h('div', { class: 'card empty' }, h('p', { class: 'muted', text: Par.rows.length ? 'Không có phụ huynh nào khớp.' : 'Chưa có tài khoản phụ huynh. Bấm “＋ Thêm phụ huynh”.' })));
+  }
+  function paint() { const rd = TA.ready(); if (rd !== shownReady) { shownReady = rd; paintTop(); } paintList(); }
+  liveView(Par.subs, root, paint); liveView(Stu.subs, root, paintList);
+  paint();
+  if (TA.ready() && (!Par.rows || Date.now() - Par.at > 60000)) Par.load();
+  if (TA.ready() && !Stu.rows) Stu.load();                     // để hiện tên con (ghi chú của mã học sinh)
+  return root;
+}
+const parentInvite = r => `Kính gửi phụ huynh${r.name ? ' ' + r.name : ''},\nTheo dõi việc học của con tại: ${parentLink(r.code)}\nMã phụ huynh: ${r.code}\nMật khẩu: ${r.password}\n– Nhà Thầy Hưng`;
+function exportParentsCsv(rows) {
+  if (!rows.length) return toast('Không có phụ huynh nào để xuất.', 'error');
+  download('phu-huynh-' + dayStamp() + '.csv', csvText([['Mã phụ huynh', 'Mật khẩu', 'Tên phụ huynh', 'Mã các con', 'Ghi chú', 'Trạng thái', 'Link']].concat(rows.map(r =>
+    [r.code, r.password, r.name, r.children.join(' '), r.note, r.active ? 'Hoạt động' : 'Đã khóa', parentLink(r.code)]))), 'text/csv;charset=utf-8');
+  toast(`Đã tải CSV (${rows.length} phụ huynh).`);
+}
+async function removeParent(r) {
+  if (!await Modal.confirm(`Xóa tài khoản phụ huynh ${r.code}${r.name ? ' (' + r.name + ')' : ''}? Phụ huynh sẽ không xem được nữa. Dữ liệu học tập của học sinh KHÔNG bị ảnh hưởng.`, 'Xóa', true)) return;
+  try { await TA.call('deleteParent', { code: r.code }); Par.rows = (Par.rows || []).filter(x => x.code !== r.code); Par.notify(); toast('Đã xóa ' + r.code + '.'); }
+  catch (e) { toast('Không xóa được: ' + e.message, 'error'); }
+}
+function openParent(r0) {
+  const edit = !!r0;
+  const code = h('input', { type: 'text', id: 'pa-code', maxlength: 16, value: edit ? r0.code : '', readonly: edit, class: 't-codes', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', placeholder: 'Ví dụ: PHAN01',
+    oninput: () => { const v = normCode(code.value); if (v !== code.value) code.value = v; } });
+  const pw = h('input', { type: 'text', id: 'pa-pw', maxlength: 32, value: edit ? r0.password : randPw(), class: 't-codes', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off' });
+  const name = h('input', { type: 'text', id: 'pa-name', maxlength: 80, value: edit ? r0.name : '', autocomplete: 'off', placeholder: 'Ví dụ: Chị Lan (mẹ bé An, bé Bình)' });
+  const note = h('input', { type: 'text', id: 'pa-note', maxlength: 150, value: edit ? r0.note : '', autocomplete: 'off', placeholder: 'Ghi chú riêng của giáo viên (phụ huynh không thấy)' });
+  const active = h('input', { type: 'checkbox', id: 'pa-act', checked: edit ? r0.active : true });
+  const kids = h('textarea', { id: 'pa-kids', rows: 3, class: 't-codes', spellcheck: 'false', autocapitalize: 'characters', autocomplete: 'off', placeholder: 'Mã học sinh của các con, mỗi mã một dòng (vd: AN123)' });
+  kids.value = edit ? r0.children.join('\n') : '';
+  const kInfo = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const filter = h('input', { type: 'search', placeholder: 'Lọc mã / tên học sinh', 'aria-label': 'Lọc danh sách học sinh', style: 'width:100%' });
+  const pick = h('div', { class: 'stack', style: 'max-height:200px;overflow:auto;gap:.1rem' });
+  const sel = () => new Set(splitCodes(kids.value));
+  function drawPick() {
+    if (!Stu.rows) { pick.replaceChildren(h('p', { class: 'muted small-text', text: Stu.loading ? 'Đang tải danh sách học sinh…' : 'Chưa tải danh sách học sinh.' })); return; }
+    const f = fold(filter.value.trim()), S = sel();
+    const rows = Stu.rows.filter(r => r.active && (!f || fold(r.code + ' ' + r.note).includes(f))).slice(0, 300);
+    pick.replaceChildren(...(rows.length ? rows.map(r => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.has(r.code), onchange: e => { const s2 = sel(); e.target.checked ? s2.add(r.code) : s2.delete(r.code); kids.value = [...s2].join('\n'); count(); } }),
+      h('strong', { text: r.code }), r.note ? h('span', { class: 'muted', text: ' · ' + r.note }) : null)) : [h('p', { class: 'muted small-text', text: 'Không có mã nào khớp.' })]));
+  }
+  function count() {
+    const L = splitCodes(kids.value), bad = Stu.rows ? L.filter(c => !Stu.row(c)) : [];
+    kInfo.className = 'hint' + (bad.length || L.length > 20 ? ' err' : '');
+    kInfo.textContent = `${L.length} con` + (L.length > 20 ? ' – tối đa 20' : '') + (bad.length ? ` · không tìm thấy mã: ${bad.join(', ')}` : '');
+  }
+  kids.addEventListener('input', () => { count(); drawPick(); }); filter.addEventListener('input', drawPick);
+  const err = h('div', { role: 'alert' }), go = h('button', { class: 'btn primary', type: 'submit' }, edit ? 'Lưu' : 'Tạo tài khoản');
+  const d = Modal.open(edit ? 'Sửa phụ huynh – ' + r0.code : 'Thêm phụ huynh', h('form', { class: 'stack', novalidate: true, onsubmit: async e => {
+    e.preventDefault();
+    const c = normCode(code.value), p = pw.value.trim(), L = splitCodes(kids.value);
+    if (c.length < 3) return err.replaceChildren(h('p', { class: 'err', text: 'Mã phụ huynh gồm 3–16 chữ hoặc số.' }));
+    if (!p) return err.replaceChildren(h('p', { class: 'err', text: 'Hãy đặt mật khẩu cho phụ huynh.' }));
+    if (!L.length) return err.replaceChildren(h('p', { class: 'err', text: 'Hãy chọn ít nhất một mã học sinh (con).' }));
+    if (L.length > 20) return err.replaceChildren(h('p', { class: 'err', text: 'Mỗi phụ huynh tối đa 20 mã học sinh.' }));
+    if (!edit && Stu.row(c)) return err.replaceChildren(h('p', { class: 'err', text: 'Mã này đang là mã học sinh. Hãy chọn mã khác cho phụ huynh (vd: thêm chữ PH).' }));
+    go.disabled = true; err.replaceChildren(loading('Đang lưu…'));
+    try {
+      const r = await TA.call('saveParent', { code: c, password: p, name: name.value.trim(), note: note.value.trim(), children: L, active: active.checked, create: !edit });
+      d.close(); Par.load();
+      toast(edit ? 'Đã lưu ' + c + '.' : 'Đã tạo tài khoản phụ huynh ' + c + '.', 'info', { label: '📋 Copy lời mời', onClick: async () => toast(await copyAny(parentInvite(r.parent || { code: c, password: p, name: name.value.trim() })) ? 'Đã sao chép lời mời.' : 'Không sao chép được.') });
+    } catch (ex) { go.disabled = false; err.replaceChildren(h('p', { class: 'err', text: ex.message })); }
+  } },
+    h('label', { for: 'pa-code', text: 'Mã phụ huynh' + (edit ? ' (không đổi được)' : '') }), code,
+    h('label', { for: 'pa-pw', text: 'Mật khẩu (tự đặt, tối đa 32 ký tự)' }), h('div', { class: 'pw-row' }, pw, h('button', { type: 'button', class: 'btn', 'aria-label': 'Tạo mật khẩu ngẫu nhiên', onclick: () => { pw.value = randPw(); } }, '🎲')),
+    h('label', { for: 'pa-name', text: 'Tên phụ huynh (hiện khi phụ huynh đăng nhập)' }), name,
+    h('label', { for: 'pa-kids', text: 'Các con (mã học sinh)' }), kids, kInfo,
+    h('details', { open: !edit }, h('summary', { text: '👥 Chọn từ danh sách học sinh' }), h('div', { class: 'stack' }, filter, pick)),
+    h('label', { for: 'pa-note', text: 'Ghi chú' }), note,
+    h('label', { class: 'check', for: 'pa-act' }, active, 'Cho phép đăng nhập'),
+    err, h('div', { class: 'row end' }, h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Hủy'), go)));
+  count(); drawPick();
+  if (!Stu.rows && TA.ready()) Stu.load().then(() => { if (d.isConnected) { count(); drawPick(); } });
+  (edit ? pw : code).focus();
+}
+
 function exportStudentsCsv(rows) {
   if (!rows.length) return toast('Không có mã nào để xuất.', 'error');
-  const data = [['Mã', 'Số dư', 'Tổng điểm', 'Hoạt động cuối', 'Ghi chú', 'Trạng thái', 'Link']].concat(rows.map(r =>
-    [r.code, r.balance, r.totalEarned, r.lastActive ? new Date(r.lastActive).toISOString() : '', r.note, r.active ? 'Hoạt động' : 'Đã xóa', studentLink(r.code)]));
+  const data = [['Mã', 'Mật khẩu', 'Số dư', 'Tổng điểm', 'Hoạt động cuối', 'Ghi chú', 'Trạng thái', 'Link']].concat(rows.map(r =>
+    [r.code, r.password, r.balance, r.totalEarned, r.lastActive ? new Date(r.lastActive).toISOString() : '', r.note, r.active ? 'Hoạt động' : 'Đã xóa', studentLink(r.code)]));
   download('hoc-sinh-' + dayStamp() + '.csv', csvText(data), 'text/csv;charset=utf-8');
   toast(`Đã tải CSV (${rows.length} mã).`);
 }
@@ -2195,9 +2427,10 @@ function openCreateCodes() {
   const prefix = h('input', { type: 'text', id: 'cc-p', maxlength: 3, placeholder: 'Tùy chọn, vd: 6A', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false',
     oninput: () => { prefix.value = Array.from(prefix.value.toUpperCase()).filter(c => CODE_ALPHABET.includes(c)).join('').slice(0, 3); } });
   const list = h('textarea', { id: 'cc-list', rows: 6, class: 't-codes', autocomplete: 'off', spellcheck: 'false', autocapitalize: 'off',
-    placeholder: 'AN123\nBinh2015 | Nguyễn Văn Bình\nHoa07 | Lớp 6A', oninput: () => paintOwn() });
+    placeholder: 'AN123\nBinh2015 | Nguyễn Văn Bình | 2468\nHoa07 | Lớp 6A | hoa@07', oninput: () => paintOwn() });
   const ownHint = h('p', { class: 'hint', 'aria-live': 'polite' });
   const note = h('input', { type: 'text', id: 'cc-note', maxlength: 100, placeholder: 'Vd: Lớp 6A – học kỳ 1', autocomplete: 'off' });
+  const rpw = h('input', { type: 'checkbox', id: 'cc-rpw', checked: true });
   const err = h('div', { role: 'alert', 'aria-live': 'polite' });
   const go = h('button', { class: 'btn primary', type: 'submit' }, 'Tạo mã');
   const body = h('div', { class: 'stack' });
@@ -2207,7 +2440,7 @@ function openCreateCodes() {
     h('p', { class: 'hint', text: 'Mã gồm 6 ký tự (chữ A–Z trừ I, L, O và số 2–9). Tiền tố chiếm các ký tự đầu, phần còn lại ngẫu nhiên.' }));
   const ownBox = h('div', { class: 'stack' },
     h('label', { for: 'cc-list', text: 'Danh sách mã (mỗi dòng một mã, tối đa 200)' }), list,
-    h('p', { class: 'hint', text: 'Ghi mã thế nào cũng được: hệ thống tự bỏ dấu, bỏ khoảng trắng/ký tự đặc biệt và viết hoa (“Bé An 7” → BEAN7). Mã dài 3–16 chữ hoặc số. Muốn ghi chú riêng cho từng mã thì thêm sau dấu | (vd: AN123 | Nguyễn Văn An).' }), ownHint);
+    h('p', { class: 'hint', text: 'Ghi mã thế nào cũng được: hệ thống tự bỏ dấu, bỏ khoảng trắng/ký tự đặc biệt và viết hoa (“Bé An 7” → BEAN7). Mã dài 3–16 chữ hoặc số. Cấu trúc mỗi dòng: MÃ | ghi chú | mật khẩu (ghi chú và mật khẩu không bắt buộc, vd: AN123 | Nguyễn Văn An | 1234). Mật khẩu đặt tự do, tối đa 32 ký tự, phân biệt hoa / thường.' }), ownHint);
   const d = Modal.open('Tạo mã học sinh', body);
   const fold = v => String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '');
   /** Đọc danh sách tự đặt → { items (đã bỏ trùng), bad (mã sai độ dài), dup (số dòng trùng trong danh sách) } */
@@ -2215,10 +2448,10 @@ function openCreateCodes() {
     const seen = new Set(), items = [], bad = []; let dup = 0;
     list.value.split(/\r?\n|;/).forEach(line => {
       line = line.trim(); if (!line) return;
-      const i = line.search(/[|\t]/), raw = i < 0 ? line : line.slice(0, i), nt = i < 0 ? '' : line.slice(i + 1).trim().slice(0, 100), c = fold(raw);
+      const parts = line.split(/[|\t]/), raw = parts[0], nt = (parts[1] || '').trim().slice(0, 100), pw = (parts[2] || '').trim().slice(0, 32), c = fold(raw);
       if (c.length < 3 || c.length > 16) return bad.push(raw.trim().slice(0, 30) || '(trống)');
       if (seen.has(c)) return dup++;
-      seen.add(c); items.push(nt ? { code: c, note: nt } : c);
+      seen.add(c); items.push(nt || pw ? Object.assign({ code: c }, nt ? { note: nt } : null, pw ? { password: pw } : null) : c);
     });
     return { items, bad, dup };
   }
@@ -2245,8 +2478,8 @@ function openCreateCodes() {
     } else if (!(n >= 1 && n <= 200)) return err.replaceChildren(h('p', { class: 'err', text: 'Số lượng phải từ 1 đến 200.' }));
     go.disabled = true; err.replaceChildren(loading('Đang tạo mã…'));
     try {
-      const r = own ? await TA.call('createCodes', { codes: items, note: noteV }, { ms: 45000 })
-        : await TA.call('createCodes', { count: n, prefix: prefix.value.trim(), note: noteV }, { ms: 45000 });
+      const r = own ? await TA.call('createCodes', { codes: items, note: noteV, randomPw: rpw.checked }, { ms: 45000 })
+        : await TA.call('createCodes', { count: n, prefix: prefix.value.trim(), note: noteV, randomPw: rpw.checked }, { ms: 45000 });
       if (own && r.custom !== true) throw Object.assign(new Error('Apps Script chưa có tính năng tự đặt mã. Hãy dán lại Code.gs mới rồi Deploy → Manage deployments → New version. (Máy chủ cũ có thể đã tạo nhầm 1 mã ngẫu nhiên – hãy kiểm tra trong danh sách.)'), { code: 'stale' });
       showResult(r, n, noteV); Stu.page = 1; Stu.load();
     } catch (ex) {
@@ -2256,8 +2489,9 @@ function openCreateCodes() {
   }
   function showResult(r, requested, noteV) {
     const codes = (Array.isArray(r.codes) ? r.codes : []).map(String), exist = (Array.isArray(r.existing) ? r.existing : []).map(String), inval = (Array.isArray(r.invalid) ? r.invalid : []).map(String);
+    const pws = (r.passwords && typeof r.passwords === 'object') ? r.passwords : {}, pwOf = c => String(pws[c] == null ? '' : pws[c]);
     const ta = h('textarea', { readonly: true, class: 't-codes', rows: Math.min(10, codes.length + 1), 'aria-label': 'Danh sách mã vừa tạo', onfocus: e => e.target.select() });
-    ta.value = codes.join('\n');
+    ta.value = codes.map(c => pwOf(c) ? c + ' | mật khẩu: ' + pwOf(c) : c).join('\n');
     const created = Number(r.created); const made = isFinite(created) ? created : codes.length;
     body.replaceChildren(
       h('p', { class: made >= requested ? 'ok' : 'err', role: 'status', text: made >= requested ? `✓ Đã tạo ${made} mã.` : `Chỉ tạo được ${made}/${requested} mã.` }),
@@ -2266,13 +2500,15 @@ function openCreateCodes() {
       made ? h('p', { class: 'hint', text: 'Hãy lưu hoặc in danh sách này – mã cũng luôn xem lại được trong bảng học sinh.' }) : null, made ? ta : null,
       h('div', { class: 'row wrap' },
         made ? h('button', { type: 'button', class: 'btn primary', onclick: async () => toast(await copyText(ta.value, ta) ? 'Đã sao chép danh sách mã.' : 'Không sao chép được – hãy chọn và copy thủ công.') }, '📋 Sao chép') : null,
-        made ? h('button', { type: 'button', class: 'btn', onclick: () => { download('ma-hoc-sinh-' + dayStamp() + '.csv', csvText([['Mã', 'Ghi chú', 'Link']].concat(codes.map(c => [c, noteV, studentLink(c)]))), 'text/csv;charset=utf-8'); toast('Đã tải CSV.'); } }, '⬇ Tải CSV') : null,
-        made ? h('button', { type: 'button', class: 'btn', onclick: e => printCards(codes.map(c => ({ code: c, note: noteV })), e.currentTarget) }, '🖨 In thẻ mã') : null,
+        made ? h('button', { type: 'button', class: 'btn', onclick: () => { download('ma-hoc-sinh-' + dayStamp() + '.csv', csvText([['Mã', 'Mật khẩu', 'Ghi chú', 'Link']].concat(codes.map(c => [c, pwOf(c), noteV, studentLink(c)]))), 'text/csv;charset=utf-8'); toast('Đã tải CSV.'); } }, '⬇ Tải CSV') : null,
+        made ? h('button', { type: 'button', class: 'btn', onclick: e => printCards(codes.map(c => ({ code: c, note: noteV, password: pwOf(c) })), e.currentTarget) }, '🖨 In thẻ mã') : null,
         h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Đóng')));
   }
   body.replaceChildren(h('form', { class: 'stack', onsubmit: submit, novalidate: true },
     h('label', { for: 'cc-mode', text: 'Cách tạo' }), mode, randBox, ownBox,
-    h('label', { for: 'cc-note', text: 'Ghi chú (tùy chọn, áp dụng cho cả đợt)' }), note, err,
+    h('label', { for: 'cc-note', text: 'Ghi chú (tùy chọn, áp dụng cho cả đợt)' }), note,
+    h('label', { class: 'check', for: 'cc-rpw' }, rpw, 'Tự tạo mật khẩu 4 chữ số cho mã chưa ghi mật khẩu'),
+    h('p', { class: 'hint', text: 'Học sinh cần mã + mật khẩu để vào trang học sinh và làm bài được giao. Bỏ tích thì mã không cần mật khẩu (có thể đặt sau bằng nút 🔑).' }), err,
     h('div', { class: 'row end' }, h('button', { type: 'button', class: 'btn', onclick: () => d.close() }, 'Hủy'), go)));
   paintMode(); count.focus();
 }
@@ -2295,8 +2531,9 @@ async function printCards(items, btn) {
     const wrap = h('div', { id: 'sm-print', 'aria-hidden': 'true' });
     for (let i = 0; i < items.length; i++) {
       const it = items[i], url = await qrDataUrl(studentLink(it.code));
-      wrap.append(h('div', { class: 'pc-card' }, h('div', { class: 'pc-app', text: '🔤 Spelling Mastery' }), h('img', { src: url, alt: 'Mã QR của ' + it.code }),
-        h('div', { class: 'pc-code', text: it.code }), h('div', { class: 'pc-note', text: it.note || '' }), h('div', { class: 'pc-url', text: studentBase() })));
+      wrap.append(h('div', { class: 'pc-card' }, h('div', { class: 'pc-app', text: '🏠 Nhà Thầy Hưng' }), h('img', { src: url, alt: 'Mã QR của ' + it.code }),
+        h('div', { class: 'pc-code', text: it.code }), it.password ? h('div', { class: 'pc-pw', text: 'Mật khẩu: ' + it.password }) : null,
+        h('div', { class: 'pc-note', text: it.note || '' }), h('div', { class: 'pc-url', text: studentBase() })));
       if (i % 20 === 19) await new Promise(r => setTimeout(r));
     }
     const prev = document.getElementById('sm-print'); if (prev) prev.remove();
@@ -2732,7 +2969,7 @@ const Exporter = {
       row(heads, M + 90, true, '#e5e7f5');
       data.slice(p * per, (p + 1) * per).forEach((r, i) => row(r, M + 90 + RH * (i + 1), false));
       if (!data.length) { g.font = font; g.fillText('(Không có dữ liệu)', M, M + 90 + RH); }
-      g.font = '20px ' + font.slice(5); g.fillStyle = '#555'; g.fillText(`Spelling Mastery · ${new Date().toLocaleString('vi-VN')} · Trang ${p + 1}/${n}`, M, H - 40);
+      g.font = '20px ' + font.slice(5); g.fillStyle = '#555'; g.fillText(`Nhà Thầy Hưng · ${new Date().toLocaleString('vi-VN')} · Trang ${p + 1}/${n}`, M, H - 40);
       out.push(c);
     }
     return out;
@@ -3688,9 +3925,9 @@ function saveTestAttempt(a, code, res, sid) {
     const correctPoints = res.flat.slice().sort((a, b) => (a.oi || 0) - (b.oi || 0)).map(q => { cum += Number(res.rs[q.id] && res.rs[q.id].got) || 0; const r = Math.round(cum), dd = r - prevR; prevR = r; return clamp(dd, 0, 100); });
     const correct = res.flat.filter(q => res.rs[q.id] && res.rs[q.id].ok === 'right').length;
     // Gửi bài làm TRƯỚC, điểm SAU: máy chủ chỉ cộng điểm khi đã có bài nộp cùng submissionId (hàng đợi gửi lần lượt theo thứ tự này)
-    Sync.upsert({ submissionId: sid, url: a.scriptUrl, payload: { action: 'submitTest', submissionId: sid, code, assignmentId: a.id, assignmentName: a.name, name: code, cls: '', score: res.score, maxScore: res.max, totalMs: res.totalMs,
+    Sync.upsert({ submissionId: sid, url: a.scriptUrl, payload: { action: 'submitTest', submissionId: sid, code, token: Store.get('studentTok', ''), assignmentId: a.id, assignmentName: a.name, name: code, cls: '', score: res.score, maxScore: res.max, totalMs: res.totalMs,
       items: res.items, submittedAt: new Date().toISOString(), userAgent: navigator.userAgent, due: a.due, max: a.max } });
-    Sync.upsert({ submissionId: psid, url: a.scriptUrl, payload: { action: 'submitResult', code, kind: 'test', refId: a.id, submissionId: sid, correct, peeks: 0, correctPoints } });
+    Sync.upsert({ submissionId: psid, url: a.scriptUrl, payload: { action: 'submitResult', code, token: Store.get('studentTok', ''), kind: 'test', refId: a.id, submissionId: sid, correct, peeks: 0, correctPoints } });
   }
   return h('div', { class: 'stack' }, pointsPanel(psid, code, est), statusChip(sid));
 }
@@ -4852,7 +5089,7 @@ function LoginView(root) {
   }
   root.replaceChildren(h('form', { class: 'card stack login-card', onsubmit: submit, novalidate: true },
     h('h1', { text: '🔐 Đăng nhập' }),
-    h('p', { class: 'muted', text: 'Nhập mật khẩu để vào Spelling Mastery.' }),
+    h('p', { class: 'muted', text: 'Nhập mật khẩu để vào Nhà Thầy Hưng.' }),
     h('label', { for: 'lg-pw', text: 'Mật khẩu' }), h('div', { class: 'pw-row' }, pw, eye),
     h('label', { class: 'check', for: 'lg-rem' }, rem, `Ghi nhớ đăng nhập trên thiết bị này (${Auth.DAYS} ngày)`),
     err, go,
@@ -4900,14 +5137,14 @@ const Router = {
     if (!isAssign && student && Lock.get()) { location.replace(Lock.get()); return; }   // đang ở chế độ học sinh → đưa về bài đang làm
     if (path === '/logout') { Auth.logout(); history.replaceState(null, '', '#/'); this.render(); return; }
     if (!isAssign && path !== '/tao-mat-khau' && !Auth.ok()) {       // chưa đăng nhập → chỉ hiện màn hình mật khẩu (link giao bài của học sinh luôn mở được)
-      document.body.dataset.route = 'app'; $('#nav').replaceChildren(); $('.brand').setAttribute('href', '#/'); document.title = 'Đăng nhập – Spelling Mastery';
+      document.body.dataset.route = 'app'; $('#nav').replaceChildren(); $('.brand').setAttribute('href', '#/'); document.title = 'Đăng nhập – Nhà Thầy Hưng';
       this.cur = LoginView(root); return;
     }
     document.body.dataset.route = isAssign ? 'assign' : 'app';
     const brand = $('.brand');
     const fromHs = isAssign && /(?:^|&)hs=1(?:&|$)/.test(query);              // mở từ tab "Bài được giao" ở trang học sinh
     if (fromHs) brand.setAttribute('href', 'hoc-sinh.html#bai-giao'); else if (isAssign && student) brand.removeAttribute('href'); else brand.setAttribute('href', '#/');   // học sinh: tên app không bấm được
-    document.title = 'Spelling Mastery – Chính tả từ vựng';
+    document.title = 'Nhà Thầy Hưng – Học từ vựng tiếng Anh';
     const used = !isAssign && /^\/(practice|test-practice|test-edit)\/([\w-]+)$/.exec(path);      // ghi nhận "dùng gần đây"
     if (used) Prefs.touch(used[1] === 'practice' ? 'set' : 'test', used[2]);
     renderNav(); window.scrollTo(0, 0);

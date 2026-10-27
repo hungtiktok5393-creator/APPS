@@ -1,4 +1,4 @@
-/* Spelling Mastery – trang học sinh (độc lập, không sửa app.js).
+/* Nhà Thầy Hưng (Spelling Mastery) – trang học sinh (độc lập, không sửa app.js).
  * API cho games.js:  window.SMGame = { api(action,params), getBalance(), setBalance(n), toast(msg,isErr), sfx(name), requestId(), betValue(),
  *   + mở rộng: settle({delta,balance}) gọi sau MỖI ván xong (tính lãi/lỗ phiên, hạn mức, nhắc nghỉ); canPlay()->{ok,reason};
  *   register(name,{mount(stage,ctx),unmount(),resume(state)}); setRules(name,[dòng]); reducedMotion; config; stage }
@@ -6,13 +6,13 @@
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261027f', BREAK_EVERY = 20;
+const VER = '20261027g', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
 const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash'], ['dice', '🎲', 'Xúc xắc'], ['plinko', '🔻', 'Plinko'], ['scratch', '🎟️', 'Thẻ cào'], ['keno', '🔢', 'Keno mini'], ['coin', '🪙', 'Tung xu']];
 const REASON = { vocab: ['📘', 'Từ vựng'], test: ['📝', 'Bài test'], game: ['🎮', 'Trò chơi'], teacher_adjust: ['👩‍🏫', 'Giáo viên chỉnh'] };
-const ERR = { invalid_code: 'Mã không đúng. Kiểm tra lại với giáo viên.', code_disabled: 'Mã này đã bị khóa.', rate_limited: 'Bạn thao tác quá nhanh, chờ một giây.', busy: 'Máy chủ đang bận, thử lại sau.', games_disabled: 'Giáo viên đang tắt khu trò chơi.', unauthorized: 'Không có quyền.' };
-const S = { code: '', bal: 0, earned: 0, ledger: [], cfg: { maxBet: 200, maxBetPct: 25, dailyLossLimit: 300, gamesEnabled: true }, game: null, tab: '', filter: 'all', rounds: 0, pnl: 0, sinceBreak: 0, todayNet: 0, lock: null, reg: {}, rules: {}, resume: null, cfgAt: 0, last: 0, fast: false };
+const ERR = { invalid_code: 'Mã không đúng. Kiểm tra lại với giáo viên.', code_disabled: 'Mã này đã bị khóa.', auth_required: 'Mã này có mật khẩu. Hãy nhập mật khẩu giáo viên đã cho bạn.', wrong_password: 'Mật khẩu không đúng. Kiểm tra lại (phân biệt chữ hoa / thường).', locked: 'Nhập sai mật khẩu quá nhiều lần. Đợi 10 phút rồi thử lại.', rate_limited: 'Bạn thao tác quá nhanh, chờ một giây.', busy: 'Máy chủ đang bận, thử lại sau.', games_disabled: 'Giáo viên đang tắt khu trò chơi.', unauthorized: 'Không có quyền.' };
+const S = { code: '', tok: '', bal: 0, earned: 0, ledger: [], cfg: { maxBet: 200, maxBetPct: 25, dailyLossLimit: 300, gamesEnabled: true }, game: null, tab: '', filter: 'all', rounds: 0, pnl: 0, sinceBreak: 0, todayNet: 0, lock: null, reg: {}, rules: {}, resume: null, cfgAt: 0, last: 0, fast: false };
 S.fast = LS.get('sm_fast') === '1';
 const url = () => SCRIPT_URL || LS.get('sm_script_url') || '';
 const nf = n => Number(n || 0).toLocaleString('vi-VN');
@@ -51,8 +51,9 @@ async function callRaw(action, params, retry, free) {
   }
   return d;
 }
-const api = (action, params) => call(action, Object.assign({ code: S.code }, params)).then(r => { if (typeof r.balance === 'number') setBal(r.balance); return r; }, e => {
-  if (e.code === 'games_disabled') { S.cfg.gamesEnabled = false; evalLock(); }
+const api = (action, params) => call(action, Object.assign({ code: S.code, token: S.tok }, params)).then(r => { if (typeof r.balance === 'number') setBal(r.balance); return r; }, e => {
+  if (['auth_required', 'wrong_password'].includes(e.code) && S.code) { const c = S.code; logout(); loginView('Mật khẩu đã được thay đổi. Hãy đăng nhập lại.'); $('code-in').value = c; $('pw-in').focus(); }
+  else if (e.code === 'games_disabled') { S.cfg.gamesEnabled = false; evalLock(); }
   else if (!/^garden/.test(action) && /hạn mức|daily/i.test((e.raw && (e.raw.message + e.raw.error)) || '')) {   // hạn mức của Khu vườn KHÔNG phải hạn mức lỗ trò chơi
     S.todayNet = -S.cfg.dailyLossLimit; evalLock(); }
   throw e;
@@ -138,24 +139,30 @@ function drawProfile() {
 /* ---- Bài được giao: listOpenAssignments {code} → bài còn hạn giao chung hoặc giao riêng cho mã này. Bấm → index.html#/assign|taketest (dùng chung mã qua localStorage sm_studentCode) ---- */
 const shortUrl = u => { const m = /^https:\/\/script\.google\.com\/macros\/s\/([\w-]{20,})\/exec$/.exec(String(u || '')); return m ? m[1] : u; };
 const attemptsMap = () => { try { return JSON.parse(localStorage.getItem('sm_attempts') || '{}') || {}; } catch (_) { return {}; } };   // số lần làm trang làm bài lưu trên máy này
-function shareCode() { try { localStorage.setItem('sm_studentCode', JSON.stringify(S.code)); } catch (_) {} }
+function shareCode() { try { localStorage.setItem('sm_studentCode', JSON.stringify(S.code)); localStorage.setItem('sm_studentTok', JSON.stringify(S.tok || '')); } catch (_) {} }   // trang làm bài (index.html) dùng chung mã + token
 function leftText(due, now) {
   const ms = due - now; if (ms <= 0) return 'đã hết hạn';
   const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), hh = Math.floor(m % 1440 / 60);
   return 'còn ' + (d ? d + ' ngày ' + (hh ? hh + ' giờ' : '') : hh ? hh + ' giờ ' + (m % 60) + ' phút' : Math.max(1, m) + ' phút').trim();
 }
 const fmtDue = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return p(d.getHours()) + ':' + p(d.getMinutes()) + ' ' + p(d.getDate()) + '/' + p(d.getMonth() + 1); };
+/* Hai danh sách: "Bài chung" (giao cho mọi mã) và "Bài của riêng bạn" (giao riêng cho mã này) – một lần gọi máy chủ, chia theo cờ personal */
 async function loadOpen(quiet) {
-  const ul = $('open-list'), cnt = $('bg-count');
-  if (!quiet || !ul.children.length) ul.replaceChildren(el('li', 'st-empty muted', 'Đang tải…'));
+  const lists = [$('open-list'), $('own-list')];
+  lists.forEach(ul => { if (!quiet || !ul.children.length) ul.replaceChildren(el('li', 'st-empty muted', 'Đang tải…')); });
   let r;
   try { r = await api('listOpenAssignments', {}); }
-  catch (e) { ul.replaceChildren(el('li', 'st-empty err', e.message)); return; }
+  catch (e) { lists.forEach(ul => ul.replaceChildren(el('li', 'st-empty err', e.message))); return; }
   S.openAt = Date.now(); S.open = r.items || []; earnCta();
-  const items = r.items || [], att = attemptsMap(), now = Number(r.serverTime) || Date.now();
+  const all = r.items || [], now = Number(r.serverTime) || Date.now();
+  drawOpen($('open-list'), $('bc-count'), all.filter(x => !x.personal), now, 'Hiện chưa có bài chung nào còn hạn. 🎉');
+  drawOpen($('own-list'), $('br-count'), all.filter(x => x.personal), now, 'Hiện chưa có bài nào giao riêng cho bạn. 🎉');
+}
+function drawOpen(ul, cnt, items, now, empty) {
+  const att = attemptsMap();
   cnt.hidden = !items.length; cnt.textContent = items.length;
   ul.replaceChildren();
-  if (!items.length) { ul.append(el('li', 'st-empty muted', 'Hiện chưa có bài nào được giao cho bạn. 🎉')); return; }
+  if (!items.length) { ul.append(el('li', 'st-empty muted', empty)); return; }
   items.forEach(x => {
     const test = x.kind === 'test', done = att[x.id] || 0, full = x.max > 0 && done >= x.max;
     const href = asgHref(x);
@@ -164,7 +171,6 @@ async function loadOpen(quiet) {
     const bits = [test ? 'Bài test' : 'Từ vựng' + (x.count ? ' · ' + x.count + ' từ' : ''), 'Hạn ' + fmtDue(x.due) + ' (' + leftText(x.due, now) + ')'];
     m.append(el('span', 'hint', bits.join(' · ')));
     const tags = [];
-    if (x.personal) tags.push('👤 Giao riêng cho bạn');
     if (done) tags.push(full ? '✔ Đã làm hết ' + x.max + ' lần' : '✔ Đã làm ' + done + (x.max ? '/' + x.max : '') + ' lần');
     else if (x.max) tags.push('Làm tối đa ' + x.max + ' lần');
     if (tags.length) m.append(el('span', 'hint', tags.join(' · ')));
@@ -191,7 +197,7 @@ function earnCta() {
   const sub = el('span', 'hint', 'Mỗi từ đúng +' + pts + ' điểm → làm đúng 5 từ là +' + nf(5 * pts) + ' điểm.' + (S.open ? (items.length ? ' Bạn có ' + items.length + ' bài đang mở.' : ' Hiện chưa có bài mới – hãy nhờ thầy cô giao bài.') : ''));
   const acts = el('div', 'earn-acts');
   if (first) { const a = el('a', 'btn primary', (first.kind === 'test' ? '📝 Làm bài: ' : '📘 Làm bài: ') + (first.name || first.id)); a.href = asgHref(first); a.onclick = shareCode; acts.append(a); }
-  const all = el('button', 'btn' + (first ? '' : ' primary'), '📋 Xem bài được giao'); all.type = 'button'; all.onclick = () => show('bai-giao'); acts.append(all);
+  const all = el('button', 'btn' + (first ? '' : ' primary'), '📋 Xem bài được giao'); all.type = 'button'; all.onclick = () => show(first && first.personal ? 'bai-rieng' : 'bai-chung'); acts.append(all);
   box.replaceChildren(t, sub, acts); box.hidden = false;
   if (!S.ctaOn) { S.ctaOn = true; if (box.animate && !reduced.matches) box.animate([{ transform: 'scale(.96)', opacity: .4 }, { transform: 'scale(1.02)', opacity: 1 }, { transform: 'scale(1)' }], { duration: 350 }); }
 }
@@ -236,8 +242,8 @@ let warmT = 0;
 function warmStop() { if (warmT) clearInterval(warmT); warmT = 0; }
 function warmStart() {
   warmStop(); if (!S.code || !url()) return;
-  call('getActiveGame', { code: S.code }).catch(() => {});
-  warmT = setInterval(() => { if (S.tab === 'tro-choi' && document.visibilityState === 'visible' && S.code) call('getActiveGame', { code: S.code }).catch(() => {}); else if (S.tab !== 'tro-choi') warmStop(); }, 240000);
+  call('getActiveGame', { code: S.code, token: S.tok }).catch(() => {});
+  warmT = setInterval(() => { if (S.tab === 'tro-choi' && document.visibilityState === 'visible' && S.code) call('getActiveGame', { code: S.code, token: S.tok }).catch(() => {}); else if (S.tab !== 'tro-choi') warmStop(); }, 240000);
 }
 function stop() { document.dispatchEvent(new CustomEvent('smgame:stop')); sfx('click'); show('ho-so'); loadProfile().catch(() => {}); }
 function settle(o) {
@@ -256,7 +262,7 @@ window.SMGame = {
 reduced.addEventListener && reduced.addEventListener('change', () => { SMGame.reducedMotion = reduced.matches; });
 
 /* ---- Điều hướng, đăng nhập ---- */
-const TABS = ['bai-giao', 'ho-so', 'xep-hang', 'tro-choi', 'khu-vuon'];   // đúng thứ tự các nút [data-tab] trong hoc-sinh.html
+const TABS = ['bai-chung', 'bai-rieng', 'ho-so', 'xep-hang', 'tro-choi', 'khu-vuon'];   // đúng thứ tự các nút [data-tab] trong hoc-sinh.html
 /* ---- Khu vườn: garden.js (engine) + garden-ui.js (giao diện) tự đăng ký window.SMGarden; thiếu garden.js thì hiện "sắp mở" ---- */
 function gardenCtx() { return { api: (a, p) => api(a, p), getBalance: () => S.bal, setBalance: setBal, toast, sfx: n => { if (LS.get('sm_garden_snd') !== '0') sfx(n); }, requestId: rid, code: S.code }; }
 function openGarden() {
@@ -266,11 +272,13 @@ function openGarden() {
 }
 function closeGarden() { try { window.SMGarden && window.SMGarden.unmount && window.SMGarden.unmount(); } catch (_) {} }
 function show(t) {
-  if (!TABS.includes(t)) t = 'bai-giao'; const was = S.tab; S.tab = t;
+  if (t === 'bai-giao') { let l = ''; try { l = sessionStorage.getItem('sm_hs_list') || ''; } catch (_) {} t = l === 'bai-rieng' ? 'bai-rieng' : 'bai-chung'; }   // link cũ / nút "Về trang học sinh" → danh sách vừa xem
+  if (!TABS.includes(t)) t = 'bai-chung'; const was = S.tab; S.tab = t;
+  if (t === 'bai-chung' || t === 'bai-rieng') { try { sessionStorage.setItem('sm_hs_list', t); } catch (_) {} }
   document.querySelectorAll('[data-tab]').forEach(b => { const on = b.dataset.tab === t; b.setAttribute('aria-selected', on); b.tabIndex = on ? 0 : -1; $('p-' + b.dataset.tab).hidden = !on; });
   if (location.hash !== '#' + t) history.replaceState(null, '', '#' + t);
   if (was !== t && t === 'xep-hang') loadBoard();
-  if (was !== t && t === 'bai-giao') loadOpen(Date.now() - (S.openAt || 0) < 30000);
+  if (was !== t && (t === 'bai-chung' || t === 'bai-rieng') && !(was === 'bai-chung' || was === 'bai-rieng')) loadOpen(Date.now() - (S.openAt || 0) < 30000);
   if (was !== t && t === 'tro-choi') { warmStart(); loadCfg(); if (!S.game) pick(GAMES.some(g => g[0] === LS.get('sm_game')) ? LS.get('sm_game') : 'slots'); }
   if (was !== t && t === 'khu-vuon') openGarden();
   if (was === 'khu-vuon' && t !== 'khu-vuon') closeGarden();
@@ -279,35 +287,51 @@ function show(t) {
 }
 const norm = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);   // giống máy chủ: bỏ dấu, chỉ chữ+số
 function loginView(msg) { $('view-main').hidden = true; $('view-login').hidden = false; $('url-box').hidden = !!SCRIPT_URL; $('login-err').textContent = msg || ''; $('login-btn').disabled = false; }
-async function enter(code, quiet) {
+/* Đăng nhập: mã + mật khẩu (lần đầu) → máy chủ trả token, máy nhớ mã + token; lần sau vào thẳng không cần gõ lại. */
+async function enter(code, quiet, pw) {
   $('login-btn').disabled = true; $('login-err').textContent = quiet ? '' : 'Đang kiểm tra…';
+  const tok = !pw && code === LS.get('sm_code') ? (LS.get('sm_tok') || '') : '';
   S.code = code;
   try {
-    const r = await call('checkCode', { code }); if (r.valid === false) throw Object.assign(new Error(ERR.invalid_code), { code: 'invalid_code' });
-    S.code = r.code || code; LS.set('sm_code', S.code); shareCode(); $('who').textContent = S.code; $('view-login').hidden = true; $('view-main').hidden = false;
+    const body = { code }; if (pw) body.password = pw; else if (tok) body.token = tok;
+    const r = await call('checkCode', body); if (r.valid === false) throw Object.assign(new Error(ERR.invalid_code), { code: 'invalid_code' });
+    S.code = r.code || code; S.tok = r.token || ''; LS.set('sm_code', S.code); LS.set('sm_tok', S.tok || null); shareCode(); $('pw-in').value = '';
+    $('who').textContent = S.code; $('view-login').hidden = true; $('view-main').hidden = false;
     show(location.hash.slice(1)); setBal(r.balance); $('st-earned').textContent = nf(r.totalEarned);
     loadProfile().catch(e => toast(e.message, 1)); loadCfg().then(checkActive);
-  } catch (e) { if (['invalid_code', 'code_disabled'].includes(e.code)) LS.set('sm_code', null); S.code = ''; loginView(e.message); }
+  } catch (e) {
+    if (['invalid_code', 'code_disabled'].includes(e.code)) LS.set('sm_code', null);
+    if (['auth_required', 'wrong_password', 'invalid_code', 'code_disabled'].includes(e.code)) LS.set('sm_tok', null);
+    S.code = ''; S.tok = ''; loginView(quiet && e.code === 'auth_required' ? 'Nhập mật khẩu để vào.' : e.message); $('code-in').value = code;
+    if (['auth_required', 'wrong_password'].includes(e.code)) { $('pw-in').value = ''; setTimeout(() => $('pw-in').focus(), 0); }
+  }
+}
+function logout() {
+  warmStop(); closeGarden(); LS.set('sm_code', null); LS.set('sm_tok', null); S.code = ''; S.tok = ''; document.dispatchEvent(new CustomEvent('smgame:stop'));
+  S.rounds = S.pnl = S.sinceBreak = 0; S.open = null; S.game = null; S.tab = ''; S.openAt = 0;
+  ['open-list', 'own-list'].forEach(i => $(i).replaceChildren()); $('bc-count').hidden = $('br-count').hidden = true; sum();
+  try { localStorage.setItem('sm_studentTok', JSON.stringify('')); } catch (_) {}
 }
 function init() {
   if (!SCRIPT_URL) $('url-in').value = LS.get('sm_script_url') || '';
   $('login-form').onsubmit = ev => {
     ev.preventDefault(); const u = $('url-in').value.trim();
     if (!SCRIPT_URL) { if (!/^https:\/\//.test(u)) return ($('login-err').textContent = 'Nhập địa chỉ máy chủ bắt đầu bằng https://'); LS.set('sm_script_url', u); }
-    const c = norm($('code-in').value); $('code-in').value = c; if (!/^[A-Z0-9]{3,16}$/.test(c)) return ($('login-err').textContent = 'Mã gồm 3–16 chữ hoặc số.'); enter(c);
+    const c = norm($('code-in').value); $('code-in').value = c; if (!/^[A-Z0-9]{3,16}$/.test(c)) return ($('login-err').textContent = 'Mã gồm 3–16 chữ hoặc số.'); enter(c, 0, $('pw-in').value.trim());
   };
+  const eye = $('pw-eye'); eye.onclick = () => { const p = $('pw-in'), on = p.type === 'password'; p.type = on ? 'text' : 'password'; eye.textContent = on ? '🙈' : '👁'; eye.setAttribute('aria-pressed', on); eye.setAttribute('aria-label', on ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'); };
   $('code-in').oninput = e => { e.target.value = norm(e.target.value); };
-  $('btn-change').onclick = () => { warmStop(); closeGarden(); LS.set('sm_code', null); S.code = ''; document.dispatchEvent(new CustomEvent('smgame:stop')); S.rounds = S.pnl = S.sinceBreak = 0; S.open = null; S.game = null; S.tab = ''; S.openAt = 0; $('open-list').replaceChildren(); $('bg-count').hidden = true; sum(); loginView(); $('code-in').value = ''; $('code-in').focus(); };
+  $('btn-change').onclick = () => { logout(); loginView(); $('code-in').value = ''; $('pw-in').value = ''; $('code-in').focus(); };
   $('btn-refresh').onclick = () => loadProfile().then(() => toast('Đã cập nhật.'), e => toast(e.message, 1));
-  $('btn-board').onclick = loadBoard; $('btn-open').onclick = () => loadOpen(); $('btn-stop').onclick = stop;
+  $('btn-board').onclick = loadBoard; $('btn-open').onclick = () => loadOpen(); $('btn-open2').onclick = () => loadOpen(); $('btn-stop').onclick = stop;
   document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); b.onkeydown = e => { const i = TABS.indexOf(b.dataset.tab), n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null; if (n != null) { const t = document.querySelectorAll('[data-tab]')[(n + TABS.length) % TABS.length]; show(t.dataset.tab); t.focus(); } }; });
   const q = $('quick'); [['10', () => 10], ['50', () => 50], ['100', () => 100], ['½', () => Math.floor(S.bal / 2)], ['MAX', betCap]].forEach(([n, f]) => { const b = el('button', 'btn small', n); b.type = 'button'; b.setAttribute('aria-label', n === 'MAX' ? 'Cược tối đa' : n === '½' ? 'Cược một nửa số dư' : 'Cược ' + n); b.onclick = () => { $('bet').value = f(); clampBet(); LS.set('sm_bet', $('bet').value); sfx('click'); }; q.append(b); });
   $('bet').oninput = () => { clampBet(); earnCta(); }; $('bet').onchange = () => LS.set('sm_bet', $('bet').value); $('bet').value = LS.get('sm_bet') || 10;
   const sn = $('btn-snd'); const paint = () => { sn.textContent = muted ? '🔇' : '🔊'; sn.setAttribute('aria-pressed', !muted); sn.setAttribute('aria-label', muted ? 'Bật âm thanh' : 'Tắt âm thanh'); }; paint(); sn.onclick = () => { muted = !muted; LS.set('sm_snd', muted ? '0' : '1'); paint(); sfx('click'); };
   const fb = $('btn-fast'); if (fb) { const pf = () => { fb.setAttribute('aria-pressed', S.fast); fb.textContent = S.fast ? '⚡ Nhanh: bật' : '⚡ Nhanh: tắt'; }; pf(); fb.onclick = () => { S.fast = !S.fast; LS.set('sm_fast', S.fast ? '1' : '0'); pf(); sfx('click'); }; }
   $('break-go').onclick = () => $('break-dlg').close(); $('break-stop').onclick = () => { $('break-dlg').close(); stop(); };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.code && Date.now() - S.last > 30000) { S.last = Date.now(); loadProfile().catch(() => {}); if (S.tab === 'bai-giao') loadOpen(1); } });
-  window.addEventListener('pageshow', e => { if (e.persisted && S.code) { loadProfile().catch(() => {}); if (S.tab === 'bai-giao') loadOpen(1); } });   // quay lại từ trang làm bài (nút Back)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.code && Date.now() - S.last > 30000) { S.last = Date.now(); loadProfile().catch(() => {}); if (/^bai-/.test(S.tab)) loadOpen(1); } });
+  window.addEventListener('pageshow', e => { if (e.persisted && S.code) { loadProfile().catch(() => {}); if (/^bai-/.test(S.tab)) loadOpen(1); } });   // quay lại từ trang làm bài (nút Back)
   window.addEventListener('hashchange', () => S.code && show(location.hash.slice(1)));
   { const st = $('game-stage'), box = el('div', 'card earn-cta'); box.id = 'earn-cta'; box.hidden = true; box.setAttribute('role', 'status'); const host = st && st.parentElement; if (host) host.parentElement.insertBefore(box, host); }
   sum(); tabsG(); rules();
