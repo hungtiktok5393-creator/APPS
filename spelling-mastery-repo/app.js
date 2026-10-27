@@ -111,7 +111,9 @@ const Modal = {
           h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: () => { result = true; d.close(); } }, okLabel || 'Đồng ý'))),
         () => res(result));
     });
-  }
+  },
+  /** Đóng mọi hộp thoại đang mở (như bấm Hủy) – gọi khi chuyển trang để hộp thoại của màn hình cũ không kẹt lại */
+  closeAll() { document.querySelectorAll('dialog.modal').forEach(d => { try { d.close(); } catch (_) { d.remove(); } }); }
 };
 
 /* ===================== 2. STORE & SETTINGS ===================== */
@@ -3636,9 +3638,10 @@ function saveTestAttempt(a, code, res, sid) {
     let cum = 0, prevR = 0;
     const correctPoints = res.flat.slice().sort((a, b) => (a.oi || 0) - (b.oi || 0)).map(q => { cum += Number(res.rs[q.id] && res.rs[q.id].got) || 0; const r = Math.round(cum), dd = r - prevR; prevR = r; return clamp(dd, 0, 100); });
     const correct = res.flat.filter(q => res.rs[q.id] && res.rs[q.id].ok === 'right').length;
-    Sync.upsert({ submissionId: psid, url: a.scriptUrl, payload: { action: 'submitResult', code, kind: 'test', refId: a.id, submissionId: sid, correct, peeks: 0, correctPoints } });
+    // Gửi bài làm TRƯỚC, điểm SAU: máy chủ chỉ cộng điểm khi đã có bài nộp cùng submissionId (hàng đợi gửi lần lượt theo thứ tự này)
     Sync.upsert({ submissionId: sid, url: a.scriptUrl, payload: { action: 'submitTest', submissionId: sid, code, assignmentId: a.id, assignmentName: a.name, name: code, cls: '', score: res.score, maxScore: res.max, totalMs: res.totalMs,
       items: res.items, submittedAt: new Date().toISOString(), userAgent: navigator.userAgent, due: a.due, max: a.max } });
+    Sync.upsert({ submissionId: psid, url: a.scriptUrl, payload: { action: 'submitResult', code, kind: 'test', refId: a.id, submissionId: sid, correct, peeks: 0, correctPoints } });
   }
   return h('div', { class: 'stack' }, pointsPanel(psid, code, est), statusChip(sid));
 }
@@ -4835,6 +4838,7 @@ function renderNav() {
 const Router = {
   cur: null,
   render() {
+    Modal.closeAll();
     if (this.cur && this.cur.destroy) this.cur.destroy();
     const raw = location.hash.replace(/^#/, '') || '/';
     const k = raw.indexOf('?'), path = k < 0 ? raw : raw.slice(0, k), query = k < 0 ? '' : raw.slice(k + 1);
