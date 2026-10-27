@@ -1,4 +1,13 @@
-# API_SPEC – thay đổi hợp đồng (Code.gs VERSION 9)
+# API_SPEC – thay đổi hợp đồng (Code.gs VERSION 10)
+
+## 0. (v10) Giao bài riêng theo mã học sinh
+- `ASSIGN_HEADERS` thêm cột 14 **codes**: mã học sinh được giao, cách nhau dấu phẩy. Ô trống = giao cho mọi mã.
+- `saveAssignment` / `saveTest` nhận `assignment.codes` (mảng mã). Mã được chuẩn hoá như lúc học sinh nhập.
+- `listOpenAssignments {code}` chỉ trả bài giao chung + bài có mã này; mỗi item thêm `personal` (giao riêng) và `max`; không trả danh sách mã.
+- `checkCode {code, refId?}`: có `refId` mà bài không giao cho mã → `not_assigned`. `submit`, `submitTest`, `submitResult` cũng trả `not_assigned`.
+- `assignments` / `testAssignments` (giáo viên) trả thêm `codes`.
+- Trang học sinh: tab **Bài được giao** (`#bai-giao`, mặc định) → mở `index.html#/assign|taketest?id=…&s=…&hs=1`; mã dùng chung qua localStorage `sm_studentCode`.
+
 Tất cả action: POST JSON `{action, code?, ...}` tới URL `/exec`. Lỗi: `{ok:false,error,message}`. Số dư/điểm chỉ tin server.
 
 ## 1. Sheet Assignments – 2 cột mới (cột 12, 13)

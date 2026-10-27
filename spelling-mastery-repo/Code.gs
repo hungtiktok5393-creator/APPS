@@ -20,11 +20,11 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 9;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 10;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
-const ASSIGN_HEADERS = ['id', 'name', 'due', 'max', 'req', 'createdAt', 'wordsJson', 'ttsJson', 'shuffle', 'kind', 'link', 'correctPts', 'peekPenalty'];   // correctPts / peekPenalty (cột 12, 13) = điểm cộng mỗi từ đúng / điểm trừ mỗi lần xem lại RIÊNG của bài từ vựng (ô trống = dùng mặc định chung trong Config) · link = đường link giao bài (để xem / copy lại trong Thống kê) · kind = 'test' cho bài test (để không lẫn vào Thống kê bài từ vựng)
+const ASSIGN_HEADERS = ['id', 'name', 'due', 'max', 'req', 'createdAt', 'wordsJson', 'ttsJson', 'shuffle', 'kind', 'link', 'correctPts', 'peekPenalty', 'codes'];   // codes (cột 14) = danh sách mã học sinh được giao, cách nhau dấu phẩy (ô trống = giao cho mọi mã) · correctPts / peekPenalty (cột 12, 13) = điểm cộng mỗi từ đúng / điểm trừ mỗi lần xem lại RIÊNG của bài từ vựng (ô trống = dùng mặc định chung trong Config) · link = đường link giao bài (để xem / copy lại trong Thống kê) · kind = 'test' cho bài test (để không lẫn vào Thống kê bài từ vựng)
 
 /* ---------- Tiện ích ---------- */
 function json_(o) { return o; }   // hàm cũ trả về object; jsonOut_ (v8) đóng gói JSON ở doPost/doGet
@@ -69,7 +69,7 @@ function readWhere_(sh, col, test, ncol) {
 /* Bộ nhớ đệm (CacheService): bài giao / đề test được học sinh mở liên tục → không đọc Sheet lại mỗi lần. Xóa khi lưu / xóa bài. */
 function cget_(k) { try { const v = CacheService.getScriptCache().get(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function cput_(k, o, sec) { try { const s = JSON.stringify(o); if (s.length < 32000) CacheService.getScriptCache().put(k, s, sec || 900); } catch (e) {} }   // giới hạn 100 KB/giá trị (UTF-8) → chỉ lưu bản ≤ ~32.000 ký tự
-function cdel_(id) { try { CacheService.getScriptCache().removeAll(['a:' + id, 'aw:' + id, 'a2:' + id, 'aw2:' + id, 'tst:' + id, 'ola']); } catch (e) {} }
+function cdel_(id) { try { CacheService.getScriptCache().removeAll(['a:' + id, 'aw:' + id, 'a2:' + id, 'aw2:' + id, 'a3:' + id, 'aw3:' + id, 'tst:' + id, 'ola', 'ola2']); } catch (e) {} }
 function chunks_(s, n) { const out = []; for (let i = 0; i < s.length && out.length < n; i += CELL) out.push(s.slice(i, i + CELL)); while (out.length < n) out.push(''); return out; }
 function detailsOf_(r) { return [r[9]].concat(r.slice(13, 22)).join(''); }
 /** Chặn formula injection khi mở bằng Sheets/Excel */
@@ -86,8 +86,17 @@ function loadBlob_(id) {                    // dữ liệu lớn (bộ từ / đ
 }
 /** Điểm riêng của bài: ô trống / không phải số → null (dùng mặc định chung); số → nguyên 0–1000. */
 function ptsOrNull_(v) { if (v === '' || v == null || typeof v === 'boolean') return null; const n = Number(v); return isFinite(n) ? Math.max(0, Math.min(1000, Math.round(n))) : null; }
+/** Danh sách mã học sinh được giao (mảng / chuỗi cách nhau dấu phẩy, chấm phẩy, xuống dòng) → mảng mã đã chuẩn hoá, không trùng, tối đa 1000. */
+function codesList_(v) {
+  const src = Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,;\r\n]+/), seen = {}, out = [];
+  src.forEach(function (x) { const c = normCode_(x); if (c.length >= CODE_MIN && !seen[c]) { seen[c] = 1; out.push(c); } });
+  return out.slice(0, 1000);
+}
+/** Bài có được giao cho mã này không: bài không chọn mã (giao chung) → mọi mã đều được. */
+function assignedTo_(a, code) { const L = (a && a.codes) || []; return !L.length || L.indexOf(normCode_(code)) >= 0; }
+function notAssigned_() { return { ok: false, error: 'not_assigned', message: 'Bài này không được giao cho mã học sinh của bạn.' }; }
 function findAssignment_(id, withWords) {
-  const ck = (withWords ? 'aw2:' : 'a2:') + id, hitC = cget_(ck);
+  const ck = (withWords ? 'aw3:' : 'a3:') + id, hitC = cget_(ck);
   if (hitC) return hitC;
   const sh = sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), row = findRow_(sh, 1, id);
   if (!row) return null;
@@ -96,7 +105,7 @@ function findAssignment_(id, withWords) {
   try { words = JSON.parse(r[6] || 'null'); } catch (e) {}
   try { tts = JSON.parse(r[7] || 'null'); } catch (e) {}
   if (withWords && !words) { const b = loadBlob_(id); if (Array.isArray(b)) words = b; }
-  const a = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, max: Number(r[3]) || 0, req: r[4] === true || r[4] === 'TRUE' || r[4] === 1, createdAt: iso_(r[5]), words: words, tts: tts, shuffle: r[8] === true || r[8] === 'TRUE', correctPts: ptsOrNull_(r[11]), peekPenalty: ptsOrNull_(r[12]) };
+  const a = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, max: Number(r[3]) || 0, req: r[4] === true || r[4] === 'TRUE' || r[4] === 1, createdAt: iso_(r[5]), words: words, tts: tts, shuffle: r[8] === true || r[8] === 'TRUE', correctPts: ptsOrNull_(r[11]), peekPenalty: ptsOrNull_(r[12]), codes: codesList_(r[13]) };
   cput_(ck, a); return a;
 }
 
@@ -139,6 +148,7 @@ function submit_(b) {
     if (!progressed) return { ok: true, duplicate: true };          // gửi trùng / bản cũ hơn → bỏ qua
   }
   const a = findAssignment_(aid);                       // hạn nộp & số lần: ưu tiên dữ liệu đã đăng ký ở máy chủ
+  if (a && !assignedTo_(a, name)) return notAssigned_();   // bài giao riêng: chỉ mã được chọn mới nộp được (name = mã học sinh)
   const due = a ? a.due : (Number(b.due) || 0);
   const max = a ? a.max : (Number(b.max) || 0);
   const now = Date.now();
@@ -177,6 +187,7 @@ function saveAssignment_(b) {
   while (row.length < ASSIGN_HEADERS.length) row.push('');
   const cp = ptsOrNull_(a.correctPts), pp = ptsOrNull_(a.peekPenalty);   // thiếu / không phải số → ô trống
   row[11] = cp === null ? '' : cp; row[12] = pp === null ? '' : pp;
+  row[13] = codesList_(a.codes).join(',');                              // trống = giao cho mọi mã
   const idx = findRow_(sh, 1, String(a.id));
   if (idx) sh.getRange(idx, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
   cdel_(String(a.id));
@@ -187,7 +198,7 @@ function saveAssignment_(b) {
 function saveTest_(b) {
   if (!isTeacher_(b.teacherKey)) return { ok: false, error: 'unauthorized', message: 'Teacher Key không đúng.' };
   const a = b.assignment || {};
-  const meta = saveAssignment_({ teacherKey: b.teacherKey, assignment: { id: a.id, name: a.name, due: a.due, max: a.max, req: a.req, words: null, tts: {}, shuffle: false, kind: 'test', link: a.link } });   // hạn nộp / số lần: dùng chung sheet Assignments
+  const meta = saveAssignment_({ teacherKey: b.teacherKey, assignment: { id: a.id, name: a.name, due: a.due, max: a.max, req: a.req, words: null, tts: {}, shuffle: false, kind: 'test', link: a.link, codes: a.codes } });   // hạn nộp / số lần: dùng chung sheet Assignments
   if (!meta.ok) return meta;
   if (b.test) {
     let nq = 0; (Array.isArray(b.test.sections) ? b.test.sections : [{ questions: b.test.questions || [] }]).forEach(function (s) { nq += (s.questions || []).length; });   // đề mới có sections; đề cũ có questions
@@ -236,6 +247,7 @@ function submitTest_(b) {
   const sh = sheet_(SHEET_TRES, TRES_HEADERS), data = cols_(sh, 1, 6);      // TỐC ĐỘ: chỉ đọc cột A:F, không đọc cột 'items'
   if (data.some(function (r) { return String(r[0]) === id; })) return { ok: true, duplicate: true };
   const a = findAssignment_(aid), due = a ? a.due : (Number(b.due) || 0), max = a ? a.max : (Number(b.max) || 0), now = Date.now();
+  if (a && !assignedTo_(a, name)) return notAssigned_();
   if (due && now > due + GRACE_MS) return { ok: false, error: 'expired', message: 'Bài đã hết hạn nộp.' };
   if (max > 0) {
     const cnt = data.filter(function (r) { return String(r[1]) === aid && String(r[4]).toLowerCase() === name.toLowerCase() && String(r[5]).toLowerCase() === cls.toLowerCase(); }).length;
@@ -301,7 +313,7 @@ function legacyGet_(p, action) {
 
     if (action === 'assignments') {
       const c = listCtx_(), res = cols_(sheet_(SHEET_RESULTS, RESULT_HEADERS), 2, 3), map = {};   // Results: chỉ cột B:D (mã bài, tên bài, ngày nộp)
-      c.A.forEach(function (r) { if (!String(r[0]) || c.tids[String(r[0])]) return; map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!r[6] || !!c.blob[String(r[0])] }; });
+      c.A.forEach(function (r) { if (!String(r[0]) || c.tids[String(r[0])]) return; map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!r[6] || !!c.blob[String(r[0])], codes: codesList_(r[13]) }; });
       res.forEach(function (r) {
         const id = String(r[0]);
         if (!id || c.tids[id]) return;
@@ -314,7 +326,7 @@ function legacyGet_(p, action) {
 
     if (action === 'testAssignments') {
       const c = listCtx_(), map = {};
-      c.A.forEach(function (r) { if (String(r[0]) && String(r[9]) === 'test') map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!c.blob[String(r[0])] }; });
+      c.A.forEach(function (r) { if (String(r[0]) && String(r[9]) === 'test') map[String(r[0])] = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, createdAt: iso_(r[5]), count: 0, link: String(r[10] || ''), hasData: !!c.blob[String(r[0])], codes: codesList_(r[13]) }; });
       c.T.forEach(function (r) { const id = String(r[0]); if (id && String(r[4]).charAt(0) === '{' && !map[id]) map[id] = { id: id, name: String(r[1]), due: 0, createdAt: iso_(r[2]), count: 0, link: '', hasData: true }; });
       c.TR.forEach(function (r) {        // cột B:D của TestResults: mã bài, tên bài, ngày nộp
         const id = String(r[0]);
@@ -513,6 +525,8 @@ function ranked_() {                    // thêm hạng (đồng điểm cùng h
 /* ---------- API học sinh ---------- */
 function checkCode_(p) {
   const s = requireStudent_(p.code, 'checkCode');
+  const ref = String(p.refId || '').replace(/[^\w-]/g, '').slice(0, 40);   // trang làm bài gửi kèm mã bài → báo sớm nếu bài không giao cho mã này
+  if (ref) { const a = findAssignment_(ref, false); if (a && !assignedTo_(a, s.code)) throw apiError_('not_assigned', 'Bài này không được giao cho mã học sinh của bạn.'); }
   return { ok: true, valid: true, code: s.code, balance: s.balance, totalEarned: s.totalEarned };
 }
 function submitResult_(p) {
@@ -525,6 +539,7 @@ function submitResult_(p) {
   // Số từ đúng / điểm bị giới hạn theo bản nộp đã lưu → không thể tự gửi correct = 5000 lặp lại để lấy điểm, hay làm quá số lần / quá hạn mà vẫn được cộng.
   const asg = refId ? findAssignment_(refId, false) : null;   // điểm riêng của bài lấy từ sheet Assignments, KHÔNG nhận từ client
   if (!asg) throw apiError_('bad_request', 'Bài này chưa được đăng ký trên máy chủ nên không cộng điểm được.');
+  if (!assignedTo_(asg, s.code)) throw apiError_('not_assigned', 'Bài này không được giao cho mã học sinh của bạn.');
   if (asg.due && Date.now() > asg.due + GRACE_MS) throw apiError_('expired', 'Bài đã hết hạn nộp.');
   const sub = submissionOf_(kind, sid, refId, s.code);
   if (!sub) {
@@ -574,10 +589,11 @@ function attemptsOf_(kind, refId, code) {
   const sh = kind === 'vocab' ? sheet_(SHEET_RESULTS, RESULT_HEADERS) : sheet_(SHEET_TRES, TRES_HEADERS);
   return cols_(sh, 1, 5).filter(function (r) { return String(r[1]) === refId && normCode_(r[4]) === code; }).length;
 }
-/** Bài còn hạn cho học sinh chọn làm. KHÔNG trả link / kết quả / dữ liệu từ. Cache 30 giây (dùng chung mọi học sinh). Không quét sheet kết quả. */
+/** Bài còn hạn được giao cho mã này (tab "Bài được giao" ở trang học sinh). Bài không chọn mã = giao cho mọi mã; bài chọn mã chỉ hiện với đúng các mã đó.
+ *  KHÔNG trả link / kết quả / dữ liệu từ / danh sách mã. Cache 30 giây (dùng chung mọi học sinh). Không quét sheet kết quả. */
 function listOpenAssignments_(p) {
-  requireStudent_(p.code);
-  let items = cget_('ola');
+  const me = requireStudent_(p.code).code;
+  let items = cget_('ola2');
   if (!items) {
     const A = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)), T = cols_(sheet_(SHEET_TESTS, TESTS_HEADERS), 1, 5), blob = {}, now = Date.now();
     T.forEach(function (r) { const id = String(r[0]); if (id) blob[id] = String(r[4]).charAt(0); });   // ký tự đầu mảnh dữ liệu: '{' = đề test, '[' = bộ từ lớn
@@ -592,14 +608,22 @@ function listOpenAssignments_(p) {
         if (!r[6] && blob[id] !== '[') return;
         if (r[6]) { try { const w = JSON.parse(r[6]); if (Array.isArray(w)) count = w.length; } catch (e) {} }
       }
-      items.push({ id: id, name: String(r[1]), kind: isTest ? 'test' : 'vocab', due: due, count: count, correctPts: isTest ? null : ptsOrNull_(r[11]), peekPenalty: isTest ? null : ptsOrNull_(r[12]) });
+      items.push({ id: id, name: String(r[1]), kind: isTest ? 'test' : 'vocab', due: due, max: Number(r[3]) || 0, count: count, correctPts: isTest ? null : ptsOrNull_(r[11]), peekPenalty: isTest ? null : ptsOrNull_(r[12]), codes: String(r[13] || '') });
     });
     items.sort(function (a, b) { return a.due - b.due; });
-    items = items.slice(0, 100);
-    cput_('ola', items, 30);
+    items = items.slice(0, 300);
+    cput_('ola2', items, 30);
   }
-  const now2 = Date.now();
-  return { ok: true, items: items.filter(function (x) { return x.due > now2; }), serverTime: now2 };
+  const now2 = Date.now(), out = [];
+  items.forEach(function (x) {
+    if (x.due <= now2) return;
+    const L = x.codes ? String(x.codes).split(',') : [];
+    if (L.length && L.indexOf(me) < 0) return;
+    const y = {}; Object.keys(x).forEach(function (k) { if (k !== 'codes') y[k] = x[k]; });
+    y.personal = L.length > 0;                                            // giao riêng (chọn mã) hay giao chung
+    if (out.length < 100) out.push(y);
+  });
+  return { ok: true, items: out, serverTime: now2 };
 }
 function getProfile_(p) {
   const s = requireStudent_(p.code, 'getProfile'), rk = ranked_();
