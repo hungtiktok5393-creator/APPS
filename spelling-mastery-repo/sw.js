@@ -1,7 +1,7 @@
 /* Spelling Mastery – service worker (chạy offline)
- *  Lưu sẵn: index.html, hoc-sinh.html, style.css, app.js, student.js/css, games.js/css, vendor/*.js → mở được khi không có mạng.
+ *  Lưu sẵn: index.html, hoc-sinh.html, style.css, app.js, student.js/css, games.js/css, games2.js/css, garden.js/css, garden-ui.js, vendor/*.js → mở được khi không có mạng.
  *  KHÔNG đụng vào: index.json, data/*, data.json, Apps Script (API trò chơi/điểm), YouTube/Drive… (luôn đi thẳng ra mạng).
- *  Tệp lõi thiếu → hủy cài; tệp tùy chọn (trang học sinh, games.*) thiếu → bỏ qua, không hỏng lần cài.
+ *  Tệp lõi thiếu → hủy cài; tệp tùy chọn (trang học sinh, games*, garden*) thiếu → bỏ qua, không hỏng lần cài.
  *  Số phiên bản lấy từ sw.js?v=… (index.html và hoc-sinh.html đăng ký kèm cùng số ?v=). */
 'use strict';
 const V = new URL(self.location.href).searchParams.get('v') || 'dev';
@@ -9,7 +9,7 @@ const CACHE = 'sm-shell-' + V;
 const SCOPE = self.registration.scope;
 const abs = p => new URL(p, SCOPE).href;
 const CORE = ['style.css?v=' + V, 'app.js?v=' + V, 'vendor/lz-string.min.js', 'vendor/papaparse.min.js', 'vendor/xlsx.full.min.js', 'vendor/jspdf.umd.min.js', 'vendor/qrcode.min.js'];
-const OPT = ['student.js?v=' + V, 'student.css?v=' + V, 'games.js?v=' + V, 'games.css?v=' + V];
+const OPT = ['student.js?v=' + V, 'student.css?v=' + V, 'games.js?v=' + V, 'games.css?v=' + V, 'games2.css?v=' + V, 'garden.css?v=' + V, 'games2.js?v=' + V, 'garden.js?v=' + V, 'garden-ui.js?v=' + V];
 const PAGE = abs('index.html'), STUDENT = abs('hoc-sinh.html');
 const KEEP = new Set(CORE.concat(OPT).map(abs));
 

@@ -41,3 +41,19 @@ main{max-width:760px;padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px
 .st-rules li{margin:.3rem 0}
 [hidden]{display:none!important}
 @media(max-width:420px){.st-gbar .btn.danger{padding:.5rem .6rem}}
+
+/* v9: thanh tab 5 mục (cuộn ngang nếu màn hẹp), tab Làm bài kiếm điểm, Khu vườn */
+#tabs{display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch}
+#tabs .home-tab{flex:0 0 auto;white-space:nowrap}
+.st-open{list-style:none;margin:.6rem 0 0;padding:0;display:grid;gap:.6rem}
+.st-open li.st-empty{padding:1rem 0;text-align:center}
+.st-oc{display:flex;align-items:center;gap:.75rem;min-height:56px;padding:.7rem .85rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);text-decoration:none}
+.st-oc:active{background:color-mix(in srgb,var(--primary) 10%,var(--surface))}
+.st-oc:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.st-oc .ic{flex:none;font-size:1.6rem}
+.st-oc .m{flex:1;min-width:0;display:grid;gap:.1rem}
+.st-oc .m b{overflow-wrap:anywhere}
+.st-oc .pts{font-size:.85rem;color:var(--primary);font-weight:600}
+.st-oc .go{flex:none;font-size:1.6rem;color:var(--muted)}
+#garden-root{min-height:120px}
+.st-soon{text-align:center}

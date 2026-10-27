@@ -20,11 +20,11 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 8;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 9;                        // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
-const ASSIGN_HEADERS = ['id', 'name', 'due', 'max', 'req', 'createdAt', 'wordsJson', 'ttsJson', 'shuffle', 'kind', 'link'];   // link = đường link giao bài (để xem / copy lại trong Thống kê) · kind = 'test' cho bài test (để không lẫn vào Thống kê bài từ vựng)
+const ASSIGN_HEADERS = ['id', 'name', 'due', 'max', 'req', 'createdAt', 'wordsJson', 'ttsJson', 'shuffle', 'kind', 'link', 'correctPts', 'peekPenalty'];   // correctPts / peekPenalty (cột 12, 13) = điểm cộng mỗi từ đúng / điểm trừ mỗi lần xem lại RIÊNG của bài từ vựng (ô trống = dùng mặc định chung trong Config) · link = đường link giao bài (để xem / copy lại trong Thống kê) · kind = 'test' cho bài test (để không lẫn vào Thống kê bài từ vựng)
 
 /* ---------- Tiện ích ---------- */
 function json_(o) { return o; }   // hàm cũ trả về object; jsonOut_ (v8) đóng gói JSON ở doPost/doGet
@@ -35,7 +35,11 @@ function sheet_(name, headers) {
   if (_sh[name]) return _sh[name];
   const ss = ss_(); let sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); sh.appendRow(headers); sh.setFrozenRows(1); }
-  else if (sh.getLastColumn() < headers.length) sh.getRange(1, 1, 1, headers.length).setValues([headers]);   // sheet tạo từ bản cũ: bổ sung tiêu đề cột mới
+  else if (sh.getLastColumn() < headers.length) {   // sheet tạo từ bản cũ: CHỈ ghi thêm tiêu đề các cột còn thiếu (không đụng dữ liệu / tiêu đề cũ)
+    const have = sh.getLastColumn();
+    if (sh.getMaxColumns() < headers.length) sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+    sh.getRange(1, have + 1, 1, headers.length - have).setValues([headers.slice(have)]);
+  }
   return (_sh[name] = sh);
 }
 /** Đọc TOÀN BỘ sheet – chỉ dùng cho sheet nhỏ (Assignments). Sheet lớn (Results, TestResults, Tests) phải đọc theo cột / theo dòng cần thiết. */
@@ -65,7 +69,7 @@ function readWhere_(sh, col, test, ncol) {
 /* Bộ nhớ đệm (CacheService): bài giao / đề test được học sinh mở liên tục → không đọc Sheet lại mỗi lần. Xóa khi lưu / xóa bài. */
 function cget_(k) { try { const v = CacheService.getScriptCache().get(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function cput_(k, o, sec) { try { const s = JSON.stringify(o); if (s.length < 32000) CacheService.getScriptCache().put(k, s, sec || 900); } catch (e) {} }   // giới hạn 100 KB/giá trị (UTF-8) → chỉ lưu bản ≤ ~32.000 ký tự
-function cdel_(id) { try { CacheService.getScriptCache().removeAll(['a:' + id, 'aw:' + id, 'tst:' + id]); } catch (e) {} }
+function cdel_(id) { try { CacheService.getScriptCache().removeAll(['a:' + id, 'aw:' + id, 'a2:' + id, 'aw2:' + id, 'tst:' + id, 'ola']); } catch (e) {} }
 function chunks_(s, n) { const out = []; for (let i = 0; i < s.length && out.length < n; i += CELL) out.push(s.slice(i, i + CELL)); while (out.length < n) out.push(''); return out; }
 function detailsOf_(r) { return [r[9]].concat(r.slice(13, 22)).join(''); }
 /** Chặn formula injection khi mở bằng Sheets/Excel */
@@ -80,8 +84,10 @@ function loadBlob_(id) {                    // dữ liệu lớn (bộ từ / đ
   if (!row) return null;
   try { return JSON.parse(sh.getRange(row, 5, 1, NCHUNK).getValues()[0].join('')); } catch (e) { return null; }
 }
+/** Điểm riêng của bài: ô trống / không phải số → null (dùng mặc định chung); số → nguyên 0–1000. */
+function ptsOrNull_(v) { if (v === '' || v == null || typeof v === 'boolean') return null; const n = Number(v); return isFinite(n) ? Math.max(0, Math.min(1000, Math.round(n))) : null; }
 function findAssignment_(id, withWords) {
-  const ck = (withWords ? 'aw:' : 'a:') + id, hitC = cget_(ck);
+  const ck = (withWords ? 'aw2:' : 'a2:') + id, hitC = cget_(ck);
   if (hitC) return hitC;
   const sh = sheet_(SHEET_ASSIGN, ASSIGN_HEADERS), row = findRow_(sh, 1, id);
   if (!row) return null;
@@ -90,7 +96,7 @@ function findAssignment_(id, withWords) {
   try { words = JSON.parse(r[6] || 'null'); } catch (e) {}
   try { tts = JSON.parse(r[7] || 'null'); } catch (e) {}
   if (withWords && !words) { const b = loadBlob_(id); if (Array.isArray(b)) words = b; }
-  const a = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, max: Number(r[3]) || 0, req: r[4] === true || r[4] === 'TRUE' || r[4] === 1, createdAt: iso_(r[5]), words: words, tts: tts, shuffle: r[8] === true || r[8] === 'TRUE' };
+  const a = { id: String(r[0]), name: String(r[1]), due: Number(r[2]) || 0, max: Number(r[3]) || 0, req: r[4] === true || r[4] === 'TRUE' || r[4] === 1, createdAt: iso_(r[5]), words: words, tts: tts, shuffle: r[8] === true || r[8] === 'TRUE', correctPts: ptsOrNull_(r[11]), peekPenalty: ptsOrNull_(r[12]) };
   cput_(ck, a); return a;
 }
 
@@ -168,6 +174,9 @@ function saveAssignment_(b) {
   }
   const sh = sheet_(SHEET_ASSIGN, ASSIGN_HEADERS);
   const row = [String(a.id), safe_(String(a.name || '').slice(0, 80)), Number(a.due), Number(a.max) || 0, !!a.req, new Date().toISOString(), wordsJson, JSON.stringify(a.tts || {}), !!a.shuffle, a.kind === 'test' ? 'test' : '', linkOf_(a)];
+  while (row.length < ASSIGN_HEADERS.length) row.push('');
+  const cp = ptsOrNull_(a.correctPts), pp = ptsOrNull_(a.peekPenalty);   // thiếu / không phải số → ô trống
+  row[11] = cp === null ? '' : cp; row[12] = pp === null ? '' : pp;
   const idx = findRow_(sh, 1, String(a.id));
   if (idx) sh.getRange(idx, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
   cdel_(String(a.id));
@@ -279,7 +288,7 @@ function legacyGet_(p, action) {
     if (action === 'getAssignment') {            // công khai (học sinh) – chỉ trả dữ liệu bài, không có kết quả
       const a = findAssignment_(String(p.id || ''), true);
       if (!a) return json_({ ok: false, error: 'not_found' });
-      return json_({ ok: true, assignment: { id: a.id, name: a.name, due: a.due, max: a.max, req: a.req, words: a.words, tts: a.tts, shuffle: a.shuffle } });
+      return json_({ ok: true, assignment: { id: a.id, name: a.name, due: a.due, max: a.max, req: a.req, words: a.words, tts: a.tts, shuffle: a.shuffle, correctPts: a.correctPts, peekPenalty: a.peekPenalty } });
     }
 
     if (action === 'getTest') {                  // công khai (học sinh) – trả đề + hạn nộp, không có kết quả
@@ -350,16 +359,18 @@ const STUDENT_HEADERS = ['code', 'createdAt', 'note', 'active', 'balance', 'tota
 const LEDGER_HEADERS = ['timestamp', 'code', 'delta', 'reason', 'refId', 'balanceAfter', 'detail'];
 const CONFIG_HEADERS = ['key', 'value'];
 const CLAIM_HEADERS = ['submissionId', 'timestamp'];
-const LEDGER_REASONS = ['vocab', 'test', 'game', 'teacher_adjust'];
+const LEDGER_REASONS = ['vocab', 'test', 'game', 'teacher_adjust', 'garden'];
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // bỏ 0 O 1 I L
 const CODE_LEN = 6;
 const CONFIG_DEFAULTS = {
   vocabCorrectPoints: 5, vocabPeekPenalty: 1, testDefaultPoints: 10, maxSubmitPoints: 5000,
   gamesEnabled: true, maxBet: 200, maxBetPct: 25, dailyLossLimit: 300,
-  game_slots_enabled: true, game_wheel_enabled: true, game_hilo_enabled: true, game_mines_enabled: true, game_crash_enabled: true
+  game_slots_enabled: true, game_wheel_enabled: true, game_hilo_enabled: true, game_mines_enabled: true, game_crash_enabled: true,
+  game_dice_enabled: true, game_plinko_enabled: true, game_scratch_enabled: true, game_keno_enabled: true, game_coin_enabled: true,
+  gardenEnabled: true, gardenCostPct: 100
 };
-const GAME_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
-let _gamesReg = false, _cfg = null, _tk = null;
+const GAME_ACTIONS = {}, GARDEN_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
+let _gamesReg = false, _gardenReg = false, _cfg = null, _tk = null;
 
 /* ---------- Tiện ích dùng chung (Games.gs gọi được) ---------- */
 function jsonOut_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -513,7 +524,10 @@ function submitResult_(p) {
   let pts = 0; const detail = { sid: sid };
   if (kind === 'vocab') {
     const c = clampInt_(p.correct, 0, 5000, 0), k = clampInt_(p.peeks, 0, 100000, 0);
-    pts = c * cfgNum_('vocabCorrectPoints', 5) - k * cfgNum_('vocabPeekPenalty', 1); detail.correct = c; detail.peeks = k;
+    const asg = refId ? findAssignment_(refId, false) : null;   // điểm riêng của bài lấy từ sheet Assignments, KHÔNG nhận từ client
+    const cpv = asg && asg.correctPts !== null && asg.correctPts !== undefined ? asg.correctPts : cfgNum_('vocabCorrectPoints', 5);
+    const ppv = asg && asg.peekPenalty !== null && asg.peekPenalty !== undefined ? asg.peekPenalty : cfgNum_('vocabPeekPenalty', 1);
+    pts = c * cpv - k * ppv; detail.cp = cpv; detail.pp = ppv; detail.correct = c; detail.peeks = k;
   } else {
     const dflt = cfgNum_('testDefaultPoints', 10);
     if (Array.isArray(p.correctPoints)) {
@@ -530,6 +544,33 @@ function submitResult_(p) {
     csh.appendRow([sid, new Date().toISOString()]);
     return { ok: true, duplicate: false, delta: r.delta, requested: pts, balance: r.balance, totalEarned: r.totalEarned };
   });
+}
+/** Bài còn hạn cho học sinh chọn làm. KHÔNG trả link / kết quả / dữ liệu từ. Cache 30 giây (dùng chung mọi học sinh). Không quét sheet kết quả. */
+function listOpenAssignments_(p) {
+  requireStudent_(p.code);
+  let items = cget_('ola');
+  if (!items) {
+    const A = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)), T = cols_(sheet_(SHEET_TESTS, TESTS_HEADERS), 1, 5), blob = {}, now = Date.now();
+    T.forEach(function (r) { const id = String(r[0]); if (id) blob[id] = String(r[4]).charAt(0); });   // ký tự đầu mảnh dữ liệu: '{' = đề test, '[' = bộ từ lớn
+    items = [];
+    A.forEach(function (r) {
+      const id = String(r[0]), due = Number(r[2]) || 0;
+      if (!id || due <= now) return;
+      const isTest = String(r[9]) === 'test';
+      let count = 0;
+      if (isTest) { if (blob[id] !== '{') return; }
+      else {
+        if (!r[6] && blob[id] !== '[') return;
+        if (r[6]) { try { const w = JSON.parse(r[6]); if (Array.isArray(w)) count = w.length; } catch (e) {} }
+      }
+      items.push({ id: id, name: String(r[1]), kind: isTest ? 'test' : 'vocab', due: due, count: count, correctPts: isTest ? null : ptsOrNull_(r[11]), peekPenalty: isTest ? null : ptsOrNull_(r[12]) });
+    });
+    items.sort(function (a, b) { return a.due - b.due; });
+    items = items.slice(0, 100);
+    cput_('ola', items, 30);
+  }
+  const now2 = Date.now();
+  return { ok: true, items: items.filter(function (x) { return x.due > now2; }), serverTime: now2 };
 }
 function getProfile_(p) {
   const s = requireStudent_(p.code, 'getProfile'), rk = ranked_();
@@ -631,7 +672,7 @@ function getLedger_(p) { return { ok: true, ledger: ledgerFor_(normCode_(p.code)
 
 /* ---------- ROUTER: điểm vào duy nhất ---------- */
 const PUBLIC_ACTIONS = { getPublicConfig: getPublicConfig_, getLeaderboard: getLeaderboard_ };                       // GET + POST
-const STUDENT_ACTIONS = { checkCode: checkCode_, submitResult: submitResult_, getProfile: getProfile_ };              // POST
+const STUDENT_ACTIONS = { checkCode: checkCode_, submitResult: submitResult_, getProfile: getProfile_, listOpenAssignments: listOpenAssignments_ };              // POST
 const TEACHER_ACTIONS = { createCodes: createCodes_, deleteCode: deleteCode_, restoreCode: restoreCode_, adjustPoints: adjustPoints_,
   listStudents: listStudents_, getConfig: getConfig_, setConfig: setConfig_, getLedger: getLedger_ };                 // POST (teacherKey trong body)
 function okWrap_(r) { return (r && typeof r === 'object') ? (r.ok === undefined ? Object.assign({ ok: true }, r) : r) : { ok: true, result: r }; }
@@ -640,6 +681,7 @@ function route(action, params, method) {
   try {
     action = String(action || '').slice(0, 40); params = params || {}; method = method || 'POST';
     if (!_gamesReg) { _gamesReg = true; if (typeof registerGameActions_ === 'function') registerGameActions_(GAME_ACTIONS); }
+    if (!_gardenReg) { _gardenReg = true; if (typeof registerGardenActions_ === 'function') registerGardenActions_(GARDEN_ACTIONS); }   // Garden.gs: reg.<action> = function (params, student) {...}
     const post = method === 'POST', own = Object.prototype.hasOwnProperty;
     if (own.call(PUBLIC_ACTIONS, action)) return PUBLIC_ACTIONS[action](params);
     if (post) {
@@ -648,9 +690,14 @@ function route(action, params, method) {
       if (own.call(GAME_ACTIONS, action)) {
         const g = GAME_ACTIONS[action];
         if (g && typeof g === 'object' && g.teacher) { requireTeacher_(params.teacherKey); return okWrap_(g.fn(params)); }
-        const s = requireStudent_(params.code, action);
+        const s = requireStudent_(params.code);   // không rate limit 1 giây (gây trễ); an toàn nhờ requestId + withLock_
         if (!cfgBool_('gamesEnabled', true)) throw apiError_('games_disabled', 'Trò chơi đang tắt.');
         return okWrap_((typeof g === 'function' ? g : g.fn)(params, s));
+      }
+      if (own.call(GARDEN_ACTIONS, action)) {
+        const f = GARDEN_ACTIONS[action], s = requireStudent_(params.code);
+        if (!cfgBool_('gardenEnabled', true)) throw apiError_('garden_disabled', 'Khu vườn đang tắt.');
+        return okWrap_((typeof f === 'function' ? f : f.fn)(params, s));
       }
       return legacyPost_(action, params);
     }

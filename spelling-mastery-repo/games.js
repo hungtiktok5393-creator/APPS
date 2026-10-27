@@ -1,4 +1,5 @@
-/* Spelling Mastery – 5 trò chơi điểm ảo (slots, wheel, hilo, mines, crash) gắn vào window.SMGame.
+/* Spelling Mastery – 5 trò chơi điểm ảo (slots, wheel, hilo, mines, crash) gắn vào window.SMGame. Xuất window.SMGameKit cho games2.js (5 trò mới).
+ * Tốc độ: trừ cược trên màn hình ngay khi bấm; quay tự do bắt đầu tức thì; chế độ Nhanh (SMGame.fast) rút gần hết diễn hoạt.
  * Nguyên tắc: kết quả LUÔN do máy chủ trả (API_SPEC_GAMES.md); client chỉ diễn hoạt bằng CSS/WAAPI/canvas.
  * Mọi dữ liệu từ máy chủ hiển thị bằng textContent (không innerHTML). Không thư viện ngoài.
  * Quyết định tự chọn (ghi lại):
@@ -29,9 +30,10 @@
     get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
   };
-  const ORDER = ['slots', 'wheel', 'hilo', 'mines', 'crash'];
-  const NAMES = { slots: 'Máy quay', wheel: 'Vòng quay', hilo: 'Cao–Thấp', mines: 'Dò mìn', crash: 'Tên lửa' };
-  function gotoGame(n) { const t = document.querySelectorAll('#gtabs .st-gtab')[ORDER.indexOf(n)]; if (t) t.click(); }
+  const ORDER = ['slots', 'wheel', 'hilo', 'mines', 'crash', 'dice', 'plinko', 'scratch', 'keno', 'coin'];
+  const NAMES = { slots: 'Máy quay', wheel: 'Vòng quay', hilo: 'Cao–Thấp', mines: 'Dò mìn', crash: 'Tên lửa', dice: 'Xúc xắc', plinko: 'Plinko', scratch: 'Thẻ cào', keno: 'Keno mini', coin: 'Tung xu' };
+  const INSTANT = new Set(['slots', 'wheel', 'dice', 'plinko', 'scratch', 'keno']); // ván một phát: không có trạng thái dở
+  function gotoGame(n) { const t = document.querySelector('#gtabs [data-game="' + n + '"]'); if (t) t.click(); }
   function unlockStage() { const s = G.stage; if (s) s.inert = false; const l = document.getElementById('game-lock'); if (l) l.hidden = true; }
 
   const MSG = {
@@ -74,7 +76,7 @@
 
     c.wait = ms => new Promise(res => {
       if (!c.alive) return;
-      const t = setTimeout(() => { c.timers.delete(t); res(); }, G.reducedMotion ? Math.min(ms, 120) : ms);
+      const t = setTimeout(() => { c.timers.delete(t); res(); }, G.reducedMotion ? Math.min(ms, 120) : G.fast ? Math.round(ms * .3) : ms);
       c.timers.add(t);
     });
     c.every = (fn, ms) => { const t = setInterval(fn, ms); c.timers.add(t); return t; };
@@ -84,10 +86,11 @@
     c.anim = (e, kf, o) => {
       if (!c.alive) return FOREVER;
       if (G.reducedMotion || !e.animate) return Promise.resolve();
-      const a = e.animate(kf, o); c.anims.add(a);
+      const a = e.animate(kf, G.fast && o && o.duration ? Object.assign({}, o, { duration: Math.max(40, Math.round(o.duration * .25)) }) : o); c.anims.add(a);
       return a.finished.catch(() => {}).then(() => { c.anims.delete(a); return c.alive ? undefined : FOREVER; });
     };
     c.dispose = () => {
+      if (c.cleanup) { try { c.cleanup(); } catch (_) {} }   // trò có thể cần chốt sổ trước khi bị dọn (ví dụ thẻ cào chưa cào hết)
       c.alive = false;
       c.timers.forEach(t => { clearTimeout(t); clearInterval(t); }); c.timers.clear();
       c.stopLoop();
@@ -123,6 +126,9 @@
       if (row.children.length) c.note.append(row);
     };
     c.begin = () => { c.active = true; unlockStage(); };
+    /* Trừ cược trên màn hình ngay (số thật vẫn do máy chủ trả); lỗi → khôi phục */
+    c.hold = bet => { const before = G.getBalance(); c.setBal(Math.max(0, before - bet)); return before; };
+    c.unhold = before => { if (c.alive) G.setBalance(before); };
     c.setBal = n => { G.setBalance(n); if (c.active) unlockStage(); };
     c.bet = () => {
       if (c.otherActive) { c.say('Bạn đang có ván ' + (NAMES[c.otherActive] || 'khác') + ' dở. Hãy chơi tiếp ván đó trước.', 'warn'); return 0; }
@@ -179,7 +185,7 @@
         if (crashed) {
           late(c, r);
           G.toast('Ván Tên lửa trước đó đã nổ' + (r.crashPoint != null ? ' ở ' + fx(r.crashPoint, true) : '') + '.');
-        } else if (act && act !== 'slots' && act !== 'wheel') {
+        } else if (act && !INSTANT.has(act)) {
           c.otherActive = act;
           c.say('Bạn đang có ván ' + (NAMES[act] || act) + ' dở.', 'warn');
           const row = el('div', 'gm-note-act');
@@ -216,20 +222,20 @@
     async function land(rl, s) {
       rl.strip.classList.remove('spinning');
       fill(rl, [s].concat(Array.from({ length: 5 }, rnd))); rl.face = s;
-      await c.anim(rl.strip, [{ transform: 'translateY(-83.3333%)' }, { transform: 'translateY(0)' }], { duration: 650, easing: 'cubic-bezier(.2,.8,.25,1)' });
+      await c.anim(rl.strip, [{ transform: 'translateY(-83.3333%)' }, { transform: 'translateY(0)' }], { duration: 300, easing: 'cubic-bezier(.2,.8,.25,1)' });
       fill(rl, [s]);
     }
     async function spin() {
       const bet = c.pend ? c.pend.params.bet : c.bet(); if (!bet) return;
-      const before = G.getBalance();
       c.res.hidden = true; c.say(''); c.begin();
+      const before = c.hold(bet);
       reels.forEach(rl => { rl.win.classList.remove('win'); spinning(rl); });
       G.sfx('spin');
       let r;
-      try { r = (await Promise.all([c.send('slotsSpin', { bet }, { hold: before - bet }), c.wait(700)]))[0]; }
-      catch (e) { c.active = false; reels.forEach(rl => show(rl, rl.face)); throw e; }
+      try { r = (await Promise.all([c.send('slotsSpin', { bet }, { hold: before - bet }), c.wait(250)]))[0]; }
+      catch (e) { c.active = false; c.unhold(before); reels.forEach(rl => show(rl, rl.face)); throw e; }
       const raw = (r.reels || []).slice(0, 3).map(String), keys = raw.map(sym);
-      await Promise.all(reels.map((rl, i) => c.wait(i * 380).then(() => land(rl, keys[i] || '❔')).then(() => G.sfx('tick'))));
+      await Promise.all(reels.map((rl, i) => c.wait(i * 120).then(() => land(rl, keys[i] || '❔')).then(() => G.sfx('tick'))));
       if (+r.mult > 0 && raw.length === 3) { // chỉ tô sáng ô thật sự được trả thưởng
         let w = [];
         if (raw[0] === raw[1] && raw[1] === raw[2]) w = [0, 1, 2];
@@ -292,7 +298,7 @@
         const per = 360 / segs.length, target = -((idx + 0.5) * per);
         ang = ((ang % 360) + 360) % 360;
         if (G.reducedMotion) { setAng(((target % 360) + 360) % 360); return res(); }
-        const dur = 3200, d0 = W_OM * dur / 3000, need = (((target - ang) % 360) + 360) % 360;
+        const dur = G.fast ? 500 : 1500, d0 = W_OM * dur / 3000, need = (((target - ang) % 360) + 360) % 360;
         const d = d0 + ((((need - d0) % 360) + 360) % 360); // đủ vòng, dừng đúng giữa ô `idx` ngay dưới kim
         const t0 = performance.now(), a0 = ang; let lastTick = 0, lastSeg = -1; mode = 'dec';
         c.loop(t => {
@@ -307,11 +313,11 @@
     }
     async function spin() {
       const bet = c.pend ? c.pend.params.bet : c.bet(); if (!bet) return;
-      const before = G.getBalance();
       c.res.hidden = true; c.say(''); c.begin(); hub.textContent = '…'; G.sfx('spin'); free();
+      const before = c.hold(bet);
       let r;
-      try { r = (await Promise.all([c.send('wheelSpin', { bet }, { hold: before - bet }), c.wait(700)]))[0]; }
-      catch (e) { c.active = false; halt(); hub.textContent = '🎡'; throw e; }
+      try { r = (await Promise.all([c.send('wheelSpin', { bet }, { hold: before - bet }), c.wait(150)]))[0]; }
+      catch (e) { c.active = false; c.unhold(before); halt(); hub.textContent = '🎡'; throw e; }
       let L = Array.isArray(r.segments) && r.segments.length >= 2 ? r.segments.map(Number) : segs.slice();
       const idx = Math.min(L.length - 1, Math.max(0, Math.floor(+r.index) || 0));
       if (L[idx] !== +r.mult) { L = L.slice(); L[idx] = +r.mult; } // luôn khớp hệ số máy chủ báo
@@ -374,9 +380,9 @@
       setCard(cur, r.card); setCard(nxt, null); paintTrail(); paint();
     }
     async function flip(e, cd) {
-      await c.anim(e, [{ transform: 'rotateY(0)' }, { transform: 'rotateY(90deg)' }], { duration: 140, easing: 'ease-in' });
+      await c.anim(e, [{ transform: 'rotateY(0)' }, { transform: 'rotateY(90deg)' }], { duration: 70, easing: 'ease-in' });
       setCard(e, cd);
-      await c.anim(e, [{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0)' }], { duration: 160, easing: 'ease-out' });
+      await c.anim(e, [{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0)' }], { duration: 80, easing: 'ease-out' });
     }
     async function start() {
       if (c.active) return;
@@ -384,7 +390,7 @@
       c.say(''); c.res.hidden = true;
       const r = await c.send('hiloStart', { bet });
       H.bet = +r.bet || bet; H.trail = []; c.begin(); G.sfx('click'); load(r);
-      await c.anim(cur, [{ transform: 'scale(.85)', opacity: .4 }, { transform: 'scale(1)', opacity: 1 }], { duration: 220 });
+      c.anim(cur, [{ transform: 'scale(.85)', opacity: .4 }, { transform: 'scale(1)', opacity: 1 }], { duration: 120 });
     }
     async function guess(dir) {
       if (!c.active) return;
@@ -397,8 +403,8 @@
         c.finish(Object.assign({ bet: H.bet, payout: 0 }, r), lose ? 'Lá kế là ' + cardName(r.card) : 'Đạt hệ số tối đa, tự rút ' + fx(r.mult));
         paint();
       } else {
-        G.sfx('coin'); H.trail.push(H.card); await c.wait(250); load(r);
-        await c.anim(cur, [{ transform: 'scale(.9)' }, { transform: 'scale(1)' }], { duration: 180 });
+        G.sfx('coin'); H.trail.push(H.card); load(r);
+        c.anim(cur, [{ transform: 'scale(.9)' }, { transform: 'scale(1)' }], { duration: 100 });
       }
     }
     async function cashout() {
@@ -645,6 +651,9 @@
   /* ================= Đăng ký & vòng đời ================= */
   const BUILD = { slots: buildSlots, wheel: buildWheel, hilo: buildHilo, mines: buildMines, crash: buildCrash };
 
+  /* Bộ dụng cụ cho games2.js (5 trò mới): cùng vòng đời, cùng ctx */
+  function unmountGame(n) { warnCrash(n); disposeGame(n); if (current === n) current = null; }
+  function resumeGame(n) { const c = insts[n]; if (c && !c.syncStarted) c.sync(); }
   function disposeGame(n) { const c = insts[n]; if (c) { c.dispose(); delete insts[n]; } }
   function mountGame(n, stage) {
     disposeGame(n); needRemount = null; current = n;
@@ -653,7 +662,7 @@
   }
   function warnCrash(n) { const c = insts[n]; if (c && n === 'crash' && c.active) G.toast('Ván Tên lửa vẫn đang mở trên máy chủ và chạy theo giờ thật. Quay lại để rút nhé.'); }
 
-  ORDER.forEach(n => G.register(n, {
+  ORDER.slice(0, 5).forEach(n => G.register(n, {
     mount(stage) { mountGame(n, stage); },
     unmount() { warnCrash(n); disposeGame(n); if (current === n) current = null; },
     resume() { const c = insts[n]; if (c && !c.syncStarted) c.sync(); }
@@ -670,4 +679,6 @@
       if (!panel.hidden && needRemount) { const n = needRemount; needRemount = null; mountGame(n, G.stage); }
     }).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
   }
+
+  window.SMGameKit = { makeCtx, mountGame, unmountGame, resumeGame, BUILD, ORDER, NAMES, INSTANT, el, btn, nf, sg, fx, ls, friendly, RETRY, FOREVER, MSG };
 })();

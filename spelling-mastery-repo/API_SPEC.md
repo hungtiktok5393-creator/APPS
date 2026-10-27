@@ -1,50 +1,57 @@
-# API_SPEC (Code.gs v8)
-POST: body JSON (gửi `text/plain`), có `action`. GET: `?action=...` (chỉ `getPublicConfig`, `getLeaderboard` + các GET cũ). Lỗi: `{ok:false,error,message}`.
-Action cũ (`submit, saveAssignment, submitTest, saveTest, deleteAssignment`, GET `ping/getAssignment/getTest/assignments/testAssignments/testResults/results`) giữ nguyên.
+# API_SPEC – thay đổi hợp đồng (Code.gs VERSION 9)
+Tất cả action: POST JSON `{action, code?, ...}` tới URL `/exec`. Lỗi: `{ok:false,error,message}`. Số dư/điểm chỉ tin server.
 
-## Sheet (tự tạo)
-- **Students**: code, createdAt, note, active, balance, totalEarned, lastActive
-- **Ledger**: timestamp, code, delta, reason(vocab|test|game|teacher_adjust), refId, balanceAfter, detail
-- **Config**: key, value · **Claims**: submissionId, timestamp
+## 1. Sheet Assignments – 2 cột mới (cột 12, 13)
+`ASSIGN_HEADERS` = id,name,due,max,req,createdAt,wordsJson,ttsJson,shuffle,kind,link,**correctPts**,**peekPenalty**.
+- Ô trống = dùng mặc định chung (Config `vocabCorrectPoints` / `vocabPeekPenalty`). Giá trị: số nguyên 0–1000 (`ptsOrNull_`).
+- `sheet_()` migration: sheet cũ thiếu cột → chỉ ghi thêm tiêu đề thiếu (không đụng dữ liệu). Cache bài đổi khoá `a2:`/`aw2:`.
+- `saveAssignment` nhận `assignment.correctPts/peekPenalty` (thiếu/không phải số → ô trống). `saveTest` không đổi.
 
-## Config (tự thêm nếu thiếu; cache 60s)
-vocabCorrectPoints=5, vocabPeekPenalty=1, testDefaultPoints=10, maxSubmitPoints=5000 (trần |điểm| mỗi lần nộp),
-gamesEnabled=true, maxBet=200, maxBetPct=25, dailyLossLimit=300, game_{slots,wheel,hilo,mines,crash}_enabled=true.
+## 2. Điểm bài từ vựng
+`submitResult {kind:'vocab', refId, correct, peeks, submissionId}`: pts = correct×(a.correctPts ?? cfg) − peeks×(a.peekPenalty ?? cfg),
+a = dòng Assignments theo refId (không có → mặc định). Client KHÔNG gửi điểm. Vẫn kẹp `maxSubmitPoints`, chống trùng submissionId, withLock_.
 
-## Quyết định tự chọn
-- Số dư ≥ 0: Ledger.delta = delta thực áp dụng (yêu cầu gốc nằm trong `detail.requested`).
-- `totalEarned` chỉ cộng delta dương của vocab/test (không tính game, chỉnh tay) → bảng xếp hạng theo totalEarned, đồng điểm cùng hạng (1,2,2,4); chỉ hiện người có totalEarned>0.
-- Mã: 6 ký tự từ `ABCDEFGHJKMNPQRSTUVWXYZ23456789`; `prefix` tối đa 3 ký tự hợp lệ, phần còn lại ngẫu nhiên. `count` ≤ 200.
-- Rate limit: 1 yêu cầu/giây cho mỗi (mã, action) → `rate_limited`. Client nên chờ ≥1s giữa 2 lần gọi cùng loại.
-- `submitResult` tin số liệu client nhưng bị trần `maxSubmitPoints`. Trùng `submissionId` → `{ok:true,duplicate:true}`, không cộng lại.
-- Mã bị xoá mềm (`active=false`) không đăng nhập/nộp/chơi được, vẫn còn Ledger; ẩn khỏi xếp hạng.
-- teacherKey: Script Properties `TEACHER_KEY` (ưu tiên), nếu không có thì dùng hằng `TEACHER_KEY` cũ. Action giáo viên mới chỉ qua POST (`teacherKey` trong body).
+## 3. getAssignment (GET, công khai)
+`assignment` thêm `correctPts`, `peekPenalty` (số hoặc `null`). Link inline `#/assign?d=` có thêm khoá nén `cp`,`pp` (chỉ hiển thị).
 
-## Học sinh
-| action | tham số | phản hồi |
+## 4. listOpenAssignments (POST, học sinh)
+Vào `{code}` → `{ok, items:[{id,name,kind:'vocab'|'test',due,count,correctPts,peekPenalty}], serverTime}`.
+Chỉ bài `due > now` còn dữ liệu; sắp hạn gần nhất trước; tối đa 100; cache 30 giây (`ola`, xoá khi lưu/xoá bài). Không trả link/kết quả/từ.
+`count` = số từ (bài lưu trong ô) hoặc 0 (bài lớn / test). Không rate limit.
+
+## 5. Ledger & cấu hình
+- `LEDGER_REASONS` thêm `'garden'` (không làm tăng `totalEarned`; chỉ `vocab`/`test` tăng).
+- `CONFIG_DEFAULTS` thêm: game_dice_enabled, game_plinko_enabled, game_scratch_enabled, game_keno_enabled, game_coin_enabled (true), gardenEnabled (true), gardenCostPct (100; 10–500).
+
+## 6. route()
+- Action trong `GAME_ACTIONS`: `requireStudent_(code)` KHÔNG rate limit 1 giây (an toàn nhờ requestId + `withLock_`), kiểm `gamesEnabled`.
+- Sau `registerGameActions_` gọi `registerGardenActions_(GARDEN_ACTIONS)` nếu hàm tồn tại (Garden.gs). Chữ ký: `reg.<action> = function (params, student) {...}`.
+  route: `requireStudent_(code)` → `cfgBool_('gardenEnabled',true)` (tắt → `garden_disabled` "Khu vườn đang tắt.") → `okWrap_(fn(params, student))`.
+- Vẫn có rate limit: checkCode, submitResult, getProfile, getLeaderboard.
+
+## 7. Helper dùng chung trong Code.gs
+- `applyDelta_(code,delta,reason,refId,detail)` – đổi số dư trong khoá; trả `{balance,delta(thực),requested,clamped,totalEarned}`; số dư không <0.
+- `getStudent_(code)` – dòng Students `{row,code,balance,totalEarned,active,...}` hoặc null.
+- `requireStudent_(code, rlAction?)` – chuẩn hoá mã, kiểm tồn tại/active, ném `apiError_`; có rlAction thì rate limit.
+- `withLock_(fn)` – chạy trong khoá script (không lồng khoá).
+- `apiError_(code,msg)` – tạo lỗi để route() trả `{ok:false,error:code,message}`.
+- `cfgNum_(key,def)` / `cfgBool_(key,def)` – đọc cấu hình (cache 60 giây) dạng số / đúng-sai.
+- `findRow_(sh,col,id)` – số dòng (≥2) có cột `col` (1-based) = id; 0 nếu không có. Chỉ đọc 1 cột.
+- `appendRows_(sh,rows)` – thêm nhiều dòng một lần (tự mở rộng lưới).
+- `sheetT_(name,headers,textCols)` – lấy/tạo sheet, các cột mã định dạng văn bản.
+- `clampInt_(v,min,max,def)` – ép số nguyên trong khoảng.
+- `cput_(key,obj,sec)` / `cget_(key)` – CacheService JSON (<32.000 ký tự).
+- `okWrap_(r)` – bọc kết quả thành `{ok:true,...}`.
+
+## 8. Trò mới (bật/tắt bằng `game_<tên>_enabled`; Games.gs đăng ký qua registerGameActions_)
+| Trò | Tên | Action |
 |---|---|---|
-| checkCode | code | `{ok:true,valid:true,code,balance,totalEarned}` |
-| submitResult | code, kind `vocab`\|`test`, refId, submissionId (`[\w-]{8,64}`), vocab: correct, peeks · test: correctPoints[] (mỗi phần tử 0–100; thiếu mảng thì `correct`×testDefaultPoints) | `{ok:true,duplicate:false,delta:23,requested:23,balance:140,totalEarned:310}` |
-| getProfile | code | `{ok:true,code,balance,totalEarned,rank,totalStudents,ledger:[{t,delta,reason,refId,balanceAfter,detail}×≤50]}` |
-| getLeaderboard (GET/POST) | limit(1–50, mặc định 10), code (tuỳ chọn) | `{ok:true,leaderboard:[{rank:1,code:"AB12**",totalEarned:500,me:false}],me:{rank,totalEarned}\|null,totalStudents}` (cache 30s) |
-| getPublicConfig (GET/POST) | — | `{ok:true,config:{vocabCorrectPoints:5,...}}` |
+| Xúc xắc | dice | `diceRoll` |
+| Plinko | plinko | `plinkoDrop` |
+| Thẻ cào | scratch | `scratchBuy` |
+| Keno mini | keno | `kenoPlay` |
+| Tung xu | coin | `coinStart`, `coinFlip`, `coinCashout` |
 
-Vocab: `correct*vocabCorrectPoints - peeks*vocabPeekPenalty`. Test: tổng `correctPoints`.
-
-## Giáo viên (POST, kèm `teacherKey`)
-| action | tham số | phản hồi |
-|---|---|---|
-| createCodes | count, prefix, note | `{ok:true,codes:["AB3K7M"],created,requested}` |
-| deleteCode / restoreCode | code | `{ok:true,code,active:false}` |
-| adjustPoints | code, delta(±100000, ≠0), reason | `{ok:true,code,balance,delta,clamped,totalEarned}` |
-| listStudents | — | `{ok:true,students:[{code,createdAt,note,active,balance,totalEarned,lastActive}]}` |
-| getConfig | — | `{ok:true,config,defaults}` |
-| setConfig | key, value | `{ok:true,key,value}` |
-| getLedger | code (bỏ trống = tất cả), limit(≤1000, mặc định 200) | `{ok:true,ledger:[...]}` |
-
-## Mã lỗi
-bad_request, too_large, unauthorized, invalid_code, code_disabled, rate_limited, busy, games_disabled, expired, max_attempts, not_found, server_error.
-
-## Hàm dùng chung cho Games.gs
-`applyDelta_(code,delta,reason,refId,detail)`→`{balance,delta,requested,clamped,totalEarned}` · `getStudent_(code)` · `getConfigValue_(key,def)` (+`cfgNum_`, `cfgBool_`) · `requireTeacher_(key)` · `jsonOut_(obj)` · `requireStudent_(code,rlAction)` · `withLock_(fn)` · `apiError_(code,msg)` (throw) · `ledgerFor_(code,n)`.
-Đăng ký game: trong Games.gs viết `function registerGameActions_(reg){ reg.slotsSpin = function(params, student){ ... return {...}; }; }`. Router tự: kiểm mã+rate limit+`gamesEnabled`, rồi gọi `fn(params, student)`; kết quả tự gói `ok:true`. Game tự kiểm `game_<tên>_enabled`, `maxBet`, `maxBetPct`, `dailyLossLimit`.
+## 9. Trang học sinh (client)
+Tab: ho-so | kiem-diem | khu-vuon | tro-choi | xep-hang. Khu vườn: `SMGarden.mount(root, {api,getBalance,setBalance,toast,sfx,requestId,code})` / `SMGarden.unmount()`.
+`SMGame.addGame(key,icon,name)` để games2.js thêm tab trò. Mã học sinh dùng chung với trang làm bài qua localStorage `sm_studentCode`.

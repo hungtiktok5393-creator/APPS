@@ -6,26 +6,37 @@
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261025d', BREAK_EVERY = 20;
+const VER = '20261026z', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
-const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash']];
+const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash'], ['dice', '🎲', 'Xúc xắc'], ['plinko', '🔻', 'Plinko'], ['scratch', '🎟️', 'Thẻ cào'], ['keno', '🔢', 'Keno mini'], ['coin', '🪙', 'Tung xu']];
 const REASON = { vocab: ['📘', 'Từ vựng'], test: ['📝', 'Bài test'], game: ['🎮', 'Trò chơi'], teacher_adjust: ['👩‍🏫', 'Giáo viên chỉnh'] };
 const ERR = { invalid_code: 'Mã không đúng. Kiểm tra lại với giáo viên.', code_disabled: 'Mã này đã bị khóa.', rate_limited: 'Bạn thao tác quá nhanh, chờ một giây.', busy: 'Máy chủ đang bận, thử lại sau.', games_disabled: 'Giáo viên đang tắt khu trò chơi.', unauthorized: 'Không có quyền.' };
-const S = { code: '', bal: 0, earned: 0, ledger: [], cfg: { maxBet: 200, maxBetPct: 25, dailyLossLimit: 300, gamesEnabled: true }, game: null, tab: '', filter: 'all', rounds: 0, pnl: 0, sinceBreak: 0, todayNet: 0, lock: null, reg: {}, rules: {}, resume: null, cfgAt: 0, last: 0 };
+const S = { code: '', bal: 0, earned: 0, ledger: [], cfg: { maxBet: 200, maxBetPct: 25, dailyLossLimit: 300, gamesEnabled: true }, game: null, tab: '', filter: 'all', rounds: 0, pnl: 0, sinceBreak: 0, todayNet: 0, lock: null, reg: {}, rules: {}, resume: null, cfgAt: 0, last: 0, fast: false };
+S.fast = LS.get('sm_fast') === '1';
 const url = () => SCRIPT_URL || LS.get('sm_script_url') || '';
 const nf = n => Number(n || 0).toLocaleString('vi-VN');
 const sg = n => (n > 0 ? '+' : n < 0 ? '−' : '') + nf(Math.abs(n));
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
 const reduced = matchMedia('(prefers-reduced-motion:reduce)');
 
-/* ---- API: POST text/plain, mỗi action cách nhau ≥1,1 giây (rate limit 1 yêu cầu/giây/mã/action) ---- */
-const gate = {};
+/* ---- API: POST text/plain. Action thường: cách nhau ≥1,1 giây (rate limit máy chủ).
+ * Action của trò chơi: KHÔNG chờ 1,1 giây; chỉ xếp hàng cùng action (không gửi chồng khi cái trước chưa xong) và cách nhau ≥150ms. ---- */
+const gate = {}, lane = {}, laneAt = {};
+const GAME_ACT = /^(slots|wheel|hilo|mines|crash|dice|plinko|scratch|keno|coin|garden|getActiveGame|getGameStats)/;      // 'garden' = gardenInfo/gardenGet/gardenAct/gardenBoard: không chờ 1,1 giây/lần
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function call(action, params, retry) {
+function call(action, params, retry) {
+  if (!GAME_ACT.test(action)) return callRaw(action, params, retry, false);
+  const mine = (lane[action] || Promise.resolve()).catch(() => {}).then(async () => {
+    const w = (laneAt[action] || 0) + 150 - Date.now(); if (w > 0) await sleep(w);
+    laneAt[action] = Date.now();
+    return callRaw(action, params, retry, true);
+  });
+  lane[action] = mine; return mine;
+}
+async function callRaw(action, params, retry, free) {
   if (!url()) throw Object.assign(new Error('Chưa cài địa chỉ máy chủ.'), { code: 'no_url' });
-  const wait = (gate[action] || 0) - Date.now(); gate[action] = Math.max(Date.now(), gate[action] || 0) + 1100;
-  if (wait > 0) await sleep(wait);
+  if (!free) { const wait = (gate[action] || 0) - Date.now(); gate[action] = Math.max(Date.now(), gate[action] || 0) + 1100; if (wait > 0) await sleep(wait); }
   const ac = new AbortController(), t = setTimeout(() => ac.abort(), 20000);
   let d;
   try {
@@ -34,7 +45,7 @@ async function call(action, params, retry) {
   } catch (_) { throw Object.assign(new Error(navigator.onLine ? 'Không kết nối được máy chủ. Thử lại sau.' : 'Không có mạng.'), { code: 'network' }); } finally { clearTimeout(t); }
   if (!d || d.ok === false) {
     const code = d && d.error || 'server_error';
-    if (code === 'rate_limited' && !retry) { await sleep(1300); return call(action, params, 1); }
+    if (code === 'rate_limited' && !retry) { await sleep(1300); return callRaw(action, params, 1, free); }
     const stale = code === 'bad_request' && /Hành động không hợp lệ/.test((d && d.message) || '');   // máy chủ Apps Script là bản cũ / sai địa chỉ
     throw Object.assign(new Error(stale ? 'Máy chủ chưa được cập nhật hoặc sai địa chỉ. Hãy báo giáo viên.' : (ERR[code] || (d && d.message) || 'Có lỗi xảy ra.')), { code, raw: d });
   }
@@ -42,7 +53,8 @@ async function call(action, params, retry) {
 }
 const api = (action, params) => call(action, Object.assign({ code: S.code }, params)).then(r => { if (typeof r.balance === 'number') setBal(r.balance); return r; }, e => {
   if (e.code === 'games_disabled') { S.cfg.gamesEnabled = false; evalLock(); }
-  else if (/hạn mức|daily/i.test((e.raw && (e.raw.message + e.raw.error)) || '')) { S.todayNet = -S.cfg.dailyLossLimit; evalLock(); }
+  else if (!/^garden/.test(action) && /hạn mức|daily/i.test((e.raw && (e.raw.message + e.raw.error)) || '')) {   // hạn mức của Khu vườn KHÔNG phải hạn mức lỗ trò chơi
+    S.todayNet = -S.cfg.dailyLossLimit; evalLock(); }
   throw e;
 });
 
@@ -77,7 +89,7 @@ const parseCfg = c => { const o = Object.assign({}, S.cfg); for (const k in c) {
 async function loadCfg() { if (Date.now() - S.cfgAt < 60000) return; try { S.cfg = parseCfg((await call('getPublicConfig', {})).config || {}); S.cfgAt = Date.now(); } catch (_) {} rules(); tabsG(); clampBet(); evalLock(); }
 function rules() {
   const c = S.cfg, ul = $('rules'); ul.replaceChildren();
-  const L = ['Điểm ảo, không đổi ra tiền.', 'Tối đa ' + nf(c.maxBet) + ' điểm mỗi ván và không quá ' + c.maxBetPct + '% số dư.', 'Số dư không bao giờ âm. Hạn mức lỗ mỗi ngày: ' + nf(c.dailyLossLimit) + ' điểm.', 'Mỗi lần thao tác cách nhau ít nhất 1 giây.', 'Giáo viên có thể tắt cả khu hoặc từng trò.', 'Điểm kiếm từ từ vựng: +' + (c.vocabCorrectPoints ?? 5) + ' mỗi từ đúng, −' + (c.vocabPeekPenalty ?? 1) + ' mỗi lần xem gợi ý.']
+  const L = ['Điểm ảo, không đổi ra tiền.', 'Tối đa ' + nf(c.maxBet) + ' điểm mỗi ván và không quá ' + c.maxBetPct + '% số dư.', 'Số dư không bao giờ âm. Hạn mức lỗ mỗi ngày: ' + nf(c.dailyLossLimit) + ' điểm.', 'Sau 20 ván sẽ có nhắc nghỉ. Không có nút tự quay lặp lại: mỗi ván do bạn tự bấm.', 'Giáo viên có thể tắt cả khu hoặc từng trò.', 'Điểm kiếm từ từ vựng: +' + (c.vocabCorrectPoints ?? 5) + ' mỗi từ đúng, −' + (c.vocabPeekPenalty ?? 1) + ' mỗi lần xem gợi ý.']
     .concat(S.rules[S.game] || []);
   L.forEach(x => ul.append(el('li', '', x)));
 }
@@ -139,7 +151,7 @@ function tabsG() {
   const t = $('gtabs'); t.replaceChildren();
   GAMES.forEach(([k, ic, n]) => {
     const off = S.cfg.gamesEnabled === false || S.cfg['game_' + k + '_enabled'] === false, b = el('button', 'st-gtab', ic + ' ' + n + (off ? ' (tắt)' : ''));
-    b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', S.game === k); b.onclick = () => pick(k); t.append(b);
+    b.type = 'button'; b.dataset.game = k; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', S.game === k); b.onclick = () => pick(k); t.append(b);
   });
 }
 function pick(k) {
@@ -158,6 +170,14 @@ async function checkActive() {
     if (n && GAMES.some(g => g[0] === n) && r.active !== false) { S.resume = { game: n, state: a }; toast('Bạn có ván đang chơi dở. Mở khu trò chơi để chơi tiếp.'); show('tro-choi'); pick(n); }
   } catch (_) {}
 }
+/* Làm nóng máy chủ (tránh khởi động nguội): một yêu cầu nhẹ khi vào tab Trò chơi, rồi ~4 phút/lần chỉ khi tab đang mở và trang đang hiển thị */
+let warmT = 0;
+function warmStop() { if (warmT) clearInterval(warmT); warmT = 0; }
+function warmStart() {
+  warmStop(); if (!S.code || !url()) return;
+  call('getActiveGame', { code: S.code }).catch(() => {});
+  warmT = setInterval(() => { if (S.tab === 'tro-choi' && document.visibilityState === 'visible' && S.code) call('getActiveGame', { code: S.code }).catch(() => {}); else if (S.tab !== 'tro-choi') warmStop(); }, 240000);
+}
 function stop() { document.dispatchEvent(new CustomEvent('smgame:stop')); sfx('click'); show('ho-so'); loadProfile().catch(() => {}); }
 function settle(o) {
   o = o || {}; S.rounds++; S.sinceBreak++; if (typeof o.delta === 'number') { S.pnl += o.delta; S.todayNet += o.delta; }
@@ -168,19 +188,31 @@ function betValue() { clampBet(); return Math.floor(+$('bet').value) || 0; }
 function rid() { const b = new Uint8Array(12); (crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach((_, i) => b[i] = Math.random() * 256); return 'g-' + Date.now().toString(36) + Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); }
 window.SMGame = {
   api, getBalance: () => S.bal, setBalance: setBal, toast, sfx, requestId: rid, betValue, settle,
-  canPlay: () => ({ ok: !S.lock, reason: S.lock || '' }), reducedMotion: reduced.matches, get config() { return Object.assign({}, S.cfg); }, get stage() { return $('game-stage'); },
+  canPlay: () => ({ ok: !S.lock, reason: S.lock || '' }), reducedMotion: reduced.matches, get fast() { return S.fast; }, get config() { return Object.assign({}, S.cfg); }, get stage() { return $('game-stage'); },
   register(n, g) { S.reg[n] = g; if (S.game === n && g.mount) { try { $('game-stage').replaceChildren(); g.mount($('game-stage'), SMGame); } catch (_) {} } doResume(); },
   setRules(n, l) { S.rules[n] = l; if (S.game === n) rules(); }
 };
 reduced.addEventListener && reduced.addEventListener('change', () => { SMGame.reducedMotion = reduced.matches; });
 
 /* ---- Điều hướng, đăng nhập ---- */
+const TABS = ['ho-so', 'xep-hang', 'tro-choi', 'khu-vuon'];   // đúng thứ tự các nút [data-tab] trong hoc-sinh.html
+/* ---- Khu vườn: garden.js (engine) + garden-ui.js (giao diện) tự đăng ký window.SMGarden; thiếu garden.js thì hiện "sắp mở" ---- */
+function gardenCtx() { return { api: (a, p) => api(a, p), getBalance: () => S.bal, setBalance: setBal, toast, sfx: n => { if (LS.get('sm_garden_snd') !== '0') sfx(n); }, requestId: rid, code: S.code }; }
+function openGarden() {
+  const r = $('garden-root'); if (!r) return;
+  if (!(window.SMGarden && typeof window.SMGarden.mount === 'function')) { r.replaceChildren(el('p', 'empty muted', 'Khu vườn sắp mở. Hãy quay lại sau nhé.')); return; }
+  try { window.SMGarden.mount(r, gardenCtx()); } catch (_) { r.replaceChildren(el('p', 'empty muted', 'Không mở được Khu vườn. Thử làm mới trang.')); }
+}
+function closeGarden() { try { window.SMGarden && window.SMGarden.unmount && window.SMGarden.unmount(); } catch (_) {} }
 function show(t) {
-  if (!['ho-so', 'xep-hang', 'tro-choi'].includes(t)) t = 'ho-so'; const was = S.tab; S.tab = t;
+  if (!TABS.includes(t)) t = 'ho-so'; const was = S.tab; S.tab = t;
   document.querySelectorAll('[data-tab]').forEach(b => { const on = b.dataset.tab === t; b.setAttribute('aria-selected', on); b.tabIndex = on ? 0 : -1; $('p-' + b.dataset.tab).hidden = !on; });
   if (location.hash !== '#' + t) history.replaceState(null, '', '#' + t);
   if (was !== t && t === 'xep-hang') loadBoard();
-  if (was !== t && t === 'tro-choi') { loadCfg(); if (!S.game) pick(GAMES.some(g => g[0] === LS.get('sm_game')) ? LS.get('sm_game') : 'slots'); }
+  if (was !== t && t === 'tro-choi') { warmStart(); loadCfg(); if (!S.game) pick(GAMES.some(g => g[0] === LS.get('sm_game')) ? LS.get('sm_game') : 'slots'); }
+  if (was !== t && t === 'khu-vuon') openGarden();
+  if (was === 'khu-vuon' && t !== 'khu-vuon') closeGarden();
+  if (was === 'tro-choi' && t !== 'tro-choi') warmStop();
   if (was === 'tro-choi' && t !== 'tro-choi') document.dispatchEvent(new CustomEvent('smgame:stop'));
 }
 const norm = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);   // giống máy chủ: bỏ dấu, chỉ chữ+số
@@ -203,13 +235,14 @@ function init() {
     const c = norm($('code-in').value); $('code-in').value = c; if (!/^[A-Z0-9]{3,16}$/.test(c)) return ($('login-err').textContent = 'Mã gồm 3–16 chữ hoặc số.'); enter(c);
   };
   $('code-in').oninput = e => { e.target.value = norm(e.target.value); };
-  $('btn-change').onclick = () => { LS.set('sm_code', null); S.code = ''; document.dispatchEvent(new CustomEvent('smgame:stop')); S.rounds = S.pnl = S.sinceBreak = 0; S.game = null; S.tab = ''; sum(); loginView(); $('code-in').value = ''; $('code-in').focus(); };
+  $('btn-change').onclick = () => { warmStop(); closeGarden(); LS.set('sm_code', null); S.code = ''; document.dispatchEvent(new CustomEvent('smgame:stop')); S.rounds = S.pnl = S.sinceBreak = 0; S.game = null; S.tab = ''; sum(); loginView(); $('code-in').value = ''; $('code-in').focus(); };
   $('btn-refresh').onclick = () => loadProfile().then(() => toast('Đã cập nhật.'), e => toast(e.message, 1));
   $('btn-board').onclick = loadBoard; $('btn-stop').onclick = stop;
-  document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); b.onkeydown = e => { const i = ['ho-so', 'xep-hang', 'tro-choi'].indexOf(b.dataset.tab), n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null; if (n != null) { const t = document.querySelectorAll('[data-tab]')[(n + 3) % 3]; show(t.dataset.tab); t.focus(); } }; });
+  document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); b.onkeydown = e => { const i = TABS.indexOf(b.dataset.tab), n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null; if (n != null) { const t = document.querySelectorAll('[data-tab]')[(n + TABS.length) % TABS.length]; show(t.dataset.tab); t.focus(); } }; });
   const q = $('quick'); [['10', () => 10], ['50', () => 50], ['100', () => 100], ['½', () => Math.floor(S.bal / 2)], ['MAX', betCap]].forEach(([n, f]) => { const b = el('button', 'btn small', n); b.type = 'button'; b.setAttribute('aria-label', n === 'MAX' ? 'Cược tối đa' : n === '½' ? 'Cược một nửa số dư' : 'Cược ' + n); b.onclick = () => { $('bet').value = f(); clampBet(); LS.set('sm_bet', $('bet').value); sfx('click'); }; q.append(b); });
   $('bet').oninput = () => { clampBet(); }; $('bet').onchange = () => LS.set('sm_bet', $('bet').value); $('bet').value = LS.get('sm_bet') || 10;
   const sn = $('btn-snd'); const paint = () => { sn.textContent = muted ? '🔇' : '🔊'; sn.setAttribute('aria-pressed', !muted); sn.setAttribute('aria-label', muted ? 'Bật âm thanh' : 'Tắt âm thanh'); }; paint(); sn.onclick = () => { muted = !muted; LS.set('sm_snd', muted ? '0' : '1'); paint(); sfx('click'); };
+  const fb = $('btn-fast'); if (fb) { const pf = () => { fb.setAttribute('aria-pressed', S.fast); fb.textContent = S.fast ? '⚡ Nhanh: bật' : '⚡ Nhanh: tắt'; }; pf(); fb.onclick = () => { S.fast = !S.fast; LS.set('sm_fast', S.fast ? '1' : '0'); pf(); sfx('click'); }; }
   $('break-go').onclick = () => $('break-dlg').close(); $('break-stop').onclick = () => { $('break-dlg').close(); stop(); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.code && Date.now() - S.last > 30000) { S.last = Date.now(); loadProfile().catch(() => {}); } });
   window.addEventListener('hashchange', () => S.code && show(location.hash.slice(1)));
