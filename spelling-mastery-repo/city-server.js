@@ -2,7 +2,8 @@
  * PHẦN MÁY CHỦ (Apps Script) – nối luật CityCore với Sheet, sổ điểm, xếp hạng
  * Hành động (POST, kèm code/token học sinh): cityGet · cityAct {ops[], requestId} · cityBoard · cityVisit {who} · cityLike {who}
  * Sheet 'City': mỗi học sinh 1 dòng; state JSON (lớn thì gzip+base64) chia nhiều ô (≤ 45.000 ký tự/ô).
- * Cấu hình (Config): cityEnabled (true), cityCostPct (100 = giá điểm mặc định), cityDailySpendCap (0 = không giới hạn).
+ * Cấu hình (Config): cityEnabled (true), cityCostPct (100 = giá điểm mặc định), cityActionPts (2 = điểm mỗi thao tác, 0 = miễn phí),
+ *   cityDailySpendCap (0 = không giới hạn).
  * Sổ điểm: reason 'city'. KHÔNG tính vào báo cáo phụ huynh (familyReport_ bỏ qua), không ghi GameLog.
  * --------------------------------------------------------------------- */
 const CT_SHEET = 'City', CT_PARTS = 24, CT_CELL = 45000, CT_FIX = 11;
@@ -10,7 +11,7 @@ const CT_HEADERS = ['code', 'v', 'updatedAt', 'lastReqId', 'lastResp', 'lvl', 'x
 const CT_NCOL = CT_HEADERS.length;
 
 function ctErr_(c, m) { return apiError_('city_' + c, m); }
-function ctOpt_(balance) { return { costPct: clampInt_(cfgNum_('cityCostPct', 100), 10, 500, 100), cap: Math.max(0, cfgNum_('cityDailySpendCap', 0)), balance: balance }; }
+function ctOpt_(balance) { return { costPct: clampInt_(cfgNum_('cityCostPct', 100), 10, 500, 100), act: clampInt_(cfgNum_('cityActionPts', CityCore.ACT_PTS), 0, 100, CityCore.ACT_PTS), cap: Math.max(0, cfgNum_('cityDailySpendCap', 0)), balance: balance }; }
 function ctSh_() { return sheetT_(CT_SHEET, CT_HEADERS, [1, 3, 4, 5, 10]); }
 function ctEncode_(st) {
   const js = JSON.stringify(st);

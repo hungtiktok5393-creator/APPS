@@ -32,7 +32,7 @@ const sheets = {}, cache = new Map();
 const sandbox = { console, Math, JSON, Date: FakeDate, Object, Array, String, Number, isFinite, parseInt, RegExp, Error, Buffer, Utilities,
   CacheService: { getScriptCache: () => ({ get: k => cache.has(k) ? cache.get(k) : null, put: (k, v) => cache.set(k, v) }) },
   LockService: (() => { let held = false; return { getScriptLock: () => ({ hasLock: () => held, waitLock() { held = true; }, releaseLock() { held = false; } }) }; })(),
-  _cfg: { cityEnabled: true, cityCostPct: 100, cityDailySpendCap: 0 } };
+  _cfg: { cityEnabled: true, cityCostPct: 100, cityDailySpendCap: 0, cityActionPts: 0 } };   // mục 1–13: tắt phí thao tác; mục 14 kiểm riêng
 vm.createContext(sandbox);
 const pre = ['foldCode_', 'normCode_', 'isActive_', 'iso_', 'safe_', 'findRow_', 'cols_', 'clampInt_', 'apiError_', 'withLock_', 'maskCode_', 'appendRows_', 'applyDelta_', 'cget_', 'cput_', 'cfgNum_', 'cfgBool_', 'getStudent_', 'okWrap_', 'pwStr_'].map(extract).join('\n');
 const reasons = /const LEDGER_REASONS = (\[[^\]]*\])/.exec(code)[1];
@@ -188,32 +188,32 @@ ok('> 40 op → too_many_ops', !r.ok && r.error === 'city_too_many_ops');
 sc('7. Cửa hàng điểm');
 let b0 = bal('HS1');
 r = act('HS1', { op: 'buyChunk', cx: 2, cy: 0 });
-ok('mua đất 30 điểm, sinh chướng ngại', r.ok && r.spent === 30 && bal('HS1') === b0 - 30 && r.state.ch.length === 5, r.spent);
+ok('mua đất 60 điểm (gấp đôi), sinh chướng ngại', r.ok && r.spent === 60 && bal('HS1') === b0 - 60 && r.state.ch.length === 5, r.spent);
 r = act('HS1', { op: 'buyChunk', cx: 9, cy: 9 });
 ok('đất không liền kề → bad_request', !r.ok && r.error === 'city_bad_request');
 r = act('HS1', { op: 'buyChunk', cx: 2, cy: 0 });
 ok('mua lại → already', !r.ok && r.error === 'city_already');
 b0 = bal('HS1');
 r = act('HS1', { op: 'buyChunk', cx: 3, cy: 0 });
-ok('mảnh thứ 2 đắt hơn (43)', r.ok && r.spent === 43, r.spent);
+ok('mảnh thứ 2 đắt hơn (85)', r.ok && r.spent === 85, r.spent);
 r = act('HS2', { op: 'buyChunk', cx: 2, cy: 0 });
 ok('HS2 thiếu điểm → not_enough_points, giữ điểm', !r.ok && r.error === 'city_not_enough_points' && bal('HS2') === 10);
 b0 = bal('HS1');
 r = act('HS1', { op: 'exchange', n: 10 });
-ok('đổi 10 điểm → xu', r.ok && r.spent === 10 && r.results[0].xu === 10 * (10 + 2 * r.derived.lv) || (r.ok && r.results[0].xu > 0), r.results);
+ok('đổi 10 điểm → xu', r.ok && r.spent === 10 && r.results[0].xu === 10 * C.exRate(r.derived.lv) && C.exRate(1) === 6, r.results);
 r = act('HS1', { op: 'exchange', n: 7 });
 ok('gói đổi lạ → bad_request', !r.ok && r.error === 'city_bad_request');
 r = act('HS1', { op: 'helper', k: 'maygat' });
-ok('thuê máy gặt', r.ok && r.state.hp.maygat === 1 && r.spent === 120);
+ok('thuê máy gặt', r.ok && r.state.hp.maygat === 1 && r.spent === C.HELP_BY.maygat.pts && C.HELP_BY.maygat.pts > 120 * 2, C.HELP_BY.maygat.pts);
 r = act('HS1', { op: 'helper', k: 'maygat' });
 ok('thuê lại → already', !r.ok && r.error === 'city_already');
 r = act('HS1', { op: 'perm', k: 'kho' });
 const cap0 = r.derived && r.derived.cap;
 ok('nâng kho vĩnh viễn +100', r.ok && r.state.pm.kho === 1 && r.derived.cap === 250, r.derived && r.derived.cap);
 r = act('HS1', { op: 'perm', k: 'kho' });
-ok('cấp 2 đắt hơn cấp 1', r.ok && r.spent > 25, r.spent);
+ok('cấp 2 đắt hơn cấp 1', r.ok && r.spent > 50, r.spent);
 r = act('HS1', { op: 'boost', k: 'x2thu', h: 2 });
-ok('bùa x2 thu hoạch 2 giờ = 50 điểm', r.ok && r.spent === 50 && r.state.bo.x2thu[1] === T + 2 * H);
+ok('bùa x2 thu hoạch 2 giờ = 100 điểm', r.ok && r.spent === 100 && r.state.bo.x2thu[1] === T + 2 * H);
 r = act('HS1', { op: 'boost', k: 'x2thu', h: 23 });
 ok('bùa quá 24 giờ → limit', !r.ok && r.error === 'city_limit');
 r = act('HS1', { op: 'plant', c: 'lua', ids: ids(r.state, 'ruong') });
@@ -221,27 +221,27 @@ ok('gieo khi có bùa → mỗi ô 4 nông sản', r.ok && Object.values(r.state
 r = act('HS1', { op: 'rare', k: 'xoai' });
 ok('giống quý cần cấp 4', !r.ok && r.error === 'city_locked');
 r = act('HS1', { op: 'rare', k: 'huongduong' });
-ok('mua giống hướng dương 40 điểm', r.ok && r.spent === 40 && r.state.rc.indexOf('huongduong') >= 0);
+ok('mua giống hướng dương ' + C.CROP_BY.huongduong.rare + ' điểm (>80)', r.ok && r.spent === C.CROP_BY.huongduong.rare && r.spent > 80 && r.state.rc.indexOf('huongduong') >= 0);
 r = act('HS1', { op: 'theme', k: 'dong' });
-ok('mua chủ đề tuyết', r.ok && r.state.th.g === 'dong' && r.spent === 100);
+ok('mua chủ đề tuyết', r.ok && r.state.th.g === 'dong' && r.spent === C.GROUND_BY.dong.pts && r.spent >= 200);
 r = act('HS1', { op: 'theme', k: '' });
 ok('đổi về mặc định miễn phí', r.ok && r.state.th.g === '' && r.spent === 0);
 r = act('HS1', { op: 'theme', k: 'dong' });
 ok('dùng lại chủ đề đã mua miễn phí', r.ok && r.spent === 0 && r.state.th.g === 'dong');
 r = act('HS1', { op: 'effect', k: 'phaohoa' });
-ok('mua pháo hoa → bật', r.ok && r.spent === 150 && r.state.th.fx.indexOf('phaohoa') >= 0);
+ok('mua pháo hoa → bật', r.ok && r.spent === C.FX_BY.phaohoa.pts && r.spent === 450 && r.state.th.fx.indexOf('phaohoa') >= 0);
 r = act('HS1', { op: 'effect', k: 'phaohoa' });
 ok('bấm lại → tắt, không tốn điểm', r.ok && r.spent === 0 && r.state.th.fx.indexOf('phaohoa') < 0);
 r = act('HS1', { op: 'vehicle', k: 'rong' });
-ok('mua rồng bay', r.ok && r.state.vh.rong === 1 && r.spent === 400);
+ok('mua rồng bay', r.ok && r.state.vh.rong === 1 && r.spent === C.VEH_BY.rong.pts && r.spent === 1200);
 st = r.state; p = free(st, 'anhdao');
 r = act('HS1', { op: 'place', t: 'anhdao', x: p[0], y: p[1] });
-ok('trang trí cao cấp tốn điểm, +hạnh phúc', r.ok && r.spent === 15 && r.derived.hap > g.derived.hap, [r.spent, r.derived && r.derived.hap]);
+ok('trang trí cao cấp tốn điểm, +hạnh phúc', r.ok && r.spent === C.B_BY.anhdao.pts && r.spent === 30 && r.derived.hap > g.derived.hap, [r.spent, r.derived && r.derived.hap]);
 
 sc('8. Hệ số giá & trần chi ngày (giáo viên)');
 sandbox._cfg.cityCostPct = 50;
 r = act('HS1', { op: 'vehicle', k: 'taxi' });
-ok('cityCostPct=50 → taxi 10 điểm', r.ok && r.spent === 10, r.spent);
+ok('cityCostPct=50 → taxi ' + Math.round(C.VEH_BY.taxi.pts / 2) + ' điểm', r.ok && r.spent === Math.round(C.VEH_BY.taxi.pts / 2), r.spent);
 sandbox._cfg.cityCostPct = 100; sandbox._cfg.cityDailySpendCap = 1;
 r = act('HS1', { op: 'vehicle', k: 'taxi' });
 ok('chạm trần chi ngày → daily_cap', !r.ok && r.error === 'city_daily_cap', r);
@@ -254,7 +254,7 @@ sandbox._cfg.cityEnabled = true;
 sc('9. Nhà máy & chuồng (HS3 – nhiều điểm)');
 call('cityGet', { code: 'HS3' });
 r = act('HS3', { op: 'exchange', n: 500 });
-ok('HS3 đổi 500 điểm lấy xu', r.ok && r.state.xu > 5000);
+ok('HS3 đổi 500 điểm lấy xu', r.ok && r.state.xu >= 250 + 500 * C.exRate(1), r.state && r.state.xu);
 // lên cấp nhanh: giao nhiều đơn / thu hoạch – dùng bùa XP + tăng tốc lặp lại
 let s3 = r.state;
 for (let k = 0; k < 40 && C.level(s3.xp).lv < 8; k++) {
@@ -329,6 +329,46 @@ const before = bal('HS1');
 r = act('HS1', [{ op: 'sell', k: 'lua', n: 1 }]);
 ok('mọi thao tác chỉ chi, không cộng điểm', sheets.Ledger.d.slice(1).every(l => l[3] !== 'city' || Number(l[2]) <= 0 || /hoàn/.test(l[6])) && bal('HS1') <= before);
 ok('không ghi sheet GameLog', !sheets.GameLog);
+
+sc('14. Phí thao tác (cityActionPts, mặc định 2 ⭐)');
+delete sandbox._cfg.cityActionPts;                       // không cấu hình → dùng mặc định 2
+addStudent('HS5', 100);
+g = call('cityGet', { code: 'HS5' });
+ok('derived.actPts mặc định = 2', g.ok && g.derived.actPts === 2 && C.ACT_PTS === 2, g.derived && g.derived.actPts);
+let F5 = ids(g.state, 'ruong');
+r = act('HS5', { op: 'harvest', ids: F5 });
+ok('thu hoạch 3 ô chín → 3 thao tác = 6 ⭐', r.ok && r.results[0].n === 6 && r.spent === 6 && bal('HS5') === 94, [r.spent, bal('HS5')]);
+r = act('HS5', [{ op: 'plant', c: 'lua', ids: F5.slice(0, 4) }, { op: 'plant', c: 'lua', ids: F5.slice(4) }]);
+ok('gieo 9 ô (2 lệnh) → 18 ⭐ – tính theo ô, gộp lệnh không đổi giá', r.ok && r.spent === 18 && bal('HS5') === 76, r.spent);
+const L5 = sheets.Ledger.d.slice(1).filter(l => l[1] === 'HS5');
+ok('sổ điểm ghi "Thao tác ×9"', L5.length === 2 && /Thao tác ×9/.test(L5[1][6]), L5);
+T += 30 * 1000;   // lúa 120 giây → còn 90 giây × 9 ô = 810 giây → 1 ⭐ / 5 phút → 3 ⭐
+r = act('HS5', { op: 'speed', ids: F5 });
+ok('tăng tốc: 1 ⭐ / 5 phút còn lại (gấp đôi), không cộng phí thao tác', r.ok && C.SPEED_MIN_PER_PT === 5 && r.spent === 3, r.spent);
+r = act('HS5', { op: 'move', id: ids(r.state, 'nhago')[0], x: free(r.state, 'nhago')[0], y: free(r.state, 'nhago')[1] });
+ok('di chuyển công trình miễn phí', r.ok && r.spent === 0, r);
+r = act('HS5', { op: 'night', v: 0 });
+ok('đổi ngày/đêm miễn phí', r.ok && r.spent === 0);
+r = act('HS5', { op: 'sell', k: 'lua', n: 2 });
+ok('bán ở chợ 1 lần = 2 ⭐', r.ok && r.spent === 2, r.spent);
+addStudent('HS6', 5); g = call('cityGet', { code: 'HS6' });
+r = act('HS6', { op: 'harvest', ids: ids(g.state, 'ruong') });
+ok('thiếu điểm → not_enough_points, không thu được gì, giữ điểm', !r.ok && r.error === 'city_not_enough_points' && /thao tác/.test(r.message) && bal('HS6') === 5 && !r.state.inv.lua || (!r.ok && r.error === 'city_not_enough_points' && bal('HS6') === 5), r);
+sandbox._cfg.cityActionPts = 0;
+r = act('HS6', { op: 'harvest', ids: ids(g.state, 'ruong') });
+ok('giáo viên đặt cityActionPts = 0 → miễn phí', r.ok && r.spent === 0 && bal('HS6') === 5, r);
+sandbox._cfg.cityActionPts = 5;
+r = act('HS5', { op: 'sell', k: 'lua', n: 1 });
+ok('cityActionPts = 5 → 5 ⭐ mỗi thao tác', r.ok && r.spent === 5 && r.derived.actPts === 5, r.spent);
+// collectAll không được nuốt lỗi thiếu điểm
+const cst = C.migrate(JSON.parse(JSON.stringify(r.state))); cst.hp.quandoc = 1;
+const fx = { t: 'xuongthucan', x: 0, y: 0, l: 1, q: [[0, 1]] }; cst.b['999'] = fx;
+const cst0 = JSON.stringify(cst);
+let thrown = null; try { C.applyOps(C.migrate(JSON.parse(cst0)), [{ op: 'collectAll' }], T, { act: 2, balance: 1 }); } catch (e) { thrown = e.apiCode; }
+ok('Thu SP (Quản đốc) thiếu điểm → báo not_enough_points (không im lặng)', thrown === 'city_not_enough_points', thrown);
+const R2 = C.applyOps(C.migrate(JSON.parse(cst0)), [{ op: 'collectAll' }], T, { act: 2, balance: 100 });
+ok('Thu SP 1 nhà máy = 2 ⭐, trả fee riêng', R2.spend === 2 && R2.fee === 2, R2);
+delete sandbox._cfg.cityActionPts;
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 process.exit(fail ? 1 : 0);
