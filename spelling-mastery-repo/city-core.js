@@ -10,11 +10,15 @@
  *    trang trí cao cấp, tăng tốc, bùa x2, trợ lý, nâng cấp vĩnh viễn, giống quý, phương tiện, chủ đề...
  *  - Không có gì bị mất hay reset: cây không héo, công trình không hỏng, không có "chơi lại từ đầu".
  *  - Không ngẫu nhiên khi chi Điểm (không hộp quà may rủi): giá luôn hiển thị trước.
+ *  - Mỗi thao tác chơi (gieo/thu hoạch 1 ô, thu thuế 1 nhà, làm/thu sản phẩm, cho ăn, giao đơn, bán, xây, nâng cấp, dọn,
+ *    đổi đơn) tốn opt.act ⭐ điểm (mặc định ACT_PTS = 2; giáo viên chỉnh bằng cityActionPts, 0 = miễn phí).
+ *  - Bảng giá điểm = giá gốc × PRICE_X × (1 + cấp mở / PRICE_LV) (đồ không có cấp mở: thêm hệ số độ hiếm theo thứ hạng giá).
  * ===================================================================== */
 var CityCore = (function () {
   'use strict';
-  var VER = 1, CATVER = 1, CH = 8, MAXC = 300, SEC = 1000, MIN = 60000, HR = 3600000, DAY = 86400000;
-  var MAX_B = 4000, MAX_OPS = 40, MAX_IDS = 120, TAX_CAP_H = 6, ORDER_WAIT = 60000, SPEED_MIN_PER_PT = 10;
+  var VER = 2, CATVER = 2, CH = 8, MAXC = 300, SEC = 1000, MIN = 60000, HR = 3600000, DAY = 86400000;
+  var MAX_B = 4000, MAX_OPS = 40, MAX_IDS = 120, TAX_CAP_H = 6, ORDER_WAIT = 60000, SPEED_MIN_PER_PT = 5;
+  var ACT_PTS = 2, PRICE_X = 2, PRICE_LV = 15, PRICE_RARE = 0.5;
   var START_XU = 250, LOG_N = 30;
 
   /* ---------------- Danh mục vật phẩm ---------------- */
@@ -257,6 +261,20 @@ var CityCore = (function () {
   var VEH_MAX = 10;
   var EXCHANGE = [10, 50, 100, 500];
 
+  /* ---- Áp bảng giá điểm (1 lần khi nạp): p0 = giá gốc (dùng cho XP / giá xu), pts = giá thật ---- */
+  function nice(v) { if (v <= 0) return 0; var s = v < 50 ? 1 : v < 200 ? 5 : v < 2000 ? 10 : v < 20000 ? 50 : 100; return Math.max(1, Math.round(v / s) * s); }
+  function px(base, lv, rare) { return nice(base * PRICE_X * (1 + (lv || 0) / PRICE_LV) * (1 + PRICE_RARE * (rare || 0))); }
+  function rankRare(arr) {   // độ hiếm 0..1 theo thứ hạng giá trong nhóm (rẻ nhất 0, đắt nhất 1)
+    var srt = arr.filter(function (x) { return x.pts > 0; }).sort(function (a, b) { return a.pts - b.pts; }), n = srt.length;
+    srt.forEach(function (x, i) { x.p0 = x.pts; x.pts = px(x.pts, 0, n > 1 ? i / (n - 1) : 0); });
+  }
+  B.forEach(function (b) { if (b.pts) { b.p0 = b.pts; b.pts = px(b.pts, b.lv > 1 ? b.lv : 0); } });
+  CROPS.forEach(function (c) { if (c.rare) { c.r0 = c.rare; c.rare = px(c.rare, c.lv); } });
+  HELPERS.forEach(function (h) { h.p0 = h.pts; h.pts = px(h.pts, h.lv); });
+  BOOSTS.forEach(function (b) { b.p0 = b.pts; b.pts = b.pts * PRICE_X; });
+  PERMS.forEach(function (p) { p.b0 = p.base; p.base = p.base * PRICE_X; });
+  rankRare(GROUNDS); rankRare(EFFECTS); rankRare(VEHICLES);
+
   /* ---------------- Nhiệm vụ / thành tích / danh hiệu ---------------- */
   var QUESTS = [
     ['hv', 'Thu hoạch {n} nông sản', [10, 20, 35]], ['pr', 'Thu {n} sản phẩm từ nhà máy hoặc chuồng', [3, 6, 10]],
@@ -384,13 +402,13 @@ var CityCore = (function () {
     };
   }
   function rank(pop) { var r = RANKS[0], i = 0; for (var k = 0; k < RANKS.length; k++) if (pop >= RANKS[k][0]) { r = RANKS[k]; i = k; } return { i: i, n: r[1], next: RANKS[i + 1] ? RANKS[i + 1][0] : null }; }
-  function chunkCost(st) { var n = Math.max(0, st.ch.length - 4); return Math.round(30 + 12 * n + 0.5 * n * n); }
+  function chunkCost(st) { var n = Math.max(0, st.ch.length - 4); return Math.round((30 + 12 * n + 0.5 * n * n) * PRICE_X); }
   function fieldCost(n) { return 5 + 3 * n; }
   function upCost(b, d) {   // giá nâng cấp từ cấp b.l lên b.l+1: {xu, pts, mat}
     var L = b.l;
-    if (d.k === 'lm') return { pts: Math.round(d.pts * 0.5 * Math.pow(L, 1.3)), xu: 0, mat: {} };
+    if (d.k === 'lm') return { pts: Math.round((d.p0 || d.pts) * PRICE_X * 0.5 * Math.pow(L, 1.3)), xu: 0, mat: {} };   // nâng cấp: gấp đôi giá gốc
     if (d.k === 'field' || d.k === 'deco' || d.k === 'road') return null;
-    var base = d.xu || Math.round((d.pts || 10) * 12), mul = d.k === 'house' ? 0.6 : d.k === 'svc' ? 0.7 : d.k === 'spec' ? 1 : 0.5;
+    var base = d.xu || Math.round((d.p0 || d.pts || 10) * 12), mul = d.k === 'house' ? 0.6 : d.k === 'svc' ? 0.7 : d.k === 'spec' ? 1 : 0.5;
     if (d.k === 'spec') base = { toathi: 400, kho: 120, donhang: 200, cho: 160 }[d.id] || 200;
     if (d.k === 'pen') base = d.xu;
     var xu = Math.round(base * mul * Math.pow(L, 1.5)), mat = {};
@@ -400,10 +418,11 @@ var CityCore = (function () {
     return { xu: xu, pts: 0, mat: mat };
   }
   function permCost(id, L) { var p = PERM_BY[id]; return Math.round(p.base * Math.pow(L + 1, 1.5)); }
-  function copyCost(d, n) { return Math.round((30 + d.lv * 5) * n); }   // điểm để mua thêm bản thứ n+1 của nhà máy / chuồng
+  function copyCost(d, n) { return Math.round((30 + d.lv * 5) * n * PRICE_X); }   // điểm để mua thêm bản thứ n+1 của nhà máy / chuồng
   function lmCount(st, t) { var n = 0; Object.keys(st.b).forEach(function (id) { if (st.b[id].t === t) n++; }); st.bi.forEach(function (x) { if (x.t === t) n++; }); return n; }
   function slots(st, b) { return Math.min(9, 2 + b.l) + permLv(st, 'hangcho'); }
   function animals(st, b) { return 2 + b.l + permLv(st, 'chuong'); }
+  function exRate(lv) { return Math.round((10 + 2 * lv) / PRICE_X); }   // xu nhận được cho mỗi ⭐ khi đổi điểm
   function cropTime(st, c, now) { return Math.max(10, Math.round(c.t / stats(st, now).cropMul)) * SEC; }
   function taxRate(st, b, d, S, now) { return d.pop * b.l * 0.6 * S.taxMul; }   // xu / giờ
   function taxOf(st, b, d, S, now) {
@@ -464,7 +483,17 @@ var CityCore = (function () {
   function ctxNew(st, now, opt) {
     opt = opt || {};
     return { st: st, now: now, day: vnDay(now), costPct: Math.max(10, Math.min(500, Number(opt.costPct) || 100)), cap: Math.max(0, Number(opt.cap) || 0),
+      act: actPts(opt), fee: 0, feeN: 0,
       balance: Math.max(0, Number(opt.balance) || 0), spend: 0, spentToday: st.ds.d === vnDay(now) ? st.ds.s : 0, notes: [], occ: null, chs: null, fx: [], lv0: level(st.xp).lv };
+  }
+  function actPts(opt) { var v = opt && opt.act != null && opt.act !== '' ? Number(opt.act) : ACT_PTS; return isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : ACT_PTS; }
+  /** Phí thao tác: n lần × ctx.act ⭐ (không nhân hệ số giá của giáo viên). */
+  function fee(ctx, n) {
+    n = Math.max(0, Math.round(n || 0)); var pts = n * ctx.act; if (!pts) return 0;
+    var total = ctx.spend + pts;
+    if (ctx.cap > 0 && ctx.spentToday + total > ctx.cap) throw err('daily_cap', 'Hôm nay đã chi ' + (ctx.spentToday + ctx.spend) + '/' + ctx.cap + ' điểm cho thành phố (giới hạn của giáo viên). Mai quay lại nhé!');
+    if (total > ctx.balance) throw err('not_enough_points', 'Mỗi thao tác tốn ' + ctx.act + ' ⭐ điểm: cần ' + total + ', bạn có ' + ctx.balance + '. Làm bài tập để có thêm điểm nhé!');
+    ctx.spend = total; ctx.fee += pts; ctx.feeN += n; return pts;
   }
   function P(ctx, pts) { return Math.max(1, Math.round(pts * ctx.costPct / 100)); }   // giá điểm sau hệ số giáo viên
   function spendPts(ctx, pts, note) {
@@ -528,8 +557,8 @@ var CityCore = (function () {
         if (d.xu) payXu(ctx, d.xu);
         if (d.mat) takeItems(ctx, d.mat);
       }
-      gainXp(ctx, Math.max(1, Math.round((d.xu || 0) / 12 + (d.pts || 0) / 2 + 1)));
-      qAdd(ctx, 'bu', 1);
+      gainXp(ctx, Math.max(1, Math.round((d.xu || 0) / 12 + (d.p0 || 0) / 2 + 1)));
+      qAdd(ctx, 'bu', 1); fee(ctx, 1);
     }
     if (d.k === 'field') { b.c = ''; b.e = 0; }
     if (d.k === 'pen') b.a = [];
@@ -566,7 +595,7 @@ var CityCore = (function () {
     var t = cropTime(st, c, ctx.now), y = boostOn(st, 'x2thu', ctx.now) ? 4 : 2, n = 0;
     ids.forEach(function (id) {
       var b = st.b[String(id)]; if (!b || b.t !== 'ruong' || b.c) return;
-      payXu(ctx, c.seed); b.c = c.id; b.e = ctx.now + t; b.n = y; n++;
+      fee(ctx, 1); payXu(ctx, c.seed); b.c = c.id; b.e = ctx.now + t; b.n = y; n++;
     });
     if (!n) throw err('busy', 'Không có ruộng trống để gieo.');
     st.last.c = c.id; qAdd(ctx, 'pl', n);
@@ -579,7 +608,7 @@ var CityCore = (function () {
       var b = st.b[String(id)]; if (!b || b.t !== 'ruong' || !b.c || b.e > ctx.now + 2000) return;
       var c = CROP_BY[b.c], y = b.n || 2; if (!c) { b.c = ''; return; }
       if (room < y) { full = true; return; }
-      room -= y; addItems(ctx, c.id, y); got[c.id] = (got[c.id] || 0) + y; xp += c.xp * y / 2; n += y; b.c = ''; b.e = 0; delete b.n;
+      fee(ctx, 1); room -= y; addItems(ctx, c.id, y); got[c.id] = (got[c.id] || 0) + y; xp += c.xp * y / 2; n += y; b.c = ''; b.e = 0; delete b.n;
     });
     if (!n) { if (full) throw err('storage_full', 'Kho đầy! Bán bớt ở Chợ, giao đơn hàng hoặc nâng cấp Nhà kho.'); throw err('not_ready', 'Chưa có ruộng nào chín.'); }
     gainXp(ctx, xp); qAdd(ctx, 'hv', n);
@@ -593,7 +622,7 @@ var CityCore = (function () {
     var room = freeCap(ctx), g = 0; Object.keys(ob.get).forEach(function (m) { g += ob.get[m]; });
     if (room < g) throw err('storage_full', 'Kho đầy! Bán bớt hoặc nâng cấp Nhà kho rồi dọn tiếp.');
     Object.keys(ob.get).forEach(function (m) { addItems(ctx, m, ob.get[m]); });
-    delete st.o[k]; gainXp(ctx, ob.xp); qAdd(ctx, 'cl', 1);
+    delete st.o[k]; gainXp(ctx, ob.xp); qAdd(ctx, 'cl', 1); fee(ctx, 1);
     return { got: ob.get };
   };
   OPS.feed = function (ctx, o) {   // cho mọi con đang đói ăn
@@ -606,7 +635,7 @@ var CityCore = (function () {
       b.a[i] = ctx.now + Math.max(10, Math.round(d.t * mul)) * SEC; fed++;
     }
     if (!fed) { if (d.feed && (st.inv[d.feed] || 0) < 1) throw err('not_enough_items', 'Cần ' + IT_BY[d.feed].e + ' ' + IT_BY[d.feed].n + ' – làm ở Xưởng thức ăn.'); throw err('busy', 'Các con đều đã no.'); }
-    qAdd(ctx, 'fd', fed);
+    qAdd(ctx, 'fd', fed); fee(ctx, 1);
     return { n: fed };
   };
   OPS.queue = function (ctx, o) {
@@ -622,6 +651,7 @@ var CityCore = (function () {
       var mul = 1 / (stats(st, ctx.now).facMul * (1 + 0.05 * (b.l - 1))) * (boostOn(st, 'x2may', start) || boostOn(st, 'x2may', ctx.now) ? 0.5 : 1);
       b.q.push([int(o.r), start + Math.max(10, Math.round(r.t * mul)) * SEC]); done++;
     }
+    fee(ctx, done);
     return { n: done };
   };
   OPS.collect = function (ctx, o) {   // thu sản phẩm đã xong (nhà máy / chuồng)
@@ -641,7 +671,7 @@ var CityCore = (function () {
       }
     } else throw err('bad_request', 'Công trình này không có sản phẩm.');
     if (!n) { if (full) throw err('storage_full', 'Kho đầy! Bán bớt ở Chợ hoặc nâng cấp Nhà kho.'); throw err('not_ready', 'Chưa có sản phẩm xong.'); }
-    gainXp(ctx, xp); qAdd(ctx, 'pr', n);
+    gainXp(ctx, xp); qAdd(ctx, 'pr', n); fee(ctx, 1);
     return { n: n, got: got, full: full };
   };
   OPS.tax = function (ctx, o) {
@@ -651,7 +681,7 @@ var CityCore = (function () {
     ids.forEach(function (id) {
       var b = st.b[String(id)]; if (!b) return; var d = B_BY[b.t]; if (!d || d.k !== 'house') return;
       var tx = taxOf(st, b, d, S, ctx.now); if (tx < 1) return;
-      sum += tx; n++; b.tc = ctx.now;
+      fee(ctx, 1); sum += tx; n++; b.tc = ctx.now;
     });
     if (!n) throw err('not_ready', 'Chưa có thuế để thu.');
     gainXu(ctx, sum); st.s.tx += sum; gainXp(ctx, Math.max(1, Math.round(n / 2))); qAdd(ctx, 'tx', n);
@@ -665,7 +695,7 @@ var CityCore = (function () {
     if (c.xu) payXu(ctx, c.xu);
     takeItems(ctx, c.mat);
     if (d.k === 'house') { var S = stats(st, ctx.now), tx = taxOf(st, b, d, S, ctx.now); if (tx > 0) { gainXu(ctx, tx); st.s.tx += tx; } b.tc = ctx.now; }
-    b.l++; gainXp(ctx, Math.round(5 + (c.xu || 0) / 15 + (c.pts || 0))); qAdd(ctx, 'up', 1);
+    b.l++; gainXp(ctx, Math.round(5 + (c.xu || 0) / 15 + (c.pts || 0) / PRICE_X)); qAdd(ctx, 'up', 1); fee(ctx, 1);
     if (d.k === 'spec' && b.t === 'donhang') orders(st, ctx.now);
     return { l: b.l };
   };
@@ -702,7 +732,7 @@ var CityCore = (function () {
     if ((st.inv[k] || 0) < n) throw err('not_enough_items', 'Bạn chỉ có ' + (st.inv[k] || 0) + ' ' + it.n + '.');
     var S = stats(st, ctx.now), xu = Math.max(1, Math.round(it.p * n * S.sellMul));
     st.inv[k] -= n; if (st.inv[k] <= 0) delete st.inv[k];
-    gainXu(ctx, xu); qAdd(ctx, 'sl', n);
+    gainXu(ctx, xu); qAdd(ctx, 'sl', n); fee(ctx, 1);
     return { xu: xu };
   };
   OPS.order = function (ctx, o) {
@@ -712,12 +742,12 @@ var CityCore = (function () {
     takeItems(ctx, od.it);
     var S = stats(st, ctx.now), xu = Math.round(od.xu * S.ordMul);
     gainXu(ctx, xu); var xp = gainXp(ctx, od.xp); qAdd(ctx, 'od', 1);
-    st.od[i] = genOrder(st, ctx.now, S.lv);
+    st.od[i] = genOrder(st, ctx.now, S.lv); fee(ctx, 1);
     return { xu: xu, xp: xp };
   };
   OPS.discard = function (ctx, o) {
     var st = ctx.st, i = int(o.i); if (!st.od[i]) throw err('bad_request', 'Đơn hàng không hợp lệ.');
-    var nw = genOrder(st, ctx.now, stats(st, ctx.now).lv); nw.w = ctx.now + ORDER_WAIT; st.od[i] = nw;
+    var nw = genOrder(st, ctx.now, stats(st, ctx.now).lv); nw.w = ctx.now + ORDER_WAIT; st.od[i] = nw; fee(ctx, 1);
     return {};
   };
   OPS.buyAnimal = function () { throw err('bad_request', 'Nâng cấp chuồng để có thêm con.'); };
@@ -749,7 +779,7 @@ var CityCore = (function () {
   OPS.exchange = function (ctx, o) {
     var n = int(o.n); if (EXCHANGE.indexOf(n) < 0) throw err('bad_request', 'Gói đổi không hợp lệ.');
     var lv = level(ctx.st.xp).lv; spendPts(ctx, P(ctx, n), 'Đổi ' + n + ' điểm lấy xu');
-    var xu = gainXu(ctx, n * (10 + 2 * lv)); return { xu: xu };
+    var xu = gainXu(ctx, n * exRate(lv)); return { xu: xu };
   };
   OPS.rare = function (ctx, o) {
     var st = ctx.st, c = CROP_BY[String(o.k)]; if (!c || !c.rare) throw err('bad_request', 'Giống không hợp lệ.');
@@ -791,13 +821,14 @@ var CityCore = (function () {
   OPS.rename = function (ctx, o) { ctx.st.nm = cname(o.name, ''); return {}; };
   OPS.night = function (ctx, o) { ctx.st.night = int(o.v) === 0 ? 0 : int(o.v) === 2 ? 2 : 1; return {}; };   // 0 = luôn ngày, 1 = theo giờ thật, 2 = luôn đêm
   // gộp: thu hết + cho ăn (chuồng) – tiện cho nút "Quản đốc"
+  function hard(e) { return e.apiCode === 'city_not_enough_points' || e.apiCode === 'city_daily_cap'; }   // lỗi điểm không được nuốt
   OPS.collectAll = function (ctx) {
     var st = ctx.st; if (!st.hp.quandoc) throw err('locked', 'Cần 👷 Quản đốc.');
     var n = 0, got = {};
     Object.keys(st.b).forEach(function (id) {
       var d = B_BY[st.b[id].t]; if (d.k !== 'fac' && d.k !== 'pen') return;
-      try { var r = OPS.collect(ctx, { id: id }); n += r.n; for (var k in r.got) got[k] = (got[k] || 0) + r.got[k]; } catch (e) { if (!e.apiCode) throw e; }
-      if (d.k === 'pen') { try { OPS.feed(ctx, { id: id }); } catch (e2) { if (!e2.apiCode) throw e2; } }
+      try { var r = OPS.collect(ctx, { id: id }); n += r.n; for (var k in r.got) got[k] = (got[k] || 0) + r.got[k]; } catch (e) { if (!e.apiCode || hard(e)) throw e; }
+      if (d.k === 'pen') { try { OPS.feed(ctx, { id: id }); } catch (e2) { if (!e2.apiCode || hard(e2)) throw e2; } }
     });
     if (!n) throw err('not_ready', 'Chưa có sản phẩm nào xong.');
     return { n: n, got: got };
@@ -838,7 +869,8 @@ var CityCore = (function () {
     if (lvUp.length) { orders(st, now); log(st, now, 'Lên cấp ' + lv1 + '! Có thêm công trình mới để xây.'); }
     var A = ach(ctx);
     if (ctx.spend > 0) { st.ds = { d: ctx.day, s: ctx.spentToday + ctx.spend }; st.s.ps = (st.s.ps || 0) + ctx.spend; }
-    return { results: results, spend: ctx.spend, notes: ctx.notes, levelUp: lvUp, ach: A };
+    var notes = ctx.feeN ? ctx.notes.concat(['Thao tác ×' + ctx.feeN]) : ctx.notes;
+    return { results: results, spend: ctx.spend, fee: ctx.fee, notes: notes, levelUp: lvUp, ach: A };
   }
 
   /* ---------------- Dữ liệu suy ra cho giao diện ---------------- */
@@ -855,13 +887,13 @@ var CityCore = (function () {
       quests: ql, dailyReady: st.dv.c !== day, dailyXu: visitReward(st.dv.last === day ? st.dv.n : st.dv.n + 1) + 5 * li.lv, visitDays: st.dv.n,
       spend: { today: st.ds.d === day ? st.ds.s : 0, cap: Math.max(0, Number(opt.cap) || 0) }, costPct: costPct,
       perms: PERMS.map(function (p) { var L = permLv(st, p.id); return { id: p.id, l: L, cost: p.max && L >= p.max ? null : pp(permCost(p.id, L)) }; }),
-      exRate: 10 + 2 * li.lv, value: Math.round(st.s.ps || 0), day: day, endsAt: dayEnd(day),
+      exRate: exRate(li.lv), actPts: actPts(opt), value: Math.round(st.s.ps || 0), day: day, endsAt: dayEnd(day),
       ach: ACH.map(function (a) { var k = st.ac[a.id] || 0; return { id: a.id, tier: k, max: a.t.length, val: achVal(st, a.id, S), next: k < a.t.length ? a.t[k] : null }; })
     };
   }
   function catalog() {
     return { catVer: CATVER, ch: CH, items: IT, crops: CROPS, b: B, obs: OBS, helpers: HELPERS, perms: PERMS, boosts: BOOSTS, grounds: GROUNDS, effects: EFFECTS,
-      vehicles: VEHICLES, exchange: EXCHANGE, ach: ACH, ranks: RANKS, consts: { taxCapH: TAX_CAP_H, boostMaxH: BOOST_MAX_H, vehMax: VEH_MAX, speedMinPerPt: SPEED_MIN_PER_PT, maxOps: MAX_OPS, maxIds: MAX_IDS } };
+      vehicles: VEHICLES, exchange: EXCHANGE, ach: ACH, ranks: RANKS, consts: { actPts: ACT_PTS, taxCapH: TAX_CAP_H, boostMaxH: BOOST_MAX_H, vehMax: VEH_MAX, speedMinPerPt: SPEED_MIN_PER_PT, maxOps: MAX_OPS, maxIds: MAX_IDS } };
   }
 
   return {
@@ -870,7 +902,7 @@ var CityCore = (function () {
     GROUNDS: GROUNDS, GROUND_BY: GROUND_BY, EFFECTS: EFFECTS, FX_BY: FX_BY, VEHICLES: VEHICLES, VEH_BY: VEH_BY, VEH_MAX: VEH_MAX, EXCHANGE: EXCHANGE, ACH: ACH, RANKS: RANKS,
     newState: newState, migrate: migrate, applyOps: applyOps, derived: derived, catalog: catalog, stats: stats, level: level, need: need, rank: rank,
     occupancy: occupancy, ownedSet: ownedSet, cellOwned: cellOwned, key: key, hash: hash, rng: rng, vnDay: vnDay, chunkCost: chunkCost, fieldCost: fieldCost,
-    upCost: upCost, permCost: permCost, copyCost: copyCost, lmCount: lmCount, slots: slots, animals: animals, cropTime: cropTime, taxOf: taxOf, taxRate: taxRate,
+    ACT_PTS: ACT_PTS, actPts: actPts, exRate: exRate, upCost: upCost, permCost: permCost, copyCost: copyCost, lmCount: lmCount, slots: slots, animals: animals, cropTime: cropTime, taxOf: taxOf, taxRate: taxRate,
     boostOn: boostOn, questList: questList, producible: producible, permLv: permLv, cname: cname, fmtN: fmtN, err: err
   };
 })();

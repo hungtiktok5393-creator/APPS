@@ -57,14 +57,14 @@
   /* ---------------- Trạng thái ---------------- */
   var H = null, R = null, S = null;
   function fresh() {
-    return { base: null, view: null, queue: [], flight: null, retry: 0, bal: 0, off: 0, opt: { costPct: 100, cap: 0 }, der: null, likes: 0,
+    return { base: null, view: null, queue: [], flight: null, retry: 0, bal: 0, off: 0, opt: { costPct: 100, cap: 0, act: C.ACT_PTS }, der: null, likes: 0,
       cam: { x: 0, y: 0, z: 1 }, sb: 1, list: [], occ: {}, chs: {}, dirtyList: true, sel: null, tool: null, place: null, visit: null,
       fx: [], parts: [], cars: [], walkers: [], flyers: [], t0: performance.now(), raf: 0, timers: [], ptr: new Map(), gest: null, panel: null, card: null,
       quality: LS.get('sm_city_q') || 'auto', lastDraw: 0, fps: 60, slow: 0, roadsKey: '', status: 'idle', serverVer: 0 };
   }
   function now() { return Date.now() + (S ? S.off : 0); }
   function st() { return S.visit ? S.visit.state : S.view; }
-  function optNow() { return { costPct: S.opt.costPct, cap: S.opt.cap, balance: Math.max(0, S.bal - pendingSpend()) }; }
+  function optNow() { return { costPct: S.opt.costPct, cap: S.opt.cap, act: S.opt.act, balance: Math.max(0, S.bal - pendingSpend()) }; }
   var _pend = 0; function pendingSpend() { return _pend; }
   function P(x) { return Math.max(1, Math.round(x * S.opt.costPct / 100)); }
   function lv() { return C.level(S.view.xp).lv; }
@@ -80,7 +80,7 @@
     S.view = copy; _pend += r.spend;
     ops.forEach(function (op) { mergeQueue(op); });
     afterChange(r);
-    if (r.spend > 0 || o.now) flush(0); else flush(700);
+    if (r.spend - (r.fee || 0) > 0 || o.now) flush(0); else flush(700);   // mua bằng điểm → lưu ngay; phí thao tác thường thì gộp lô
     return r;
   }
   function mergeQueue(op) {
@@ -123,7 +123,7 @@
   function applyServer(res) {
     if (res.serverTime) S.off = res.serverTime - Date.now();
     if (res.balance != null) { S.bal = res.balance; if (H.setBalance) H.setBalance(res.balance); }
-    if (res.derived) { S.der = res.derived; S.likes = res.derived.likes || 0; if (res.derived.costPct) S.opt.costPct = res.derived.costPct; if (res.derived.spend) S.opt.cap = res.derived.spend.cap || 0; }
+    if (res.derived) { S.der = res.derived; S.likes = res.derived.likes || 0; if (res.derived.costPct) S.opt.costPct = res.derived.costPct; if (res.derived.actPts != null) S.opt.act = res.derived.actPts; if (res.derived.spend) S.opt.cap = res.derived.spend.cap || 0; }
     S.base = C.migrate(res.state);
     rebase();
   }
@@ -773,6 +773,7 @@
     $('.ct-pills', R).hidden = false;
     $('.ct-p-xu b', R).textContent = fmt(s.xu);
     $('.ct-p-pt b', R).textContent = fmt(Math.max(0, S.bal - pendingSpend()));
+    $('.ct-p-pt', R).title = 'Điểm học tập' + (S.opt.act ? ' · mỗi thao tác tốn ' + S.opt.act + ' ⭐' : '');
     $('.ct-p-hap b', R).textContent = '+' + fmt(D.taxPct) + '%';
     var kb = $('.ct-p-kho', R); kb.querySelector('b').textContent = fmt(D.used) + '/' + fmt(D.cap); kb.classList.toggle('full', D.used >= D.cap);
     // huy hiệu
@@ -1088,6 +1089,7 @@
   PANELS.points = { title: '⭐ Cửa hàng Điểm học tập', render: function (b, pn) {
     var s = S.view, L = lv(), cur = pn.tab || 'dat', bal = Math.max(0, S.bal - pendingSpend()), t = now();
     var hd = el('div', 'ct-pthead'); hd.append(el('b', '', '⭐ ' + fmt(bal) + ' điểm'), el('small', '', 'Điểm có được khi làm bài tập. Học càng chăm, thành phố càng đẹp!'));
+    if (S.opt.act) hd.append(el('small', 'muted', 'Mỗi thao tác (gieo/thu 1 ô, thu thuế 1 nhà, làm/thu sản phẩm, cho ăn, giao đơn, bán, xây, nâng cấp, dọn) tốn ' + S.opt.act + ' ⭐.'));
     if (S.opt.cap) { var D = C.derived(s, t, S.opt); hd.append(el('small', 'muted', 'Hôm nay đã chi ' + D.spend.today + '/' + S.opt.cap + ' điểm (giới hạn của giáo viên).')); }
     b.append(hd);
     tabs(b, PTABS, cur, function (k) { pn.tab = k; panelRender(true); });
@@ -1104,7 +1106,7 @@
     if (cur === 'help') C.HELPERS.forEach(function (h) { var own = !!s.hp[h.id], lock = h.lv > L; grid.append(itemCard({ e: h.e, n: h.n, sub: h.d, price: own ? '✔ Đã thuê' : lock ? '🔒 Cấp ' + h.lv : fmt(P(h.pts)) + ' ⭐', pt: !own, cls: (own ? 'own' : lock ? 'lock' : '') + ' wide', fn: function () { if (own || lock) return; confirmBox(h.e + ' ' + h.n, h.d, 'Thuê ' + fmt(P(h.pts)) + ' ⭐', function () { buy({ op: 'helper', k: h.id }, h.e + ' ' + h.n + ' đã sẵn sàng! Xem nút ở phía dưới màn hình.'); }); } })); });
     if (cur === 'perm') C.PERMS.forEach(function (p) { var l = C.permLv(s, p.id), mx = p.max && l >= p.max, cost = P(C.permCost(p.id, l)); grid.append(itemCard({ e: p.e, n: p.n + ' · cấp ' + l, sub: p.d, price: mx ? '✔ Tối đa' : fmt(cost) + ' ⭐', pt: !mx, cls: (mx ? 'own' : '') + ' wide', fn: function () { if (!mx) buy({ op: 'perm', k: p.id }, p.e + ' ' + p.n + ' lên cấp ' + (l + 1) + '!'); } })); });
     if (cur === 'boost') C.BOOSTS.forEach(function (bo) { var w = s.bo[bo.id], on = w && w[1] > t; var c = itemCard({ e: bo.e, n: bo.n, sub: bo.d + (on ? ' · còn ' + fmtT(w[1] - t) : ''), price: fmt(P(bo.pts)) + ' ⭐ / giờ', pt: true, cls: 'wide' + (on ? ' active' : '') }); var row = el('div', 'row'); [1, 3, 8].forEach(function (h) { row.append(btn('pt sm', '+' + h + 'g · ' + fmt(P(bo.pts * h)) + '⭐', function () { buy({ op: 'boost', k: bo.id, h: h }, bo.e + ' ' + bo.n + ' đang bật!'); })); }); c.append(row); grid.append(c); });
-    if (cur === 'xu') C.EXCHANGE.forEach(function (n) { var xu = n * (10 + 2 * L); grid.append(itemCard({ e: n >= 500 ? '💰' : n >= 100 ? '💵' : '🪙', n: fmt(xu) + ' 🪙', sub: 'Đổi ' + fmt(P(n)) + ' ⭐ (tỉ giá tăng theo cấp)', price: fmt(P(n)) + ' ⭐', pt: true, fn: function () { confirmBox('🪙 Đổi xu', 'Đổi ' + fmt(P(n)) + ' ⭐ lấy ' + fmt(xu) + ' 🪙?', 'Đổi', function () { var r = buy({ op: 'exchange', n: n }); if (r) flyTo(W / 2, Hh / 2, '💰', '.ct-p-xu'); }); } })); });
+    if (cur === 'xu') C.EXCHANGE.forEach(function (n) { var xu = n * C.exRate(L); grid.append(itemCard({ e: n >= 500 ? '💰' : n >= 100 ? '💵' : '🪙', n: fmt(xu) + ' 🪙', sub: 'Đổi ' + fmt(P(n)) + ' ⭐ (tỉ giá tăng theo cấp)', price: fmt(P(n)) + ' ⭐', pt: true, fn: function () { confirmBox('🪙 Đổi xu', 'Đổi ' + fmt(P(n)) + ' ⭐ lấy ' + fmt(xu) + ' 🪙?', 'Đổi', function () { var r = buy({ op: 'exchange', n: n }); if (r) flyTo(W / 2, Hh / 2, '💰', '.ct-p-xu'); }); } })); });
     if (cur === 'veh') C.VEHICLES.forEach(function (v) { var n = (s.vh && s.vh[v.id]) || 0, mx = n >= C.VEH_MAX; grid.append(itemCard({ e: v.e, n: v.n, sub: (v.k === 'air' ? 'Bay trên trời' : v.k === 'walk' ? 'Dạo quanh phố' : 'Chạy trên đường nhựa') + ' · có ' + n, price: mx ? '✔ Tối đa' : fmt(P(v.pts)) + ' ⭐', pt: !mx, cls: mx ? 'own' : '', fn: function () { if (!mx) buy({ op: 'vehicle', k: v.id }, v.e + ' ' + v.n + ' đã tới thành phố!'); } })); });
     if (cur === 'theme') C.GROUNDS.forEach(function (gd) { var own = s.th.go.indexOf(gd.id) >= 0, on = (s.th.g || '') === gd.id; var sw = el('span', 'ct-sw'); sw.style.background = 'linear-gradient(135deg,' + gd.c[0] + ',' + gd.c[2] + ')'; var c = itemCard({ e: '', n: gd.n, sub: on ? 'Đang dùng' : own ? 'Đã có – chạm để dùng' : '', price: own ? (on ? '✔' : 'Dùng') : fmt(P(gd.pts)) + ' ⭐', pt: !own, cls: on ? 'active' : '', fn: function () { if (on) return; buy({ op: 'theme', k: gd.id }); } }); c.querySelector('.ct-ie').replaceWith(sw); grid.append(c); });
     if (cur === 'fx') C.EFFECTS.forEach(function (f) { var own = s.th.fo.indexOf(f.id) >= 0, on = s.th.fx.indexOf(f.id) >= 0; grid.append(itemCard({ e: f.e, n: f.n, sub: own ? (on ? 'Đang bật – chạm để tắt' : 'Đang tắt – chạm để bật') : '', price: own ? (on ? 'BẬT' : 'TẮT') : fmt(P(f.pts)) + ' ⭐', pt: !own, cls: on ? 'active' : '', fn: function () { buy({ op: 'effect', k: f.id }); } })); });
@@ -1136,7 +1138,7 @@
     f.append(btn('ghost', '📖 Xem lại hướng dẫn', function () { LS.set('sm_city_tut', '0'); closePanel(); tutorialShow(); }));
     b.append(f);
     var help = el('div', 'ct-help-txt');
-    [['👆', 'Chạm: thu hoạch, thu thuế, thu sản phẩm, mở thông tin.'], ['✋', 'Kéo: di chuyển bản đồ. Hai ngón / con lăn: phóng to – thu nhỏ.'], ['🌾', 'Chọn hạt rồi KÉO ngón tay qua nhiều ruộng để gieo/thu hoạch nhanh.'], ['✥', 'Giữ lâu một công trình để di chuyển nó.'], ['📥', 'Cất công trình vào kho: không mất gì, đặt lại miễn phí với nguyên cấp.'], ['⭐', 'Điểm học tập dùng cho đất mới, kỳ quan, trang trí cao cấp, trợ lý… Không có gì bị mất hay reset.'], ['👪', 'Game này không tính vào báo cáo cho phụ huynh.']].forEach(function (x) { var p = el('p'); p.append(el('span', 'e', x[0]), document.createTextNode(' ' + x[1])); help.append(p); });
+    [['👆', 'Chạm: thu hoạch, thu thuế, thu sản phẩm, mở thông tin.'], ['✋', 'Kéo: di chuyển bản đồ. Hai ngón / con lăn: phóng to – thu nhỏ.'], ['🌾', 'Chọn hạt rồi KÉO ngón tay qua nhiều ruộng để gieo/thu hoạch nhanh.'], ['✥', 'Giữ lâu một công trình để di chuyển nó.'], ['📥', 'Cất công trình vào kho: không mất gì, đặt lại miễn phí với nguyên cấp.'], ['⭐', 'Điểm học tập dùng cho đất mới, kỳ quan, trang trí cao cấp, trợ lý, tăng tốc… và mỗi thao tác chơi (gieo/thu 1 ô, thu thuế 1 nhà, làm/thu sản phẩm, giao đơn, bán, xây, nâng cấp…) tốn ' + (S.opt.act || 0) + ' ⭐. Không có gì bị mất hay reset.'], ['👪', 'Game này không tính vào báo cáo cho phụ huynh.']].forEach(function (x) { var p = el('p'); p.append(el('span', 'e', x[0]), document.createTextNode(' ' + x[1])); help.append(p); });
     b.append(help);
   } };
 
@@ -1186,7 +1188,7 @@
     ['🚚', 'Mở 🚚 Đơn hàng ở dưới cùng và giao hàng để nhận xu 🪙 và kinh nghiệm ✨.', 'od'],
     ['🪙', 'Nhà có bong bóng 🪙 là có thuế. Chạm để thu thuế!', 'tx'],
     ['🏗️', 'Mở 🏗️ Xây dựng để xây thêm nhà, nhà máy, trang trí. Nhà càng nhiều, dân càng đông!', 'bu'],
-    ['⭐', 'Điểm làm bài tập ⭐ dùng để mua đất mới (biển vàng 🔓), kỳ quan, trợ lý và nhiều thứ thú vị. Học chăm để thành phố lớn mạnh! Không có gì bị mất hay reset.', null]
+    ['⭐', 'Điểm làm bài tập ⭐ dùng để mua đất mới (biển vàng 🔓), kỳ quan, trợ lý, tăng tốc và nhiều thứ thú vị. Mỗi thao tác chơi (gieo, thu hoạch, giao hàng, thu thuế…) cũng tốn vài ⭐. Học chăm để thành phố lớn mạnh! Không có gì bị mất hay reset.', null]
   ];
   function tutStep() { return Math.max(0, Number(LS.get('sm_city_tut') || 0) || 0); }
   function tutorialShow() {

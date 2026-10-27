@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 15;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 16;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -403,8 +403,8 @@ const CONFIG_DEFAULTS = {
   gamesEnabled: true, maxBet: 200, maxBetPct: 25, dailyLossLimit: 300,
   game_slots_enabled: true, game_wheel_enabled: true, game_hilo_enabled: true, game_mines_enabled: true, game_crash_enabled: true,
   game_dice_enabled: true, game_plinko_enabled: true, game_scratch_enabled: true, game_keno_enabled: true, game_coin_enabled: true,
-  cityEnabled: true, cityCostPct: 100, cityDailySpendCap: 0,
-  petEnabled: true, petDailyMin: 25, petDailySpendCap: 0
+  cityEnabled: true, cityCostPct: 100, cityDailySpendCap: 0, cityActionPts: 2,
+  petEnabled: true, petDailyMin: 50, petDailySpendCap: 0
 };
 const GAME_ACTIONS = {}, CITY_ACTIONS = {}, PET_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
 let _gamesReg = false, _cityReg = false, _petReg = false, _cfg = null, _tk = null;

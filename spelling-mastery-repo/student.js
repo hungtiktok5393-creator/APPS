@@ -6,7 +6,7 @@
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261027m', BREAK_EVERY = 20;
+const VER = '20261027n', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
 const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash'], ['dice', '🎲', 'Xúc xắc'], ['plinko', '🔻', 'Plinko'], ['scratch', '🎟️', 'Thẻ cào'], ['keno', '🔢', 'Keno mini'], ['coin', '🪙', 'Tung xu']];

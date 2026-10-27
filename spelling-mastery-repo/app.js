@@ -2644,9 +2644,10 @@ const CFG_ADV = [
   { k: 'maxBetPct', label: 'Cược tối đa theo % số dư', min: 1, max: 100, def: 25, hint: 'Mỗi lần cược không quá tỉ lệ này của số dư.' },
   { k: 'maxSubmitPoints', label: 'Trần điểm mỗi lần nộp', min: 1, max: 1000000, def: 5000, hint: 'Chống số liệu bất thường từ máy học sinh.' },
   { k: 'cityCostPct', label: 'Nông trại & Thành phố: giá điểm (% so với mặc định)', min: 10, max: 500, def: 100, hint: '100 = giá mặc định; 50 = rẻ một nửa; 200 = đắt gấp đôi.' },
+  { k: 'cityActionPts', label: 'Nông trại & Thành phố: điểm tốn cho mỗi thao tác (0 = miễn phí)', min: 0, max: 100, def: 2, hint: 'Mỗi lần gieo/thu hoạch một ô ruộng, thu thuế một nhà, làm/thu sản phẩm, giao đơn, bán hàng, xây, nâng cấp… đều trừ số điểm này.' },
   { k: 'cityDailySpendCap', label: 'Trần chi điểm Nông trại & Thành phố mỗi ngày (0 = không giới hạn)', min: 0, max: 1000000, def: 0, hint: 'Giới hạn số điểm một học sinh được chi cho thành phố trong một ngày.' },
   { k: 'petDailySpendCap', label: 'Trần chi điểm Thú cưng mỗi ngày (0 = không giới hạn)', min: 0, max: 1000000, def: 0, hint: 'Giới hạn số điểm một học sinh được chi cho thú cưng trong một ngày.' }];
-const CFG_PET = [{ k: 'petDailyMin', label: 'Thú cưng: điểm chăm sóc tối thiểu mỗi ngày', min: 1, max: 100000, def: 25, hint: 'Hết ngày mà học sinh chi chưa đủ số điểm này cho đồ ăn + chăm sóc thì thú cưng mất.' }];
+const CFG_PET = [{ k: 'petDailyMin', label: 'Thú cưng: điểm chăm sóc tối thiểu mỗi ngày', min: 1, max: 100000, def: 50, hint: 'Hết ngày mà học sinh chi chưa đủ số điểm này cho đồ ăn, chăm sóc, chơi đùa hoặc biểu diễn thì thú cưng mất.' }];
 const CFG_GAMES = [['slots', '🎰 Máy xèng (Slots)'], ['wheel', '🎡 Vòng quay'], ['hilo', '🃏 Cao – Thấp (Hi-Lo)'], ['mines', '💣 Dò mìn (Mines)'], ['crash', '🚀 Crash'], ['dice', '🎲 Xúc xắc'], ['plinko', '🔻 Plinko'], ['scratch', '🎟️ Thẻ cào'], ['keno', '🔢 Keno mini'], ['coin', '🪙 Tung xu']];
 const CFG_BOOL = [{ k: 'gamesEnabled', label: 'Bật khu trò chơi' }].concat(CFG_GAMES.map(([g, t]) => ({ k: 'game_' + g + '_enabled', label: t }))).concat([{ k: 'cityEnabled', label: 'Bật Nông trại & Thành phố (không tính vào báo cáo phụ huynh)' }, { k: 'petEnabled', label: 'Bật Thú cưng (không tính vào báo cáo phụ huynh)' }]);
 const CFG_ALL = CFG_NUM.concat(CFG_ADV, CFG_PET);

@@ -4,23 +4,27 @@
  * Tiền tố pt... / PT_... để không đụng các tệp khác. Code.gs gọi registerPetActions_(PET_ACTIONS).
  *
  * Luật chính:
- *  - Mỗi ngày (giờ Việt Nam) học sinh phải chi ít nhất `petDailyMin` điểm (mặc định 25) cho ĐỒ ĂN + CHĂM SÓC của thú.
+ *  - Mỗi ngày (giờ Việt Nam) học sinh phải chi ít nhất `petDailyMin` điểm (mặc định 50) cho ĐỒ ĂN, CHĂM SÓC, CHƠI ĐÙA, BIỂU DIỄN của thú.
  *    Hết ngày mà chưa đủ → thú chết (lúc 0:00 hôm sau). Ngày nhận nuôi / hồi sinh là ngày ân hạn (không bị chết).
  *  - Thú chết: hồi sinh trong 7 ngày (tốn điểm) hoặc tiễn bé vào Album rồi nuôi bé mới.
  *  - Điểm CHỈ ĐỂ CHI (reason 'pet' trong Ledger). Không có đường nào sinh điểm. Không ngẫu nhiên/hộp quà.
  *  - Trang phụ huynh KHÔNG tính gì từ game này (familyReport_ bỏ qua reason 'pet').
  *  - petAct: nguyên tử TOÀN LÔ, idempotent theo requestId.
- * Cấu hình (sheet Config): petEnabled (true), petDailyMin (25), petDailySpendCap (0 = không giới hạn).
+ * Cấu hình (sheet Config): petEnabled (true), petDailyMin (50), petDailySpendCap (0 = không giới hạn).
  * ===================================================================== */
 
 const PT_VER = 1;                 // phiên bản cấu trúc state
-const PT_CATVER = 1;              // phiên bản danh mục (client cache theo số này)
+const PT_CATVER = 2;              // phiên bản danh mục (client cache theo số này). 2 = bảng giá mới (gấp đôi theo cấp/độ hiếm)
 const PT_SHEET = 'Pets';
 const PT_HEADERS = ['code', 'state', 'v', 'updatedAt', 'lastReqId', 'lastResp', 'lvl', 'xp', 'streak', 'alive', 'name', 'species', 'best'];
 const PT_NCOL = PT_HEADERS.length;
 const PT_MAXLV = 100, PT_REVIVE_DAYS = 7, PT_LOG = 40, PT_ALBUM = 60, PT_MAX_OPS = 20;
 const PT_DECAY = { h: 2.5, j: 2, c: 1.5, e: 2.5 };          // mức giảm mỗi giờ: no bụng, vui vẻ, sạch sẽ, năng lượng
-const PT_SLEEP_CD = 3 * 3600000, PT_TRICK_CD = 4 * 60000;
+const PT_SLEEP_CD = 3 * 3600000;
+// Bảng giá: giá gốc (số viết trong danh mục) × PT_PRICE_X × (1 + cấp mở / PT_PRICE_LV) – đồ cấp cao đắt hơn nhiều.
+// Loài thú (không có cấp mở) thêm hệ số độ hiếm: loài rẻ nhất ×1, loài hiếm nhất ×(1 + PT_PRICE_RARE).
+// XP nhận được vẫn tính theo giá gốc (trường b) để tốc độ lên cấp không đổi.
+const PT_PRICE_X = 2, PT_PRICE_LV = 60, PT_PRICE_RARE = 0.5, PT_RENAME = 20, PT_DEF_MIN = 50;
 
 /* ---------------- Danh mục ---------------- */
 const PT_SPECIES = [
@@ -46,12 +50,12 @@ const PT_CARE = [
   { id: 'thuoc', n: 'Uống thuốc', e: '💊', p: 15, cure: 1, j: 2 }, { id: 'vitamin', n: 'Vitamin', e: '🍬', p: 10, en: 35, j: 4 },
   { id: 'spa', n: 'Spa thư giãn', e: '💆', p: 30, c: 100, j: 40, en: 40, lv: 4 }, { id: 'ngu', n: 'Đi ngủ', e: '💤', p: 0, en: 100, cd: PT_SLEEP_CD }
 ];
-// Đồ chơi: mua 1 lần, chơi miễn phí (hồi chiêu cd phút). j = vui, en = năng lượng tốn
+// Đồ chơi: mua 1 lần; mỗi lần chơi tốn pp điểm (tự tính bên dưới), không phải chờ. j = vui, en = năng lượng tốn
 const PT_TOYS = [
-  { id: 'bong', n: 'Quả bóng', e: '⚽', p: 30, j: 15, en: 8, cd: 20 }, { id: 'len', n: 'Cuộn len', e: '🧶', p: 40, j: 16, en: 6, cd: 20 }, { id: 'xuong', n: 'Xương gặm', e: '🦴', p: 40, j: 16, en: 5, cd: 20 },
-  { id: 'vit', n: 'Vịt cao su', e: '🦆', p: 60, j: 18, en: 4, cd: 25 }, { id: 'yoyo', n: 'Yo-yo', e: '🪀', p: 90, j: 20, en: 8, cd: 25 }, { id: 'dieu', n: 'Diều giấy', e: '🪁', p: 150, j: 24, en: 10, cd: 30, lv: 4 },
-  { id: 'vantruot', n: 'Ván trượt', e: '🛹', p: 300, j: 30, en: 14, cd: 30, lv: 8 }, { id: 'tenlua', n: 'Tên lửa đồ chơi', e: '🚀', p: 600, j: 36, en: 12, cd: 35, lv: 14 },
-  { id: 'dia', n: 'Đĩa bay', e: '🥏', p: 1000, j: 42, en: 12, cd: 40, lv: 20 }
+  { id: 'bong', n: 'Quả bóng', e: '⚽', p: 30, j: 15, en: 8 }, { id: 'len', n: 'Cuộn len', e: '🧶', p: 40, j: 16, en: 6 }, { id: 'xuong', n: 'Xương gặm', e: '🦴', p: 40, j: 16, en: 5 },
+  { id: 'vit', n: 'Vịt cao su', e: '🦆', p: 60, j: 18, en: 4 }, { id: 'yoyo', n: 'Yo-yo', e: '🪀', p: 90, j: 20, en: 8 }, { id: 'dieu', n: 'Diều giấy', e: '🪁', p: 150, j: 24, en: 10, lv: 4 },
+  { id: 'vantruot', n: 'Ván trượt', e: '🛹', p: 300, j: 30, en: 14, lv: 8 }, { id: 'tenlua', n: 'Tên lửa đồ chơi', e: '🚀', p: 600, j: 36, en: 12, lv: 14 },
+  { id: 'dia', n: 'Đĩa bay', e: '🥏', p: 1000, j: 42, en: 12, lv: 20 }
 ];
 // Phụ kiện: slot hat | eyes | neck | back
 const PT_ACC = [
@@ -92,6 +96,7 @@ const PT_TRICKS = [
   { id: 'lon', n: 'Lộn nhào', e: '🤸', lv: 9, p: 300 }, { id: 'mua', n: 'Nhảy múa', e: '💃', lv: 13, p: 500 }, { id: 'hat', n: 'Ca hát', e: '🎤', lv: 17, p: 800 },
   { id: 'bay', n: 'Bay lượn', e: '🕊️', lv: 24, p: 1500 }, { id: 'phep', n: 'Phép thuật', e: '✨', lv: 35, p: 3000 }, { id: 'cauvong', n: 'Gọi cầu vồng', e: '🌈', lv: 50, p: 8000 }
 ];
+// Kỹ năng: học 1 lần (p điểm); mỗi lần diễn tốn sp điểm (tự tính bên dưới), không phải chờ.
 // Mini game: vé p điểm (không trả lại điểm, chỉ cho XP + vui). smax = điểm số tối đa hợp lệ; k = XP mỗi điểm số; xmax = trần XP; ms = thời gian tối thiểu
 const PT_GAMES = [
   { id: 'hung', n: 'Hứng quà', e: '🧺', p: 5, smax: 600, k: 0.4, xmax: 150, ms: 20000 },
@@ -111,12 +116,25 @@ const PT_ACH = [
 // Nhiệm vụ ngày: [loại, mẫu câu, các mức, XP thưởng mỗi mức]
 const PT_QUESTS = [
   ['feed', 'Cho bé ăn {n} lần', [3, 4, 5], 40], ['care', 'Tắm hoặc chải lông {n} lần', [1, 2], 40], ['toy', 'Chơi đồ chơi {n} lần', [2, 3, 4], 40],
-  ['game', 'Chơi mini game {n} ván', [1, 2], 50], ['trick', 'Cho bé biểu diễn {n} lần', [1, 2, 3], 40], ['spend', 'Chi {n} điểm cho bé', [30, 50, 80], 60],
+  ['game', 'Chơi mini game {n} ván', [1, 2], 50], ['trick', 'Cho bé biểu diễn {n} lần', [1, 2, 3], 40], ['spend', 'Chi {n} điểm cho bé', [60, 100, 160], 60],
   ['pat', 'Vuốt ve bé {n} lần', [5, 10, 15], 30]
 ];
 const PT_STAGES = [[1, 'Sơ sinh'], [5, 'Bé nhí'], [15, 'Thiếu niên'], [30, 'Trưởng thành'], [50, 'Huyền thoại']];
 const PT_SLOTS = { hat: 'acc', eyes: 'acc', neck: 'acc', back: 'acc', col: 'col', room: 'room', fl: 'furn', fr: 'furn', wl: 'furn', wr: 'furn', ce: 'furn', rug: 'furn' };
 
+/* ---- Áp bảng giá (chạy 1 lần khi nạp tệp): b = giá gốc (để tính XP), p = giá thật ---- */
+function ptNice_(v) { if (v <= 0) return 0; const s = v < 50 ? 1 : v < 200 ? 5 : v < 2000 ? 10 : v < 20000 ? 50 : 100; return Math.max(1, Math.round(v / s) * s); }
+function ptPrice_(base, lv, rare) { return ptNice_(base * PT_PRICE_X * (1 + (lv || 0) / PT_PRICE_LV) * (1 + PT_PRICE_RARE * (rare || 0))); }
+(function ptApplyPrices_() {
+  [PT_FOODS, PT_CARE, PT_TOYS, PT_ACC, PT_COLORS, PT_ROOMS, PT_FURN, PT_TRICKS, PT_GAMES].forEach(function (arr) {
+    arr.forEach(function (x) { if (x.b == null) { x.b = x.p; x.p = ptPrice_(x.p, x.lv); } });
+  });
+  const n = PT_SPECIES.length;
+  PT_SPECIES.forEach(function (x, i) { if (x.b == null) { x.b = x.p; x.p = ptPrice_(x.p, 0, n > 1 ? i / (n - 1) : 0); } });
+  // Mỗi lần chơi đồ chơi / biểu diễn đều tốn điểm (không còn thời gian chờ)
+  PT_TOYS.forEach(function (t) { t.pp = 2 + Math.round(t.j / 6); });
+  PT_TRICKS.forEach(function (t, i) { t.sp = 3 + 2 * i; });
+})();
 function ptBy_(arr) { const o = {}; arr.forEach(function (x) { o[x.id] = x; }); return o; }
 const PT_SP_BY = ptBy_(PT_SPECIES), PT_FOOD_BY = ptBy_(PT_FOODS), PT_CARE_BY = ptBy_(PT_CARE), PT_TOY_BY = ptBy_(PT_TOYS), PT_ACC_BY = ptBy_(PT_ACC),
   PT_COL_BY = ptBy_(PT_COLORS), PT_ROOM_BY = ptBy_(PT_ROOMS), PT_FURN_BY = ptBy_(PT_FURN), PT_TRICK_BY = ptBy_(PT_TRICKS), PT_GAME_BY = ptBy_(PT_GAMES);
@@ -126,7 +144,7 @@ const PT_OWN_KEY = { acc: 'a', col: 'c', room: 'r', furn: 'f', toy: 't' };
 /* ---------------- Tiện ích ---------------- */
 function ptDay_(now) { return Math.floor((now + 7 * 3600000) / 86400000); }        // ngày theo giờ Việt Nam
 function ptDayEnd_(day) { return (day + 1) * 86400000 - 7 * 3600000; }               // 0:00 (giờ VN) của ngày hôm sau, theo ms UTC
-function ptMin_() { return clampInt_(cfgNum_('petDailyMin', 25), 1, 100000, 25); }
+function ptMin_() { return clampInt_(cfgNum_('petDailyMin', PT_DEF_MIN), 1, 100000, PT_DEF_MIN); }
 function ptErr_(c, m) { return apiError_('pet_' + c, m); }
 function ptCl_(v, hi) { v = Number(v); if (!isFinite(v)) return 0; return Math.max(0, Math.min(hi == null ? 100 : hi, v)); }
 function ptNeed_(lv) { return Math.round(50 * Math.pow(1.09, lv - 1)); }
@@ -141,7 +159,7 @@ function ptName_(v, def) {
   if (s.length > 16) s = s.slice(0, 16).trim();
   return s || def;
 }
-function ptReviveCost_(pet) { return 100 + 10 * ptLevel_(pet.xp).lv; }
+function ptReviveCost_(pet) { return 200 + 20 * ptLevel_(pet.xp).lv; }
 function ptHash_(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
 
 function ptNew_(now) {
@@ -272,7 +290,7 @@ function ptOpFeed_(ctx, o) {
   if (p.h >= 100) throw ptErr_('full', p.nm + ' no căng bụng rồi! Hãy tắm, chơi cùng bé hoặc đợi một lát.');
   ptSpend_(ctx, f.p, f.n, true);
   p.h = ptCl_(p.h + f.h, 130); p.j = ptCl_(p.j + (f.j || 0)); if (f.en) p.e = ptCl_(p.e + f.en);
-  const xp = ptGainXp_(ctx, f.p * 3 * (f.x || 1));
+  const xp = ptGainXp_(ctx, f.b * 3 * (f.x || 1));
   ctx.st.s.fd++; ptQ_(ctx, 'feed');
   return { food: f.id, xp: xp };
 }
@@ -287,7 +305,7 @@ function ptOpCare_(ctx, o) {
   if (c.c) p.c = ptCl_(p.c + c.c); if (c.j) p.j = ptCl_(p.j + c.j); if (c.en) p.e = ptCl_(p.e + c.en);
   if (c.cure) { p.sick = 0; p.h = Math.max(p.h, 20); p.c = Math.max(p.c, 20); }
   if (c.cd) st.cd[c.id] = ctx.now + c.cd;
-  const xp = c.p ? ptGainXp_(ctx, c.p * 3) : ptGainXp_(ctx, 5);
+  const xp = c.b ? ptGainXp_(ctx, c.b * 3) : ptGainXp_(ctx, 5);
   if (c.id === 'tam' || c.id === 'chai' || c.id === 'spa') ptQ_(ctx, 'care');
   return { care: c.id, xp: xp };
 }
@@ -295,12 +313,10 @@ function ptOpPlay_(ctx, o) {
   const p = ptAlive_(ctx), t = PT_TOY_BY[String(o.id || '')], st = ctx.st;
   if (!t) throw ptErr_('bad_request', 'Đồ chơi không hợp lệ.');
   if (st.own.t.indexOf(t.id) < 0) throw ptErr_('not_owned', 'Bạn chưa có ' + t.n + '. Mua ở Cửa hàng nhé.');
-  const k = 'toy_' + t.id;
-  if ((st.cd[k] || 0) > ctx.now) throw ptErr_('cooldown', p.nm + ' vừa chơi ' + t.n + '. Chơi lại sau ' + Math.ceil((st.cd[k] - ctx.now) / 60000) + ' phút (hoặc chọn đồ chơi khác).');
   if (p.e < t.en) throw ptErr_('tired', p.nm + ' mệt rồi. Cho bé ngủ hoặc ăn gì đó nhé!');
   if (p.sick) throw ptErr_('sick', p.nm + ' đang ốm, cần uống thuốc trước khi chơi.');
+  ptSpend_(ctx, t.pp, 'chơi ' + t.n, true);
   p.j = ptCl_(p.j + t.j); p.e = ptCl_(p.e - t.en); p.c = ptCl_(p.c - 4);
-  st.cd[k] = ctx.now + t.cd * 60000;
   const xp = ptGainXp_(ctx, 4 + Math.round(t.j / 4));
   st.s.pl++; ptQ_(ctx, 'toy');
   return { toy: t.id, xp: xp };
@@ -321,7 +337,7 @@ function ptOpBuy_(ctx, o) {
   own.push(it.id);
   const slot = kind === 'acc' || kind === 'furn' ? it.s : kind === 'col' ? 'col' : kind === 'room' ? 'room' : '';
   if (slot && o.equip !== false) st.eq[slot] = it.id;
-  const xp = ptGainXp_(ctx, it.p, true);
+  const xp = ptGainXp_(ctx, it.b, true);
   ptLog_(st, ctx.now, 'Mua ' + it.n + ' (' + it.p + ' điểm).');
   return { bought: it.id, kind: kind, xp: xp };
 }
@@ -340,16 +356,16 @@ function ptOpLearn_(ctx, o) {
   if (p.k.indexOf(t.id) >= 0) throw ptErr_('already', p.nm + ' đã biết ' + t.n + ' rồi.');
   ptNeedLv_(ctx, t.lv, 'Kỹ năng ' + t.n);
   ptSpend_(ctx, t.p, 'dạy ' + t.n, false);
-  p.k.push(t.id); const xp = ptGainXp_(ctx, t.p, true);
+  p.k.push(t.id); const xp = ptGainXp_(ctx, t.b, true);
   ptLog_(ctx.st, ctx.now, p.nm + ' đã học được ' + t.n + '!');
   return { learned: t.id, xp: xp };
 }
 function ptOpTrick_(ctx, o) {
   const p = ptAlive_(ctx), t = PT_TRICK_BY[String(o.id || '')], st = ctx.st;
   if (!t || p.k.indexOf(t.id) < 0) throw ptErr_('not_learned', 'Bé chưa học kỹ năng này.');
-  if ((st.cd.trick || 0) > ctx.now) throw ptErr_('cooldown', p.nm + ' cần nghỉ ' + Math.ceil((st.cd.trick - ctx.now) / 1000) + ' giây trước màn diễn tiếp theo.');
   if (p.e < 5) throw ptErr_('tired', p.nm + ' mệt rồi, cho bé nghỉ ngơi nhé!');
-  p.e = ptCl_(p.e - 5); p.j = ptCl_(p.j + 8); st.cd.trick = ctx.now + PT_TRICK_CD;
+  ptSpend_(ctx, t.sp, 'diễn ' + t.n, true);
+  p.e = ptCl_(p.e - 5); p.j = ptCl_(p.j + 8);
   const xp = ptGainXp_(ctx, 6 + PT_TRICKS.indexOf(t) * 2);
   st.s.tk++; ptQ_(ctx, 'trick');
   return { trick: t.id, xp: xp };
@@ -396,7 +412,7 @@ function ptOpRename_(ctx, o) {
   const p = ptAlive_(ctx), nm = ptName_(o.name, '');
   if (!nm) throw ptErr_('bad_request', 'Tên không hợp lệ.');
   if (nm === p.nm) throw ptErr_('already', 'Bé đang tên là ' + nm + ' rồi.');
-  ptSpend_(ctx, 10, 'đổi tên', false); p.nm = nm;
+  ptSpend_(ctx, PT_RENAME, 'đổi tên', false); p.nm = nm;
   return { name: nm };
 }
 function ptOpClaim_(ctx, o) {
@@ -455,7 +471,7 @@ function ptInfo_(p) {
   if (p && Number(p.catVer) === PT_CATVER) return { catVer: PT_CATVER, same: true };
   return { catVer: PT_CATVER, species: PT_SPECIES, foods: PT_FOODS, care: PT_CARE, toys: PT_TOYS, acc: PT_ACC, colors: PT_COLORS, rooms: PT_ROOMS, furn: PT_FURN,
     tricks: PT_TRICKS, games: PT_GAMES, ach: PT_ACH, stages: PT_STAGES, decay: PT_DECAY, reviveDays: PT_REVIVE_DAYS, maxLv: PT_MAXLV,
-    rules: { min: ptMin_(), note: 'Mỗi ngày (giờ Việt Nam) cần chi ít nhất ' + ptMin_() + ' điểm cho đồ ăn và chăm sóc, nếu không thú cưng sẽ mất lúc 0:00 hôm sau.' } };
+    rules: { min: ptMin_(), rename: PT_RENAME, note: 'Mỗi ngày (giờ Việt Nam) cần chi ít nhất ' + ptMin_() + ' điểm cho đồ ăn, chăm sóc, chơi đùa hoặc biểu diễn, nếu không thú cưng sẽ mất lúc 0:00 hôm sau.' } };
 }
 function ptGet_(params, student) {
   const code = student.code, now = Date.now(), sh = ptSh_();

@@ -397,6 +397,7 @@
     clearTimeout(patT); patT = setTimeout(sendPats, 2500);
   }
   function sendPats() { if (!patN || !S || !S.pet || S.pet.dead) { patN = 0; return; } const n = Math.min(30, patN); patN = 0; act({ op: 'pat', n }).catch(() => {}); }
+  function renameCost() { return (cat && cat.rules && cat.rules.rename) || 20; }
   function canPay(price, what) {
     const b = C.getBalance(); const pend = queue.reduce((a, q) => a + (q.price || 0), 0);
     if (price + pend > b) { C.toast('Không đủ điểm cho ' + what + ' (cần ' + nf(price) + ', còn ' + nf(b - pend) + '). Làm bài tập để có thêm điểm nhé!', 1); snd('err'); return false; }
@@ -424,18 +425,18 @@
   }
   async function doPlay(t) {
     const p = S.pet; if (!p || p.dead) return;
-    const cd = (S.cd || {})['toy_' + t.id]; if (cd > now()) return C.toast(p.nm + ' vừa chơi ' + t.n + '. Chơi lại sau ' + Math.ceil((cd - now()) / 60000) + ' phút (hoặc chọn đồ chơi khác).', 1);
     if (p.sick) return C.toast(p.nm + ' đang ốm, cần uống thuốc trước.', 1);
     if (live().e < t.en) return C.toast(p.nm + ' mệt rồi. Cho bé ngủ hoặc ăn gì đó nhé!', 1);
-    aPlay(t.e); localApply(q => { q.j += t.j; q.e -= t.en; q.c -= 4; }); S.cd['toy_' + t.id] = now() + t.cd * 60000;
-    try { const r = await act({ op: 'play', id: t.id }); if (r.xp) fx.text('+' + r.xp + ' XP', '#ffe066'); } catch (_) {}
+    const pp = t.pp || 0; if (!canPay(pp, 'chơi ' + t.n)) return;
+    aPlay(t.e); localApply(q => { q.j += t.j; q.e -= t.en; q.c -= 4; }); optimistic(pp, true);
+    try { const r = await act({ op: 'play', id: t.id }, { price: pp }); if (r.xp) fx.text('+' + r.xp + ' XP', '#ffe066'); } catch (_) {}
   }
   async function doTrick(t) {
     const p = S.pet; if (!p || p.dead) return;
-    if ((S.cd || {}).trick > now()) return C.toast(p.nm + ' cần nghỉ ' + Math.ceil((S.cd.trick - now()) / 1000) + ' giây trước màn diễn tiếp theo.', 1);
     if (live().e < 5) return C.toast(p.nm + ' mệt rồi, cho bé nghỉ ngơi nhé!', 1);
-    (TRICKS[t.id] || aHop)(); S.cd.trick = now() + 240000; localApply(q => { q.e -= 5; q.j += 8; });
-    try { const r = await act({ op: 'trick', id: t.id }); if (r.xp) fx.text('+' + r.xp + ' XP', '#ffe066'); } catch (_) {}
+    const sp = t.sp || 0; if (!canPay(sp, 'màn diễn ' + t.n)) return;
+    (TRICKS[t.id] || aHop)(); localApply(q => { q.e -= 5; q.j += 8; }); optimistic(sp, true);
+    try { const r = await act({ op: 'trick', id: t.id }, { price: sp }); if (r.xp) fx.text('+' + r.xp + ' XP', '#ffe066'); } catch (_) {}
   }
   async function doBuy(kind, it, after) {
     if (it.lv && lvOf() < it.lv) return C.toast(it.n + ' cần bé đạt cấp ' + it.lv + '.', 1);
@@ -471,9 +472,9 @@
   function fmtLeft(ms) { ms = Math.max(0, ms); const m = Math.floor(ms / 60000), hh = Math.floor(m / 60); return hh ? hh + ' giờ ' + (m % 60) + ' phút' : m + ' phút'; }
   function drawDaily() {
     const p = S.pet, d = els.daily; d.replaceChildren(); d.className = 'pt-daily';
-    if (!p) { d.classList.add('info'); d.append(h('span', { class: 'pt-dic', text: '🥚' }), h('div', {}, h('b', { text: 'Nhận nuôi một bé thú cưng!' }), h('span', { text: ' Mỗi ngày cần chăm ít nhất ' + ((D && D.min) || 25) + ' điểm (đồ ăn + chăm sóc) – không thì bé sẽ mất.' }))); return; }
+    if (!p) { d.classList.add('info'); d.append(h('span', { class: 'pt-dic', text: '🥚' }), h('div', {}, h('b', { text: 'Nhận nuôi một bé thú cưng!' }), h('span', { text: ' Mỗi ngày cần chăm ít nhất ' + ((D && D.min) || 50) + ' điểm (đồ ăn, chăm sóc, chơi đùa, biểu diễn) – không thì bé sẽ mất.' }))); return; }
     if (p.dead) { d.classList.add('dead'); d.append(h('span', { class: 'pt-dic', text: '💔' }), h('div', {}, h('b', { text: p.nm + ' đã mất.' }), h('span', { text: ' Hồi sinh hoặc nhận nuôi bé mới bên dưới.' }))); return; }
-    const fed = D.fedToday || 0, min = D.min || 25, pct = Math.min(100, Math.round(fed / min * 100)), left = D.endsAt - now();
+    const fed = D.fedToday || 0, min = D.min || 50, pct = Math.min(100, Math.round(fed / min * 100)), left = D.endsAt - now();
     const ring = h('div', { class: 'pt-ring', style: '--p:' + pct, role: 'img', 'aria-label': 'Đã chăm ' + fed + ' trên ' + min + ' điểm hôm nay' }, h('span', { text: Math.min(fed, 999) + '/' + min }));
     let msg;
     if (D.safe) { d.classList.add('ok'); msg = h('div', {}, h('b', { text: '✅ Hôm nay đã chăm đủ!' }), h('span', { text: ' ' + p.nm + ' an toàn đến 0:00. Chuỗi 🔥 ' + D.streakNow + ' ngày.' })); }
@@ -498,7 +499,7 @@
     if (!p) return;
     if (p.dead) {
       const dd = D.dead || {}, wrap = h('div', { class: 'pt-deadcard' });
-      wrap.append(h('p', {}, h('b', { text: '💔 ' + p.nm + ' đã mất lúc 0:00 ngày ' + new Date(dd.at).toLocaleDateString('vi-VN') + '.' }), ' Hôm trước bé chỉ được chăm ' + (dd.fed || 0) + '/' + (D.min || 25) + ' điểm.'));
+      wrap.append(h('p', {}, h('b', { text: '💔 ' + p.nm + ' đã mất lúc 0:00 ngày ' + new Date(dd.at).toLocaleDateString('vi-VN') + '.' }), ' Hôm trước bé chỉ được chăm ' + (dd.fed || 0) + '/' + (D.min || 50) + ' điểm.'));
       if (dd.canRevive) wrap.append(h('button', { class: 'btn primary big', type: 'button', text: '✨ Hồi sinh ' + p.nm + ' (' + nf(dd.reviveCost) + ' điểm)', onclick: revive }), h('p', { class: 'hint', text: 'Còn hồi sinh được đến ' + new Date(dd.reviveUntil - 1).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) + '. Bé giữ nguyên cấp, kỹ năng và đồ đạc.' }));
       wrap.append(h('button', { class: 'btn', type: 'button', text: '🕊️ Tiễn bé vào Album & nuôi bé mới', onclick: release }));
       d.append(wrap); return;
@@ -529,7 +530,7 @@
     const g = document.createElementNS(NS, 'g'); g.innerHTML = `<g transform="translate(200 268) scale(.66)">${A.pet({ sp: pick, uid: 'ad', expr: 'happy' })}</g>`; els.front.append(g);
     const card = h('section', { class: 'pt-card pt-adopt' });
     card.append(h('h2', { text: '🥚 Nhận nuôi thú cưng' }),
-      h('p', { class: 'hint', html: 'Chọn một bé, đặt tên rồi bấm <b>Nhận nuôi</b>. Mỗi ngày bạn cần chi <b>ít nhất ' + ((D && D.min) || 25) + ' điểm</b> (từ làm bài tập) cho đồ ăn + chăm sóc, nếu không bé sẽ mất. Game này <b>không</b> tính vào báo cáo cho phụ huynh.' }));
+      h('p', { class: 'hint', html: 'Chọn một bé, đặt tên rồi bấm <b>Nhận nuôi</b>. Mỗi ngày bạn cần chi <b>ít nhất ' + ((D && D.min) || 50) + ' điểm</b> (từ làm bài tập) cho đồ ăn, chăm sóc, chơi đùa hoặc biểu diễn, nếu không bé sẽ mất. Game này <b>không</b> tính vào báo cáo cho phụ huynh.' }));
     const grid = h('div', { class: 'pt-spgrid', role: 'radiogroup', 'aria-label': 'Chọn loài' });
     list.forEach(s => {
       const b = h('button', { class: 'pt-spc' + (s.id === pick ? ' on' : ''), type: 'button', role: 'radio', 'aria-checked': s.id === pick, onclick: () => { pick = s.id; snd('pop'); drawAdopt(); } });
@@ -594,23 +595,23 @@
       b.append(dailyMini(), g);
     },
     play(b) {
-      title('🎾 Chơi đùa', 'Đồ chơi mua 1 lần, chơi miễn phí');
+      title('🎾 Chơi đùa', 'Mua đồ chơi 1 lần · mỗi lần chơi tốn vài điểm (tính vào phần chăm bé hôm nay)');
       const g = h('div', { class: 'pt-grid' }), own = S.own.t;
       cat.toys.forEach(t => {
-        const has = own.includes(t.id), lk = t.lv && lvOf() < t.lv, cd = (S.cd || {})['toy_' + t.id] > now();
-        g.append(itemBtn({ e: t.e, name: t.n, meta: '😊+' + t.j + ' ⚡−' + t.en, tail: has ? (cd ? h('span', { class: 'pt-lock', text: '⏳ ' + Math.ceil((S.cd['toy_' + t.id] - now()) / 60000) + ' phút' }) : h('span', { class: 'pt-ok', text: '▶ Chơi' })) : lk ? lock(t.lv) : price(t.p), cls: has ? 'owned' : lk ? 'locked' : '',
+        const has = own.includes(t.id), lk = t.lv && lvOf() < t.lv;
+        g.append(itemBtn({ e: t.e, name: t.n, meta: '😊+' + t.j + ' ⚡−' + t.en + (has ? '' : ' · chơi ' + nf(t.pp || 0) + ' điểm/lần'), tail: has ? h('span', { class: 'pt-ok', text: '▶ Chơi · ' + nf(t.pp || 0) + ' 💰' }) : lk ? lock(t.lv) : price(t.p), cls: has ? 'owned' : lk ? 'locked' : '',
           onclick: () => has ? doPlay(t) : lk ? C.toast('Cần bé đạt cấp ' + t.lv + '.', 1) : confirmBuy('toy', t, () => fillPanel()) }));
       });
       b.append(g);
     },
     show(b) {
-      title('🎪 Biểu diễn', 'Dạy kỹ năng rồi cho bé diễn (miễn phí)');
+      title('🎪 Biểu diễn', 'Dạy kỹ năng 1 lần · mỗi màn diễn tốn vài điểm (tính vào phần chăm bé hôm nay)');
       const g = h('div', { class: 'pt-grid' }), k = S.pet.k || [];
-      cat.tricks.forEach(t => { const has = k.includes(t.id), lk = lvOf() < t.lv; g.append(itemBtn({ e: t.e, name: t.n, meta: has ? 'Đã học' : 'Cần cấp ' + t.lv, tail: has ? h('span', { class: 'pt-ok', text: '▶ Diễn' }) : lk ? lock(t.lv) : price(t.p), cls: has ? 'owned' : lk ? 'locked' : '', onclick: () => has ? doTrick(t) : lk ? C.toast('Cần bé đạt cấp ' + t.lv + '.', 1) : confirmAsk('Dạy ' + S.pet.nm + ' kỹ năng ' + t.n + '?', t.p, () => doLearn(t)) })); });
+      cat.tricks.forEach(t => { const has = k.includes(t.id), lk = lvOf() < t.lv; g.append(itemBtn({ e: t.e, name: t.n, meta: has ? 'Đã học' : 'Cần cấp ' + t.lv + ' · diễn ' + nf(t.sp || 0) + ' điểm/lần', tail: has ? h('span', { class: 'pt-ok', text: '▶ Diễn · ' + nf(t.sp || 0) + ' 💰' }) : lk ? lock(t.lv) : price(t.p), cls: has ? 'owned' : lk ? 'locked' : '', onclick: () => has ? doTrick(t) : lk ? C.toast('Cần bé đạt cấp ' + t.lv + '.', 1) : confirmAsk('Dạy ' + S.pet.nm + ' kỹ năng ' + t.n + '?', t.p, () => doLearn(t)) })); });
       b.append(g);
     },
     games(b) {
-      title('🎮 Mini game', 'Vé ' + ((cat.games[0] || {}).p || 5) + ' điểm/ván · thưởng XP & niềm vui');
+      title('🎮 Mini game', 'Vé ' + ((cat.games[0] || {}).p || 10) + ' điểm/ván · thưởng XP & niềm vui');
       const g = h('div', { class: 'pt-glist' }), best = (S.s && S.s.best) || {};
       const DESC = { hung: 'Kéo/di chuyển bé để hứng đồ ăn rơi. Tránh ớt cay 🌶️!', nho: 'Lật thẻ tìm các cặp giống nhau, càng ít lượt càng nhiều điểm.', bong: 'Chạm vỡ bong bóng bay lên. Bóng vàng nhiều điểm, tránh mây giông ⛈️.' };
       cat.games.forEach(x => g.append(h('button', { class: 'pt-gcard', type: 'button', onclick: () => startGame(x) }, h('span', { class: 'pt-ge', text: x.e }), h('div', {}, h('b', { text: x.n }), h('small', { text: DESC[x.id] || '' }), h('small', { class: 'pt-best', text: 'Kỷ lục: ' + (best[x.id] || 0) })), price(x.p))));
@@ -676,26 +677,26 @@
     rename(b) {
       title('✏️ Đổi tên', '10 điểm');
       const i = h('input', { type: 'text', maxlength: 16, value: S.pet.nm, 'aria-label': 'Tên mới' });
-      b.append(i, h('div', { class: 'row wrap', style: 'margin-top:.6rem' }, h('button', { class: 'btn primary', type: 'button', text: 'Đổi tên (10 điểm)', onclick: async () => { const v = i.value.trim(); if (!v || v === S.pet.nm) return; if (!canPay(10, 'đổi tên')) return; try { await act({ op: 'rename', name: v }, { now: true }); closePanel(); aHop(); } catch (_) {} } })));
+      b.append(i, h('div', { class: 'row wrap', style: 'margin-top:.6rem' }, h('button', { class: 'btn primary', type: 'button', text: 'Đổi tên (' + nf(renameCost()) + ' điểm)', onclick: async () => { const v = i.value.trim(); if (!v || v === S.pet.nm) return; if (!canPay(renameCost(), 'đổi tên')) return; try { await act({ op: 'rename', name: v }, { now: true }); closePanel(); aHop(); } catch (_) {} } })));
     },
     help(b) {
       title('❓ Cách chơi');
-      const min = (D && D.min) || 25;
+      const min = (D && D.min) || 50;
       b.append(h('div', { class: 'pt-help', html: `<ul>
-<li>🍖 <b>Luật sống còn:</b> mỗi ngày (tính theo giờ Việt Nam) bạn phải chi <b>ít nhất ${min} điểm</b> cho <b>đồ ăn + chăm sóc</b> của bé. Hết ngày mà chưa đủ → bé <b>mất lúc 0:00</b>. Ngày nhận nuôi và ngày hồi sinh được miễn.</li>
+<li>🍖 <b>Luật sống còn:</b> mỗi ngày (tính theo giờ Việt Nam) bạn phải chi <b>ít nhất ${min} điểm</b> cho <b>đồ ăn, chăm sóc, chơi đùa hoặc biểu diễn</b> của bé. Hết ngày mà chưa đủ → bé <b>mất lúc 0:00</b>. Ngày nhận nuôi và ngày hồi sinh được miễn.</li>
 <li>📚 Điểm có được khi <b>làm bài tập</b>. Không có cách nào khác để kiếm điểm trong game này.</li>
 <li>💔 Bé mất: có <b>7 ngày</b> để hồi sinh (giữ nguyên cấp, kỹ năng). Quá hạn thì tiễn bé vào Album và nuôi bé mới.</li>
 <li>📊 4 chỉ số giảm dần theo thời gian: No bụng, Vui vẻ, Sạch sẽ, Năng lượng. Bé quá đói hoặc quá bẩn sẽ <b>bị ốm</b> (cần uống thuốc). Bé vui thì lên cấp nhanh hơn.</li>
 <li>⭐ Mọi điểm chi cho bé đều thành XP. Lên cấp để bé lớn: Sơ sinh → Bé nhí (5) → Thiếu niên (15) → Trưởng thành (30) → Huyền thoại (50, có hào quang).</li>
 <li>🔥 Chuỗi ngày nuôi đủ giúp tăng XP (tối đa +50%).</li>
-<li>🎾 Đồ chơi và 🎪 biểu diễn là miễn phí (có thời gian hồi). 🎮 Mini game tốn vé, thưởng XP.</li>
+<li>🎾 Đồ chơi và 🎪 kỹ năng mua/học 1 lần; <b>mỗi lần chơi hoặc diễn tốn vài điểm</b> (không phải chờ, chỉ cần bé còn năng lượng). 🎮 Mini game tốn vé, thưởng XP.</li>
 <li>🛍️ Cửa hàng: phụ kiện, màu lông đặc biệt, 10 căn phòng, nội thất. Chạm để thử trước khi mua.</li>
 <li>👪 Game thú cưng <b>không</b> được tính vào báo cáo dành cho phụ huynh.</li></ul>` }));
     }
   };
   function dailyMini() {
     if (!D || D.safe || !S.pet || S.pet.dead) return '';
-    return h('p', { class: 'pt-need', text: '⚠️ Hôm nay cần thêm ' + Math.max(0, D.min - D.fedToday) + ' điểm đồ ăn/chăm sóc để ' + S.pet.nm + ' được an toàn.' });
+    return h('p', { class: 'pt-need', text: '⚠️ Hôm nay cần thêm ' + Math.max(0, D.min - D.fedToday) + ' điểm (đồ ăn, chăm sóc, chơi, diễn) để ' + S.pet.nm + ' được an toàn.' });
   }
   function confirmAsk(text, cost, yes) {
     if (!sheet) return; const bar = h('div', { class: 'pt-confirm' }, h('span', { text: text }), h('button', { class: 'btn primary', type: 'button', text: cost ? 'Mua ' + nf(cost) + ' điểm' : 'Đồng ý', onclick: () => { bar.remove(); yes(); } }), h('button', { class: 'btn', type: 'button', text: 'Huỷ', onclick: () => bar.remove() }));
@@ -893,7 +894,7 @@
   }
   async function peek(ctx) {
     const r = await ctx.api('petGet', {}), p = r.state && r.state.pet, d = r.derived || {};
-    return { has: !!p, alive: !!(p && !p.dead), dead: !!(p && p.dead), safe: !!d.safe, grace: !!d.grace, fed: d.fedToday || 0, min: d.min || 25, name: p ? p.nm : '', sp: p ? p.sp : '', endsAt: d.endsAt, serverTime: r.serverTime };
+    return { has: !!p, alive: !!(p && !p.dead), dead: !!(p && p.dead), safe: !!d.safe, grace: !!d.grace, fed: d.fedToday || 0, min: d.min || 50, name: p ? p.nm : '', sp: p ? p.sp : '', endsAt: d.endsAt, serverTime: r.serverTime };
   }
   window.SMPet = { mount, unmount, peek };
 })();
