@@ -2300,13 +2300,17 @@ function ParentsPanel() {
   const view = () => { const q = fold(Par.q.trim()); return (Par.rows || []).filter(r => !q || fold([r.code, r.name, r.note, r.children.join(' '), r.children.map(noteOf).join(' ')].join(' ')).includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'vi') || a.code.localeCompare(b.code)); };
   function paintTop() {
     if (!TA.ready()) { top.replaceChildren(h('h2', { text: 'Phụ huynh' }), h('p', { class: 'muted', text: 'Nhập Teacher Key để tạo tài khoản phụ huynh.' }), teacherKeyBox()); return; }
+    const verBox = h('div');
+    checkServerVer(12).then(okV => { if (okV === false) verBox.replaceChildren(h('div', { class: 'box warn', role: 'alert' },
+      h('p', { text: '⚠ Apps Script đang chạy bản cũ nên trang phụ huynh có thể chưa tách đúng bài giao riêng / bài giao chung.' }),
+      h('p', { text: 'Cách sửa: dán Code.gs mới vào Apps Script → Deploy → Manage deployments → ✎ → Version: New version → Deploy.' }))); });
     const linkIn = h('input', { type: 'text', id: 'par-link', readonly: true, value: parentBase(), 'aria-label': 'Link trang phụ huynh', onfocus: e => e.target.select() });
     top.replaceChildren(
       h('section', { class: 'card stack' },
         h('div', { class: 'row wrap', style: 'justify-content:space-between;align-items:center' }, h('h2', { text: 'Phụ huynh' }), keyState()),
         h('label', { for: 'par-link', text: 'Link trang phụ huynh' }),
         h('div', { class: 't-copy' }, linkIn, h('button', { type: 'button', class: 'btn', onclick: async () => toast(await copyText(linkIn.value, linkIn) ? 'Đã sao chép link trang phụ huynh.' : 'Không sao chép được.') }, '📋 Sao chép')),
-        h('p', { class: 'hint', text: 'Phụ huynh đăng nhập MỘT lần bằng mã + mật khẩu và xem được tất cả các con: chăm hay lười, đúng nhiều hay ít, bài chưa làm, từ hay sai. Một phụ huynh gắn được tối đa 20 mã học sinh.' })),
+        h('p', { class: 'hint', text: 'Phụ huynh đăng nhập MỘT lần bằng mã + mật khẩu và xem được tất cả các con. Trang phụ huynh CHỈ hiện bài giao riêng (bài có chọn mã học sinh); bài giao cho tất cả học sinh là bài tự chọn, phụ huynh không thấy. Một phụ huynh gắn được tối đa 20 mã học sinh.' }), verBox),
       h('div', { class: 't-bar' }, qIn,
         h('button', { type: 'button', class: 'btn', onclick: () => Par.load() }, '↻ Tải lại'),
         h('button', { type: 'button', class: 'btn primary', onclick: () => openParent(null) }, '＋ Thêm phụ huynh'),
@@ -2342,6 +2346,12 @@ function ParentsPanel() {
   if (TA.ready() && (!Par.rows || Date.now() - Par.at > 60000)) Par.load();
   if (TA.ready() && !Stu.rows) Stu.load();                     // để hiện tên con (ghi chú của mã học sinh)
   return root;
+}
+/** Apps Script đã cập nhật tới phiên bản need chưa (ping → v). Lỗi mạng → null (không cảnh báo). */
+let _srvVer = null;
+async function checkServerVer(need) {
+  try { if (_srvVer == null) { const r = await API.get(Settings.data.scriptUrl, { action: 'ping' }); _srvVer = Number(r && r.v) || 0; } return _srvVer >= need; }
+  catch (_) { return null; }
 }
 const parentInvite = r => `Kính gửi phụ huynh${r.name ? ' ' + r.name : ''},\nTheo dõi việc học của con tại: ${parentLink(r.code)}\nMã phụ huynh: ${r.code}\nMật khẩu: ${r.password}\n– Nhà Thầy Hưng`;
 function exportParentsCsv(rows) {

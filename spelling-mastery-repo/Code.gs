@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 11;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 12;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -823,9 +823,9 @@ function parentLogin_(p) {
 }
 function parentReport_(p) {
   const par = requireParent_(p);
-  const ck = 'prep:' + par.code + ':' + par.children.join(','), hit = cget_(ck);
+  const ck = 'prep3:' + par.code + ':' + par.children.join(','), hit = cget_(ck);
   if (hit && !p.fresh) return hit;
-  const out = { ok: true, code: par.code, name: par.name, serverTime: Date.now(), days: P_DAYS, children: familyReport_(par.children) };
+  const out = { ok: true, ver: VERSION, ownOnly: true, code: par.code, name: par.name, serverTime: Date.now(), days: P_DAYS, children: familyReport_(par.children) };
   cput_(ck, out, 120);
   return out;
 }
@@ -881,14 +881,13 @@ function rowsAt_(sh, nums, ncol) {
   return res;
 }
 function familyReport_(codes) {
-  // v11.1: ĐÁNH GIÁ chỉ dựa trên BÀI GIAO RIÊNG (bài có chọn mã học sinh). Bài giao chung (cho mọi mã, hạn rất dài) là ôn tập / kiếm điểm
-  // → chỉ hiện ở mục "Ôn tập", không tính vào chăm chỉ, độ chính xác, bài chưa làm, bài bỏ lỡ.
+  // v12: TRANG PHỤ HUYNH CHỈ THẤY BÀI GIAO RIÊNG (bài có chọn mã của con). Bài giao chung (cho mọi mã) là bài tự chọn của học sinh
+  // → KHÔNG gửi gì về bài giao chung (không danh sách, không kết quả, không lịch, không từ sai) để phụ huynh không hiểu lầm con lười.
   const now = Date.now(), from = now - P_DAYS * DAY_MS, set = {}, R = {};
   codes.forEach(function (c) { set[c] = 1; R[c] = { code: c, exists: false, note: '', active: false, balance: 0, totalEarned: 0, rank: null, totalStudents: 0, createdAt: '', lastActive: '',
-    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, garden: 0, teacher: 0 }, games7: 0, gamesNet7: 0, allAttempts: 0,
-    practice: { attempts: 0, ms: 0, days: 0, words: 0, score: 0, max: 0, tests: 0 } }; });
-  const day = function (c, d) { const o = R[c].days; return o[d] || (o[d] = { v: 0, t: 0, ms: 0, g: 0, p: 0, pms: 0 }); };
-  // 0) Bài giao: id → danh sách mã (rỗng = giao chung)
+    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, garden: 0, teacher: 0 }, games7: 0, gamesNet7: 0 }; });
+  const day = function (c, d) { const o = R[c].days; return o[d] || (o[d] = { v: 0, t: 0, ms: 0, g: 0 }); };
+  // 0) Bài giao: id → danh sách mã (rỗng = giao chung → bỏ qua hoàn toàn)
   const A = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)), own = {};
   A.forEach(function (r) { const id = String(r[0]); if (id) own[id] = codesList_(r[13]); });
   const isOwn = function (aid, c) { const L = own[aid]; return !!(L && L.length && L.indexOf(c) >= 0); };
@@ -896,25 +895,21 @@ function familyReport_(codes) {
   cols_(stSh_(), 1, 7).forEach(function (r) { const c = String(r[0]); if (!set[c]) return; const x = R[c];
     x.exists = true; x.createdAt = iso_(r[1]); x.note = String(r[2]); x.active = isActive_(r[3]); x.balance = Number(r[4]) || 0; x.totalEarned = Number(r[5]) || 0; x.lastActive = iso_(r[6]); });
   const rk = ranked_(); rk.forEach(function (e) { if (set[e[0]]) R[e[0]].rank = e[2]; }); codes.forEach(function (c) { R[c].totalStudents = rk.length; });
-  // 2) Bài từ vựng (Results): cột nhẹ cho cả sheet; chi tiết từng từ chỉ đọc cho ≤ 40 lần làm bài riêng + ≤ 20 lần ôn tập gần nhất / con
-  const done = {}, pDays = {};
+  // 2) Bài từ vựng giao riêng (Results): cột nhẹ cho cả sheet; chi tiết từng từ chỉ đọc cho ≤ 40 lần làm gần nhất / con
+  const done = {};
   const rsh = sheet_(SHEET_RESULTS, RESULT_HEADERS), light = cols_(rsh, 1, 9), stc = cols_(rsh, 12, 2), want = {};
   light.forEach(function (r, i) {
     const c = normCode_(r[4]); if (!set[c]) return;
-    const aid = String(r[1]); (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1; R[c].allAttempts++;
+    const aid = String(r[1]); if (!isOwn(aid, c)) return;
+    (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1;
     const t = msOf_(r[3]); if (t < from) return;
-    const mine = isOwn(aid, c), d = dayOf_(r[3]), o = day(c, d), ms = Number(r[7]) || 0;
-    if (mine) { o.v++; o.ms += ms; } else { o.p++; o.pms += ms; R[c].practice.attempts++; R[c].practice.ms += ms; (pDays[c] || (pDays[c] = {}))[d] = 1; }
-    R[c].vocab.push({ row: i + 2, own: mine, t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, ms: ms, late: String(r[8]) === 'yes', status: String(stc[i] && stc[i][0] || 'done'), total: Number(stc[i] && stc[i][1]) || 0 });
+    const o = day(c, dayOf_(r[3])), ms = Number(r[7]) || 0; o.v++; o.ms += ms;
+    R[c].vocab.push({ row: i + 2, t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, ms: ms, late: String(r[8]) === 'yes', status: String(stc[i] && stc[i][0] || 'done'), total: Number(stc[i] && stc[i][1]) || 0 });
   });
-  codes.forEach(function (c) {
-    const L = R[c].vocab.sort(function (a, b) { return b.t - a.t; });
-    R[c].vocab = L.filter(function (v) { return v.own; }).slice(0, 40).concat(L.filter(function (v) { return !v.own; }).slice(0, 20));
-    R[c].vocab.forEach(function (v) { want[v.row] = 1; });
-  });
+  codes.forEach(function (c) { R[c].vocab.sort(function (a, b) { return b.t - a.t; }); R[c].vocab = R[c].vocab.slice(0, 40); R[c].vocab.forEach(function (v) { want[v.row] = 1; }); });
   const full = rowsAt_(rsh, Object.keys(want).map(Number), RESULT_HEADERS.length);
   codes.forEach(function (c) {
-    const W = R[c].words, P = R[c].practice;
+    const W = R[c].words;
     R[c].vocab = R[c].vocab.map(function (v) {
       let d = []; try { d = JSON.parse(detailsOf_(full[v.row] || []) || '[]'); } catch (e) {}
       if (!Array.isArray(d)) d = [];
@@ -925,27 +920,22 @@ function familyReport_(codes) {
         peeks += Math.max(0, vw - 1); if (wc > 0) wrong++;
         if (k) { const s = W[k] || (W[k] = [0, 0, 0]); s[0]++; if (w.skipped || wc > 0 || vw >= 3) s[1]++; if (v.t > s[2]) s[2] = v.t; }
       });
-      if (!v.own) { P.words += d.length; P.score += v.score; P.max += d.length * 10; }
-      return { t: v.t, own: v.own, aid: v.aid, name: v.name, score: v.score, n: d.length, first: first, skip: skip, peeks: peeks, wrong: wrong, ms: v.ms, late: v.late, status: v.status, total: v.total };
-    }).sort(function (a, b) { return b.t - a.t; });
+      return { t: v.t, own: true, aid: v.aid, name: v.name, score: v.score, n: d.length, first: first, skip: skip, peeks: peeks, wrong: wrong, ms: v.ms, late: v.late, status: v.status, total: v.total };
+    });
     R[c].words = Object.keys(W).filter(function (k) { return W[k][1] > 0; }).map(function (k) { return [k, W[k][0], W[k][1]]; })
-      .sort(function (a, b) { return (b[2] - a[2]) || (b[2] / b[1] - a[2] / a[1]); }).slice(0, 20);   // [từ, số lần gặp, số lần sai/bỏ qua/xem ≥3] – gồm cả bài ôn tập (để phụ huynh ôn cùng con)
+      .sort(function (a, b) { return (b[2] - a[2]) || (b[2] / b[1] - a[2] / a[1]); }).slice(0, 20);   // [từ, số lần gặp, số lần sai/bỏ qua/xem ≥3] – chỉ bài giao riêng
   });
-  // 3) Bài test (TestResults) – cột nhẹ
+  // 3) Bài test giao riêng (TestResults) – cột nhẹ
   cols_(sheet_(SHEET_TRES, TRES_HEADERS), 1, 10).forEach(function (r) {
     const c = normCode_(r[4]); if (!set[c]) return;
-    const aid = String(r[1]); (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1; R[c].allAttempts++;
+    const aid = String(r[1]); if (!isOwn(aid, c)) return;
+    (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1;
     const t = msOf_(r[3]); if (t < from) return;
-    const mine = isOwn(aid, c), d = dayOf_(r[3]), o = day(c, d), ms = Number(r[8]) || 0, P = R[c].practice;
-    if (mine) { o.t++; o.ms += ms; } else { o.p++; o.pms += ms; P.attempts++; P.tests++; P.ms += ms; P.score += Number(r[6]) || 0; P.max += Number(r[7]) || 0; (pDays[c] || (pDays[c] = {}))[d] = 1; }
-    R[c].tests.push({ t: t, own: mine, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, max: Number(r[7]) || 0, ms: ms, late: String(r[9]) === 'yes' });
+    const o = day(c, dayOf_(r[3])), ms = Number(r[8]) || 0; o.t++; o.ms += ms;
+    R[c].tests.push({ t: t, own: true, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, max: Number(r[7]) || 0, ms: ms, late: String(r[9]) === 'yes' });
   });
-  codes.forEach(function (c) {
-    const L = R[c].tests.sort(function (a, b) { return b.t - a.t; });
-    R[c].tests = L.filter(function (v) { return v.own; }).slice(0, 40).concat(L.filter(function (v) { return !v.own; }).slice(0, 20));
-    R[c].practice.days = Object.keys(pDays[c] || {}).length;
-  });
-  // 4) Bài GIAO RIÊNG cho con: còn hạn, hoặc hết hạn trong 30 ngày qua (bài giao chung không tính)
+  codes.forEach(function (c) { R[c].tests.sort(function (a, b) { return b.t - a.t; }); R[c].tests = R[c].tests.slice(0, 40); });
+  // 4) Bài giao riêng cho con: còn hạn, hoặc hết hạn trong 30 ngày qua
   A.forEach(function (r) {
     const id = String(r[0]), due = Number(r[2]) || 0; if (!id || !due || due < from) return;
     const L = own[id] || [], created = msOf_(r[5]); if (!L.length) return;
@@ -959,12 +949,12 @@ function familyReport_(codes) {
   // 5) Sổ điểm 30 ngày (quét ngược, dừng khi quá 30 ngày)
   const lsh = ldSh_(); let end = lsh.getLastRow(), scanned = 0, stop = false;
   while (end >= 2 && !stop && scanned < 60000) {
-    const st = Math.max(2, end - 999), v = lsh.getRange(st, 1, end - st + 1, 4).getValues();
+    const st = Math.max(2, end - 999), v = lsh.getRange(st, 1, end - st + 1, 5).getValues();
     for (let i = v.length - 1; i >= 0; i--) {
       const t = msOf_(v[i][0]); if (t && t < from) { stop = true; break; }
       const c = String(v[i][1]); if (!set[c]) continue;
       const dl = Number(v[i][2]) || 0, rs = String(v[i][3]), L = R[c].ledger;
-      if (rs === 'vocab' || rs === 'test') L.study += dl; else if (rs === 'game') L.game += dl; else if (rs === 'garden') L.garden += dl; else if (rs === 'teacher_adjust') L.teacher += dl;
+      if (rs === 'vocab' || rs === 'test') { if (isOwn(String(v[i][4]), c)) L.study += dl; }   // chỉ điểm từ bài giao riêng else if (rs === 'game') L.game += dl; else if (rs === 'garden') L.garden += dl; else if (rs === 'teacher_adjust') L.teacher += dl;
     }
     scanned += end - st + 1; end = st - 1;
   }
