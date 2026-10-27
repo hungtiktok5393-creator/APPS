@@ -6,7 +6,7 @@
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261027d', BREAK_EVERY = 20;
+const VER = '20261027e', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
 const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash'], ['dice', '🎲', 'Xúc xắc'], ['plinko', '🔻', 'Plinko'], ['scratch', '🎟️', 'Thẻ cào'], ['keno', '🔢', 'Keno mini'], ['coin', '🪙', 'Tung xu']];
@@ -21,14 +21,14 @@ const el = (t, c, x) => { const e = document.createElement(t); if (c) e.classNam
 const reduced = matchMedia('(prefers-reduced-motion:reduce)');
 
 /* ---- API: POST text/plain. Action thường: cách nhau ≥1,1 giây (rate limit máy chủ).
- * Action của trò chơi: KHÔNG chờ 1,1 giây; chỉ xếp hàng cùng action (không gửi chồng khi cái trước chưa xong) và cách nhau ≥150ms. ---- */
+ * Action của trò chơi: KHÔNG chờ 1,1 giây; chỉ xếp hàng cùng action (không gửi chồng khi cái trước chưa xong) và cách nhau ≥50ms. ---- */
 const gate = {}, lane = {}, laneAt = {};
 const GAME_ACT = /^(slots|wheel|hilo|mines|crash|dice|plinko|scratch|keno|coin|garden|getActiveGame|getGameStats)/;      // 'garden' = gardenInfo/gardenGet/gardenAct/gardenBoard: không chờ 1,1 giây/lần
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function call(action, params, retry) {
   if (!GAME_ACT.test(action)) return callRaw(action, params, retry, false);
   const mine = (lane[action] || Promise.resolve()).catch(() => {}).then(async () => {
-    const w = (laneAt[action] || 0) + 150 - Date.now(); if (w > 0) await sleep(w);
+    const w = (laneAt[action] || 0) + 50 - Date.now(); if (w > 0) await sleep(w);
     laneAt[action] = Date.now();
     return callRaw(action, params, retry, true);
   });
@@ -45,7 +45,7 @@ async function callRaw(action, params, retry, free) {
   } catch (_) { throw Object.assign(new Error(navigator.onLine ? 'Không kết nối được máy chủ. Thử lại sau.' : 'Không có mạng.'), { code: 'network' }); } finally { clearTimeout(t); }
   if (!d || d.ok === false) {
     const code = d && d.error || 'server_error';
-    if (code === 'rate_limited' && !retry) { await sleep(1300); return callRaw(action, params, 1, free); }
+    if (code === 'rate_limited' && !retry) { await sleep(free ? 500 : 1300); return callRaw(action, params, 1, free); }   // máy chủ v10 không giới hạn action trò chơi; bản cũ thì thử lại sau 0,5 giây
     const stale = code === 'bad_request' && /Hành động không hợp lệ/.test((d && d.message) || '');   // máy chủ Apps Script là bản cũ / sai địa chỉ
     throw Object.assign(new Error(stale ? 'Máy chủ chưa được cập nhật hoặc sai địa chỉ. Hãy báo giáo viên.' : (ERR[code] || (d && d.message) || 'Có lỗi xảy ra.')), { code, raw: d });
   }

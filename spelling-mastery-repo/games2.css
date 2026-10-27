@@ -7,18 +7,20 @@
 .dc-roll.win{color:var(--success)}
 .dc-track{position:relative;height:1.1rem;border-radius:999px;background:color-mix(in srgb,var(--danger) 35%,var(--surface));border:1px solid var(--border);overflow:hidden;margin:0 .2rem}
 .dc-zone{position:absolute;top:0;bottom:0;background:var(--success);opacity:.85}
-.dc-mark{position:absolute;inset:0;pointer-events:none;transition:transform .25s ease-out}
+.dc-zone.off{opacity:.25}
+.dc-mark{position:absolute;inset:0;pointer-events:none;transition:transform .15s ease-out}
 .dc-mark::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text)}
 .dc-dirs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem}
-.dc-dir{min-height:52px!important;font-size:1.1rem}
+.dc-dir{min-height:60px!important;font-size:1.1rem}
+.dc-dir[aria-pressed="false"]{opacity:.85}
 .dc-dir[aria-pressed="true"]{background:var(--primary);color:#fff;border-color:transparent}
 .dc-slider{width:100%;min-height:48px;accent-color:var(--primary);margin:0}
 
 /* Plinko */
 .pk-wrap{border-radius:14px;overflow:hidden;background:#0b1233}
 .pk-cv{display:block;width:100%;height:auto;aspect-ratio:600/470}
-.pk-slots{display:grid;grid-template-columns:repeat(11,minmax(0,1fr));gap:2px;width:80.67%;margin:-.2rem auto 0}
-.pk-slot{display:grid;place-items:center;min-height:30px;padding:2px 0;border-radius:6px;font-size:.62rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+.pk-slots{display:grid;grid-template-columns:repeat(17,minmax(0,1fr));gap:1px;width:93.5%;margin:-.2rem auto 0}
+.pk-slot{display:grid;place-items:center;min-height:28px;padding:2px 0;border-radius:5px;font-size:clamp(.45rem,1.9vw,.62rem);letter-spacing:-.02em;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;border:1px solid var(--border);background:var(--surface);color:var(--text)}
 .pk-slot.big{background:color-mix(in srgb,var(--success) 30%,var(--surface))}
 .pk-slot.mid{background:color-mix(in srgb,var(--warn,#d97706) 22%,var(--surface))}
 .pk-slot.low{background:color-mix(in srgb,var(--danger) 16%,var(--surface))}
@@ -36,12 +38,13 @@
 .sc-all{display:block;margin:0 auto}
 
 /* Keno mini */
-.kn-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.4rem;width:100%;max-width:22rem;margin:0 auto}
+.kn-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.4rem;width:100%;max-width:22rem;margin:0 auto}
 .kn-cell{min-height:48px;padding:0;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums;cursor:pointer}
 .kn-cell.pick{background:color-mix(in srgb,var(--primary) 28%,var(--surface));border-color:var(--primary)}
 .kn-cell.drawn{background:color-mix(in srgb,var(--warn,#d97706) 30%,var(--surface))}
 .kn-cell.hit{background:var(--success);color:#fff;border-color:transparent}
 .kn-cell:not(:disabled):active{transform:scale(.95)}
+.kn-tools{display:flex;justify-content:center;gap:.5rem}
 .kn-pay{display:grid;gap:.3rem;text-align:center;font-size:.9rem}
 .kn-rows{display:flex;flex-wrap:wrap;justify-content:center;gap:.3rem .5rem}
 .kn-row{padding:.1rem .5rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);font-variant-numeric:tabular-nums}
@@ -51,7 +54,7 @@
 .cn-stage{display:grid;place-items:center;perspective:500px;padding:.4rem 0}
 .cn-coin{display:grid;place-items:center;width:7.5rem;height:7.5rem;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fde68a,#f59e0b);border:4px solid #b45309;color:#7c2d12;font-size:1.6rem;font-weight:900;box-shadow:0 3px 10px rgba(0,0,0,.3)}
 .cn-coin.t{background:radial-gradient(circle at 35% 30%,#e5e7eb,#9ca3af);border-color:#4b5563;color:#1f2937}
-.cn-coin.spin{animation:cn-spin .5s linear infinite}
+.cn-coin.spin{animation:cn-spin .35s linear infinite}
 @keyframes cn-spin{from{transform:rotateY(0)}to{transform:rotateY(360deg)}}
 .cn-chain{display:flex;flex-wrap:wrap;gap:.3rem;justify-content:center;min-height:1.7rem}
 .cn-chip{padding:.1rem .5rem;border-radius:8px;border:1px solid var(--success);color:var(--success);font-weight:800}
