@@ -1899,13 +1899,13 @@ function statsByStudent(rows, split) {
   });
   return [...m.values()].map(e => ({ name: e.name, cls: [...e.classes].join(', '), attempts: e.attempts, total: e.total, max: e.max, best: e.best, words: e.words, time: e.time, last: e.last }));
 }
-function statsTopWords(rows) {
+function statsTopWords(rows, limit) {
   const m = new Map();
   rows.forEach(r => r.details.forEach(d => {
     const e = m.get(d.word) || { word: d.word, wrong: 0, extra: 0, skip: 0, n: 0 };
     e.wrong += d.wrongCount; e.extra += Math.max(0, d.views - 1); e.skip += d.skipped ? 1 : 0; e.n++; m.set(d.word, e);
   }));
-  return [...m.values()].filter(e => e.wrong + e.extra + e.skip > 0).sort((a, b) => (b.wrong + b.extra + b.skip) - (a.wrong + a.extra + a.skip)).slice(0, 10);
+  return [...m.values()].filter(e => e.wrong + e.extra + e.skip > 0).sort((a, b) => (b.wrong + b.extra + b.skip) - (a.wrong + a.extra + a.skip)).slice(0, limit || 10);
 }
 const STUDENT_COLS = [
   { k: 'name', label: 'Mã HS / Họ tên (cũ)', get: r => r.name }, { k: 'cls', label: 'Lớp (dữ liệu cũ)', get: r => r.cls },
@@ -2749,182 +2749,467 @@ function ConfigPanel() {
 }
 
 
-/* ---------- Thông tin bài giao trong Thống kê: link copy lại được + xóa dữ liệu khi hết hạn ---------- */
+/* ===================== THỐNG KÊ (giáo viên) – dùng chung cho bài từ vựng (#/stats) và bài test (#/teststats) =====================
+ *  #/stats, #/teststats          → danh sách bài giao: tìm kiếm, lọc, sắp xếp, chọn nhiều bài để xóa hàng loạt
+ *  #/stats?id=…, #/teststats?id=… → bảng điều khiển của một bài: chỉ số tổng quan, phân bố điểm, tab theo học sinh / từng lượt / từ khó (câu hỏi) */
+const STATS_KIND = {
+  vocab: { route: '#/stats', cache: 'assignments', action: 'assignments', resKey: 'res:', label: 'Bài từ vựng', icon: '📚' },
+  test: { route: '#/teststats', cache: 'testAssignments', action: 'testAssignments', resKey: 'tres:', label: 'Bài test', icon: '📝' }
+};
+const HubState = {};                              // giữ ô tìm kiếm / bộ lọc / các bài đang chọn khi vào xem chi tiết rồi quay lại
+const pct100 = (s, m) => m > 0 ? Math.round(s / m * 100) : 0;
+const asStatus = a => !a.due ? 'nodue' : (Date.now() > a.due ? 'expired' : 'open');
+const AS_STATUS = { open: 'Còn hạn', expired: 'Hết hạn', nodue: 'Không hạn' };
+const fmtShort = ts => { const d = new Date(ts); return isNaN(d) ? '—' : d.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }); };
+const fmtDay = ts => { const d = new Date(ts); return isNaN(d) ? '—' : d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
+const relSpan = ms => { const x = Math.abs(ms); return x < 3600000 ? Math.max(1, Math.round(x / 60000)) + ' phút' : x < 86400000 ? Math.round(x / 3600000) + ' giờ' : Math.round(x / 86400000) + ' ngày'; };
+const dueText = a => { if (!a.due) return ''; const left = a.due - Date.now(); return left > 0 ? `Hạn ${fmtShort(a.due)} · còn ${relSpan(left)}` : `Hết hạn ${fmtShort(a.due)} (${relSpan(left)} trước)`; };
+const pctTone = p => p >= 80 ? 'good' : p >= 50 ? 'mid' : 'low';
+/** Link giao bài: luôn dùng link ngắn nếu đề đã lưu trên Sheet */
+function assignLink(a, kind) {
+  const st = Settings.data;
+  if (a.hasData && API.validUrl(st.scriptUrl)) return location.href.split('#')[0] + (kind === 'test' ? '#/taketest?id=' : '#/assign?id=') + a.id + '&s=' + encodeURIComponent(API.short(st.scriptUrl));
+  return a.link || '';
+}
+function statsGuard(root) {
+  const st = Settings.data;
+  if (st.teacherOk && API.validUrl(st.scriptUrl) && st.teacherKey) return true;
+  root.replaceChildren(h('div', { class: 'card empty' }, h('h1', { text: 'Thống kê' }), h('p', { class: 'muted', text: 'Cần nhập Apps Script URL + Teacher Key hợp lệ (bấm "Kiểm tra kết nối") để xem thống kê.' }), h('a', { class: 'btn primary', href: '#/settings' }, 'Mở Cài đặt')));
+  return false;
+}
+const statsErrMsg = m => /Hành động/.test(m) ? 'Apps Script chưa được cập nhật bản mới. Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → New version.' : m;
+const PendingDel = new Set();                    // bài đang xóa trên Sheet: ẩn khỏi danh sách kể cả khi máy chủ chưa xóa xong
+function loadAsList(kind, onData) {
+  const st = Settings.data, K = STATS_KIND[kind], live = l => (l || []).filter(a => !PendingDel.has(a.id));
+  return swr(K.cache, async () => {
+    const r = await API.get(st.scriptUrl, { action: K.action, teacherKey: st.teacherKey });
+    if (!r.ok) throw new Error(r.error === 'unauthorized' ? 'Teacher Key không đúng.' : (r.message || r.error));
+    return live(r.assignments);
+  }, (l, cached) => onData(live(l), cached), true);
+}
+/* --- Khối giao diện dùng chung --- */
+function kindTabs(kind) {
+  return h('nav', { class: 'kseg', 'aria-label': 'Loại bài' }, ['vocab', 'test'].map(k =>
+    h('a', { href: STATS_KIND[k].route, 'aria-current': k === kind ? 'page' : null }, STATS_KIND[k].icon + ' ' + STATS_KIND[k].label)));
+}
+const kpi = (label, value, sub, tone) => h('div', { class: 'kpi' + (tone ? ' ' + tone : '') },
+  h('div', { class: 'kpi-l', text: label }), h('div', { class: 'kpi-v', text: String(value) }), sub ? h('div', { class: 'kpi-s', text: sub }) : null);
+const meter = p => h('span', { class: 'meter ' + pctTone(p), role: 'img', 'aria-label': p + '%' }, h('span', null, h('span', { style: `width:${clamp(p, 0, 100)}%` })), h('b', { text: p + '%' }));
+/** Biểu đồ phân bố điểm (% điểm tối đa) */
+function histogram(pcts) {
+  const bins = [['< 50%', 0, 49, 'low'], ['50–64%', 50, 64, 'mid'], ['65–79%', 65, 79, 'mid'], ['80–89%', 80, 89, 'good'], ['≥ 90%', 90, 100, 'good']];
+  const cnt = bins.map(b => pcts.filter(p => p >= b[1] && p <= b[2]).length), mx = Math.max(1, ...cnt);
+  return h('div', { class: 'card' }, h('h2', { text: 'Phân bố điểm' }), h('p', { class: 'hint', text: 'Số lượt nộp theo mức % điểm đạt được.' }),
+    h('div', { class: 'histo', role: 'img', 'aria-label': 'Phân bố điểm: ' + bins.map((b, i) => `${b[0]}: ${cnt[i]} lượt`).join(', ') },
+      bins.map((b, i) => h('div', { class: 'histo-col' }, h('span', { class: 'histo-n', text: String(cnt[i]) }),
+        h('div', { class: 'histo-track' }, h('div', { class: 'histo-bar ' + b[3], style: `height:${cnt[i] ? Math.max(4, cnt[i] / mx * 100) : 0}%` })), h('span', { class: 'histo-l', text: b[0] })))));
+}
+/** Thanh tab; tabs = [{ k, label, n }] */
+function tabBar(tabs, cur, go) {
+  return h('div', { class: 'tabs', role: 'tablist' }, tabs.map(t => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(t.k === cur), onclick: () => go(t.k) },
+    t.label, t.n != null ? h('span', { class: 'tab-n', text: String(t.n) }) : null)));
+}
+/** Menu "Xuất file" gọn (details/summary) */
+function exportMenu(items) {
+  const d = h('details', { class: 'menu' }, h('summary', { class: 'btn' }, '⬇ Xuất file ▾'),
+    h('div', { class: 'menu-list', role: 'menu' }, items.map(([t, fn]) => h('button', { type: 'button', role: 'menuitem', onclick: () => { d.open = false; fn(); } }, t))));
+  return d;
+}
+document.addEventListener('click', e => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+const wideModal = d => { d.style.maxWidth = 'min(820px, 96vw)'; return d; };
+/** Bộ lọc kết quả: tìm mã HS, % điểm từ–đến, lớp (dữ liệu cũ) */
+function resultFilters(F, classes, onChange) {
+  const inp = (label, k, attrs) => h('div', null, h('label', { text: label }, ), h('input', Object.assign({ value: F[k], oninput: e => { F[k] = e.target.value; onChange(); } }, attrs)));
+  const box = h('div', { class: 'filters sx-filters' },
+    inp('Tìm mã học sinh / tên', 'q', { type: 'search', placeholder: 'VD: AB12CD' }),
+    inp('% điểm từ', 'min', { type: 'number', min: 0, max: 100, inputmode: 'numeric', placeholder: '0' }),
+    inp('% điểm đến', 'max', { type: 'number', min: 0, max: 100, inputmode: 'numeric', placeholder: '100' }),
+    classes.length ? h('div', null, h('label', { text: 'Lớp (dữ liệu cũ)' }), h('select', { onchange: e => { F.cls = e.target.value; onChange(); } }, h('option', { value: '' }, 'Tất cả'), classes.map(c => h('option', { value: c, selected: c === F.cls }, c)))) : null);
+  box.querySelectorAll('label').forEach((l, i) => { const id = 'sxf-' + i; const c = l.nextElementSibling; if (c) { c.id = id; l.setAttribute('for', id); } });
+  return box;
+}
+const applyFilters = (rows, F) => {
+  const q = fold(F.q.trim()), mn = F.min === '' ? -Infinity : Number(F.min), mx = F.max === '' ? Infinity : Number(F.max);
+  return rows.filter(r => (!q || fold(r.name).includes(q)) && (!F.cls || r.cls === F.cls) && r.pct >= mn && r.pct <= mx);
+};
+const sameStudent = (r, e, split) => Norm.text(r.name).toLowerCase() === Norm.text(e.name).toLowerCase() && (!split || !e.cls || e.cls.split(', ').includes(r.cls));
+/** Bảng có sắp xếp + phân trang trong một host; T = { sort, page } */
+function pagedTable(host, cols, rows, T, textKeys, redraw, size) {
+  const PAGE = size || 15, pages = Math.max(1, Math.ceil(rows.length / PAGE)); T.page = clamp(T.page || 1, 1, pages);
+  host.replaceChildren(rows.length ? sortTable('', cols, sortRows(rows, T.sort).slice((T.page - 1) * PAGE, T.page * PAGE), T.sort, k => { T.sort = nextSort(T.sort, k, textKeys); T.page = 1; redraw(); })
+    : h('div', { class: 'empty muted', text: 'Không có kết quả phù hợp bộ lọc.' }),
+    rows.length > PAGE ? pager(T.page, pages, p => { T.page = p; redraw(); }) : null);
+}
+
+/* --- Xóa bài giao (một hoặc nhiều bài) --- */
 function purgeLocalAssignment(id) {            // dọn dữ liệu của bài này đang lưu trong trình duyệt (số lần làm, hàng đợi gửi kết quả)
   const att = Store.get('attempts', {}); if (att && att[id] != null) { delete att[id]; Store.set('attempts', att); }
   const q = Sync.queue(), q2 = q.filter(x => !(x && x.payload && x.payload.assignmentId === id));
   if (q2.length !== q.length) Store.set('queue', q2);
 }
-function confirmPurge(a) {
+function confirmPurgeMany(items) {
   return new Promise(res => {
     let ok = false;
-    const d = Modal.open('Xóa dữ liệu bài giao', h('div', { class: 'stack' },
-      h('p', null, 'Bạn sắp xóa vĩnh viễn dữ liệu của bài giao ', h('strong', { text: a.name }), ':'),
-      a.due > 0 && Date.now() <= a.due ? h('p', { class: 'err', role: 'alert', text: '⚠ Bài này CHƯA hết hạn nộp: học sinh đang làm sẽ không nộp được nữa và link sẽ hỏng.' }) : null,
-      h('ul', null, h('li', { text: `${a.count || 0} lượt nộp / kết quả trên Google Sheet` }), h('li', { text: 'Dòng đăng ký bài (hạn nộp, link) và đề / bộ từ đã lưu trên Sheet' }), h('li', { text: 'Dữ liệu của bài này lưu trong trình duyệt (số lần làm, hàng đợi gửi)' })),
-      h('p', { class: 'hint', text: 'Không thể hoàn tác. Thẻ bộ từ / bài test của bạn không bị xóa. Hãy xuất CSV/Excel trước nếu cần giữ điểm. Link đã giao sẽ không còn dùng được.' }),
-      h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: () => d.close() }, 'Hủy'), h('button', { class: 'btn danger', onclick: () => { ok = true; d.close(); } }, '🗑 Xóa vĩnh viễn'))), () => res(ok));
+    const subs = items.reduce((s, a) => s + (Number(a.count) || 0), 0), open = items.filter(a => asStatus(a) === 'open').length, one = items.length === 1;
+    const go = h('button', { class: 'btn danger', type: 'button', disabled: true, onclick: () => { ok = true; d.close(); } }, one ? '🗑 Xóa vĩnh viễn' : `🗑 Xóa vĩnh viễn ${items.length} bài`);
+    const ack = h('input', { type: 'checkbox', id: 'bd-ack', onchange: e => { go.disabled = !e.target.checked; } });
+    const d = Modal.open(one ? 'Xóa bài giao' : `Xóa ${items.length} bài giao`, h('div', { class: 'stack' },
+      h('p', null, 'Bạn sắp xóa vĩnh viễn ', h('strong', { text: one ? `“${items[0].name}”` : `${items.length} bài giao` }), ' cùng ', h('strong', { text: `${subs} lượt nộp` }), ' của học sinh.'),
+      open ? h('div', { class: 'box error', role: 'alert', text: `⚠ ${one ? 'Bài này' : open + ' bài'} vẫn CÒN HẠN nộp: học sinh đang làm sẽ không nộp được nữa và link sẽ hỏng.` }) : null,
+      one ? null : h('ul', { class: 'del-list' }, items.slice(0, 100).map(a => h('li', null, h('span', { class: 'del-name', text: a.name }),
+        h('span', { class: 'badge ' + asStatus(a), text: AS_STATUS[asStatus(a)] }), h('span', { class: 'muted small-text', text: `${a.count || 0} lượt` }))),
+        items.length > 100 ? h('li', { class: 'muted', text: `… và ${items.length - 100} bài khác` }) : null),
+      h('p', { class: 'hint', text: 'Sẽ xóa: kết quả trên Google Sheet, dòng đăng ký bài (hạn nộp, link), đề / bộ từ đã lưu trên Sheet và dữ liệu của bài trong trình duyệt. Thẻ bộ từ / bài test gốc ở trang chủ KHÔNG bị xóa. Hãy xuất Excel/CSV trước nếu cần giữ điểm.' }),
+      h('label', { class: 'check', for: 'bd-ack' }, ack, 'Tôi hiểu thao tác này không thể hoàn tác'),
+      h('div', { class: 'row end' }, h('button', { class: 'btn', type: 'button', onclick: () => d.close() }, 'Hủy'), go)), () => res(ok));
   });
 }
-function assignInfoCard(a, kind, onDeleted, onFailed) {
-  const st = Settings.data, expired = a.due > 0 && Date.now() > a.due;
-  let link = a.link || '';
-  if (a.hasData && API.validUrl(st.scriptUrl)) link = location.href.split('#')[0] + (kind === 'test' ? '#/taketest?id=' : '#/assign?id=') + a.id + '&s=' + encodeURIComponent(API.short(st.scriptUrl));   // luôn hiện link ngắn nếu đề đã lưu trên Sheet
-  const box = h('textarea', { readonly: true, 'aria-label': 'Link giao bài', style: 'min-height:70px;font-size:.8rem', onfocus: e => e.target.select() }); box.value = link;
-  const msg = h('p', { class: 'small-text', role: 'status' });
-  const del = h('button', { class: 'btn danger', type: 'button', onclick: remove }, '🗑 Xóa dữ liệu bài này');
-  async function remove() {
-    if (!(await confirmPurge(a))) return;
-    del.disabled = true; msg.className = 'muted small-text'; msg.textContent = 'Đang xóa…';
-    const req = API.post(st.scriptUrl, { action: 'deleteAssignment', teacherKey: st.teacherKey, id: a.id }, 60000);   // gửi đi ngay, không chờ
-    req.catch(() => {});
-    purgeLocalAssignment(a.id);
-    onDeleted(a);                                  // giao diện cập nhật NGAY – Google Sheet xóa ở nền
-    toast('Đang xóa bài “' + a.name + '” trên Google Sheet…');
-    try {
-      const r = await req; if (!r.ok) throw new Error(r.message || r.error);
-      toast('Đã xóa dữ liệu bài “' + a.name + '”.');
-    } catch (e) {
-      toast('Xóa chưa thành công: ' + (/Hành động/.test(e.message) ? 'Apps Script chưa được cập nhật (Deploy → New version).' : e.message) + ' Đang tải lại danh sách.', 'error');
-      if (onFailed) onFailed();
+/** Xóa trên Google Sheet. Giao diện đã cập nhật ngay (lạc quan); lỗi → báo và gọi onFail để tải lại danh sách.
+ *  Apps Script mới: action deleteAssignments (mỗi lượt 25 bài). Apps Script cũ: tự chuyển sang xóa lần lượt từng bài. */
+async function runDelete(kind, items, onFail) {
+  const st = Settings.data, K = STATS_KIND[kind], ids = items.map(a => a.id), gone = new Set(ids);
+  ids.forEach(id => { PendingDel.add(id); purgeLocalAssignment(id); delete Mem[K.resKey + id]; });
+  delete Mem['res:all'];
+  let cur = Mem[K.cache] && Mem[K.cache].v;
+  if (!cur) { try { cur = JSON.parse(localStorage.getItem(pkey(K.cache)) || 'null'); } catch (_) {} }
+  if (Array.isArray(cur)) cacheSet(K.cache, cur.filter(x => !gone.has(x.id)), true);
+  const t = h('div', { class: 'toast info', role: 'status' }, h('span', { class: 'spin-sm', 'aria-hidden': 'true' }), h('span', { text: ids.length > 1 ? `Đang xóa ${ids.length} bài trên Google Sheet…` : `Đang xóa “${items[0].name}” trên Google Sheet…` }));
+  $('#toasts').append(t);
+  const say = s => { t.lastChild.textContent = s; };
+  const done = [], failed = [], CH = 25, why = r => (r && (r.error === 'unauthorized' ? 'Teacher Key không đúng' : (r.message || r.error))) || 'máy chủ phản hồi không đúng';
+  let legacy = false, stop = '';
+  for (let i = 0; i < ids.length;) {
+    if (stop) { failed.push(...ids.slice(i).map(id => ({ id, msg: stop }))); break; }
+    if (!legacy) {
+      const chunk = ids.slice(i, i + CH);
+      try {
+        const r = await API.post(st.scriptUrl, { action: 'deleteAssignments', teacherKey: st.teacherKey, ids: chunk }, 120000);
+        if (r && r.ok) done.push(...chunk);
+        else if (r && /Hành động/.test(r.message || '')) { legacy = true; continue; }
+        else { failed.push(...chunk.map(id => ({ id, msg: why(r) }))); if (r && r.error === 'unauthorized') stop = why(r); }
+      } catch (e) { failed.push(...chunk.map(id => ({ id, msg: e.message }))); }
+      i += chunk.length;
+    } else {
+      const id = ids[i++];
+      try { const r = await API.post(st.scriptUrl, { action: 'deleteAssignment', teacherKey: st.teacherKey, id }, 60000); if (r && r.ok) done.push(id); else { failed.push({ id, msg: why(r) }); if (r && r.error === 'unauthorized') stop = why(r); } }
+      catch (e) { failed.push({ id, msg: e.message }); }
     }
+    if (ids.length > 1) say(`Đang xóa trên Google Sheet… ${done.length + failed.length}/${ids.length} bài`);
   }
-  /* Mã QR của link giao bài (style inline, không đụng style.css) */
+  t.remove();
+  failed.forEach(f => PendingDel.delete(f.id));
+  if (!failed.length) toast(ids.length > 1 ? `Đã xóa ${ids.length} bài giao.` : `Đã xóa bài “${items[0].name}”.`);
+  else {
+    toast((ids.length > 1 ? `Đã xóa ${done.length}/${ids.length} bài. ` : '') + `Chưa xóa được ${failed.length > 1 ? failed.length + ' bài' : ''}: ${failed[0].msg}. Đang tải lại danh sách.`, 'error');
+    delete Mem[K.cache]; try { localStorage.removeItem(pkey(K.cache)); } catch (_) {}
+    if (onFail) onFail();
+  }
+}
+/** Hộp thoại link giao bài + mã QR */
+function shareModal(a, kind) {
+  const link = assignLink(a, kind);
+  const box = h('textarea', { readonly: true, 'aria-label': 'Link giao bài', style: 'min-height:70px;font-size:.8rem', onfocus: e => e.target.select() }); box.value = link;
   const qrBox = h('div', { class: 'stack', style: 'align-items:center;text-align:center' });
   if (link) {
     const canvas = h('canvas', { 'aria-label': 'Mã QR của link giao bài', role: 'img', style: 'max-width:100%;height:auto;background:#fff;border-radius:8px' });
     const dl = h('button', { class: 'btn', type: 'button', onclick: () => { try { download('qr-' + a.id + '.png', new Blob([Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), c => c.charCodeAt(0))], { type: 'image/png' })); } catch (_) { toast('Không tải được QR.', 'error'); } } }, '⬇ Tải QR (PNG)');
-    qrBox.replaceChildren(canvas, h('p', { class: 'muted small-text', style: 'margin:0', text: a.name }), dl);
-    if (window.QRCode) QRCode.toCanvas(canvas, link, { width: 260, margin: 2, errorCorrectionLevel: 'L' }, err => { if (err) qrBox.replaceChildren(h('p', { class: 'err', text: 'Link quá dài để tạo mã QR. Hãy dùng link ngắn qua Google Sheet.' })); });
+    qrBox.replaceChildren(canvas, dl);
+    if (window.QRCode) QRCode.toCanvas(canvas, link, { width: 240, margin: 2, errorCorrectionLevel: 'L' }, err => { if (err) qrBox.replaceChildren(h('p', { class: 'err', text: 'Link quá dài để tạo mã QR. Hãy dùng link ngắn qua Google Sheet.' })); });
     else qrBox.replaceChildren(h('p', { class: 'err', text: 'Thư viện QR chưa tải được – hãy kiểm tra mạng rồi tải lại trang.' }));
   }
-  return h('div', { class: 'card stack' },
-    h('h2', { text: 'Thông tin bài giao' }),
-    h('p', { class: 'muted', text: `${a.name} · Hạn nộp: ${a.due ? fmtDate(a.due) : '—'}` + (a.due ? (expired ? ' · đã hết hạn' : ' · còn hạn') : '') }),
-    Array.isArray(a.codes) ? h('p', { class: 'muted', text: a.codes.length ? `Giao riêng cho ${a.codes.length} mã: ${a.codes.slice(0, 60).join(', ')}${a.codes.length > 60 ? '…' : ''}` : 'Giao cho: tất cả học sinh có mã' }) : null,
-    link ? h('div', { class: 'stack' }, h('label', { text: 'Link giao bài (copy lại để gửi học sinh)' }), box,
-        h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => toast(await copyText(link, box) ? 'Đã sao chép link.' : 'Hãy chọn và copy thủ công.') }, '📋 Copy link')))
-      : h('p', { class: 'hint', text: 'Link của bài này chưa được lưu (bài giao từ phiên bản cũ). Hãy tạo lại link từ thẻ ở trang chủ nếu cần.' }),
-    link ? qrBox : null,
-    h('div', { class: 'row wrap' }, del),
-    h('p', { class: 'hint', text: 'Xóa toàn bộ kết quả, đăng ký bài và đề đã lưu của bài này (trên Google Sheet và trong app). Dùng được bất cứ lúc nào, kể cả khi bài chưa hết hạn.' }), msg);
+  Modal.open('Link giao bài & mã QR', h('div', { class: 'stack' },
+    h('p', { class: 'muted', text: a.name }),
+    Array.isArray(a.codes) ? h('p', { class: 'hint', text: a.codes.length ? `Giao riêng cho ${a.codes.length} mã: ${a.codes.slice(0, 80).join(', ')}${a.codes.length > 80 ? '…' : ''}` : 'Giao cho: tất cả học sinh có mã' }) : null,
+    link ? [box, h('button', { class: 'btn primary', type: 'button', onclick: async () => toast(await copyText(link, box) ? 'Đã sao chép link.' : 'Hãy chọn và copy thủ công.') }, '📋 Copy link'), qrBox]
+      : h('p', { class: 'hint', text: 'Link của bài này chưa được lưu (bài giao từ phiên bản cũ). Hãy tạo lại link từ thẻ ở trang chủ nếu cần.' })));
 }
 
-function StatsView(root) {
-  const st = Settings.data;
-  if (!st.teacherOk || !API.validUrl(st.scriptUrl)) {
-    root.replaceChildren(h('div', { class: 'card empty' }, h('h1', { text: 'Bảng thống kê' }), h('p', { class: 'muted', text: 'Cần nhập Apps Script URL + Teacher Key hợp lệ (bấm "Kiểm tra kết nối") để xem thống kê.' }), h('a', { class: 'btn primary', href: '#/settings' }, 'Mở Cài đặt')));
-    return {};
-  }
-  const PAGE = 10;
-  const M = { rows: [], f: { name: '', cls: '', min: '', max: '' }, sort: { key: 'submittedAt', dir: -1 }, page: 1, cur: null, all: false, split: false, ssort: { key: 'total', dir: -1 }, spage: 1 };
-  const resCols = () => [
-    { k: 'name', label: 'Mã HS / Họ tên (cũ)', get: r => r.name }, ...(M.rows.some(r => r.cls) ? [{ k: 'cls', label: 'Lớp (dữ liệu cũ)', get: r => r.cls }] : []),
-    ...(M.all ? [{ k: 'an', label: 'Bài', get: r => r.an }] : []),
-    { k: 'score', label: 'Tổng điểm', num: 1, get: r => r.score }, { k: 'max', label: 'Tối đa', num: 1, get: r => r.max },
-    { k: 'words', label: 'Từ đã làm', num: 1, get: r => r.totalWords ? r.words + '/' + r.totalWords : r.words },
-    { k: 'status', label: 'Trạng thái', get: r => STATUS_LABEL[r.status] || '—' },
-    { k: 'totalMs', label: 'Thời gian', num: 1, get: r => fmtTime(r.totalMs) }, { k: 'weak', label: 'Từ yếu', num: 1, get: r => r.weak },
-    { k: 'submittedAt', label: 'Nộp lúc', get: r => fmtDate(r.submittedAt) + (r.late ? ' (trễ)' : '') }];
-  const body = h('div', { class: 'stack' }), picker = h('select', { id: 'sx-as', onchange: () => loadResults(picker.value) }), infoHost = h('div');
-  root.replaceChildren(h('div', { class: 'stack' }, h('h1', { text: 'Bảng thống kê' }), h('div', null, h('label', { for: 'sx-as', text: 'Chọn bài đã giao' }), picker), infoHost, body));
-  body.dataset.ph = '';
-  let rq = 0;
-  const prompt = () => h('p', { class: 'muted', text: 'Hãy chọn một bài ở trên.' });
-  function fill(list) {                           // gọi với bản đã lưu lần trước (hiện ngay) rồi với bản mới từ máy chủ
-    const keep = picker.value; M.list = list;
-    if (!list.length) { picker.replaceChildren(); infoHost.replaceChildren(); body.dataset.ph = ''; body.replaceChildren(h('div', { class: 'card empty', text: 'Chưa có bài nào được giao / chưa có kết quả.' })); return; }
-    picker.replaceChildren(h('option', { value: '' }, '— Chọn —'), h('option', { value: 'all' }, '★ Tất cả các bài (tổng theo học sinh)'),
-      list.map(a => h('option', { value: a.id }, `${a.name} · ${a.count} lượt nộp · hạn ${fmtDate(a.due)}`)));
-    picker.value = keep && Array.from(picker.options).some(o => o.value === keep) ? keep : '';
-    if (body.dataset.ph !== '0') body.replaceChildren(prompt());
-    drawInfo(picker.value);
-  }
-  body.append(loading('Đang tải danh sách bài…'));
-  swr('assignments', async () => {
-    const r = await API.get(st.scriptUrl, { action: 'assignments', teacherKey: st.teacherKey });
-    if (!r.ok) throw new Error(r.error === 'unauthorized' ? 'Teacher Key không đúng.' : (r.message || r.error));
-    return r.assignments;
-  }, fill, true).catch(e => body.replaceChildren(errorPanel(e.message, h('button', { class: 'btn primary', onclick: () => StatsView(root) }, 'Thử lại'))));
-
-  function onDel(a) {                             // xóa xong hiển thị ngay, không chờ Google Sheet
-    const list = (M.list || []).filter(x => x.id !== a.id);
-    cacheSet('assignments', list, true); delete Mem['res:' + a.id];
-    picker.value = ''; rq++; body.dataset.ph = ''; fill(list);
-  }
-  function drawInfo(id) {
-    const a = M.list && M.list.find(x => x.id === id);
-    infoHost.replaceChildren(a ? assignInfoCard(a, 'vocab', onDel, () => StatsView(root)) : null);
-  }
-  async function loadResults(id) {
-    drawInfo(id);
-    const my = ++rq;
-    if (!id) { body.dataset.ph = ''; body.replaceChildren(prompt()); return; }
-    body.dataset.ph = '0';
-    if (!Mem['res:' + id]) body.replaceChildren(loading('Đang tải kết quả…'));
-    try {
-      await swr('res:' + id, async () => {
-        const r = await API.get(st.scriptUrl, { action: 'results', id, teacherKey: st.teacherKey });
-        if (!r.ok) throw new Error(r.message || r.error);
-        return r;
-      }, r => {
-        if (my !== rq) return;
-        M.cur = r.assignment || { id, name: id }; M.all = id === 'all';
-        M.rows = r.results.map(x => { const det = x.details || []; return { name: x.name, cls: x.cls, an: x.assignmentName || '', score: Number(x.score), max: det.reduce((a, d) => a + (Number(d.max) || 10), 0), words: det.length, totalWords: Number(x.totalWords) || 0, status: x.status || '',
-          totalMs: Number(x.totalMs), weak: det.filter(Scoring.needsWork).length, submittedAt: x.submittedAt, details: det, late: x.late }; });
-        M.page = 1; M.spage = 1; layout();
-      });
-    } catch (e) { if (my === rq) body.replaceChildren(errorPanel(e.message, h('button', { class: 'btn', onclick: () => loadResults(id) }, 'Thử lại'))); }
-  }
-  const filtered = () => {
-    const f = M.f, mn = f.min === '' ? -Infinity : Number(f.min), mx = f.max === '' ? Infinity : Number(f.max);
-    return M.rows.filter(r => (!f.name || r.name.toLowerCase().includes(f.name.toLowerCase())) && (!f.cls || r.cls === f.cls) && r.score >= mn && r.score <= mx);
+/* --- Danh sách bài giao (có xóa hàng loạt) --- */
+function StatsHub(root, kind) {
+  const K = STATS_KIND[kind], PAGE = 15;
+  const S = HubState[kind] || (HubState[kind] = { q: '', f: 'all', sort: 'new', page: 1, sel: new Set() });
+  let list = null, alive = true;
+  const kpiHost = h('div', { class: 'kpis' }), chipsHost = h('div', { class: 'chipbar', role: 'group', 'aria-label': 'Lọc theo trạng thái' });
+  const selHost = h('div', { class: 'sel-row' }), listHost = h('div', { 'aria-live': 'polite' }), bar = h('div', { class: 'bulkbar', role: 'region', 'aria-label': 'Thao tác với các bài đã chọn' });
+  const search = h('input', { type: 'search', id: 'hub-q', placeholder: '🔍 Tìm theo tên bài…', 'aria-label': 'Tìm bài giao theo tên', value: S.q, oninput: e => { S.q = e.target.value; S.page = 1; draw(); } });
+  const SORTS = [['new', 'Mới giao gần đây'], ['old', 'Giao lâu nhất'], ['due', 'Hạn nộp gần nhất'], ['most', 'Nhiều lượt nộp nhất'], ['least', 'Ít lượt nộp nhất'], ['name', 'Tên A → Z']];
+  const sortSel = h('select', { 'aria-label': 'Sắp xếp', onchange: e => { S.sort = e.target.value; S.page = 1; draw(); } }, SORTS.map(([v, t]) => h('option', { value: v, selected: S.sort === v }, 'Sắp xếp: ' + t)));
+  const refreshBtn = h('button', { class: 'btn small', type: 'button', title: 'Tải lại danh sách từ Google Sheet', onclick: () => load(true) }, '⟳ Tải lại');
+  root.replaceChildren(h('div', { class: 'stack sx' },
+    h('div', { class: 'sx-head' }, h('div', null, h('h1', { text: 'Thống kê & quản lý bài giao' }), h('p', { class: 'muted sx-sub', text: 'Bấm vào một bài để xem kết quả chi tiết. Tích chọn nhiều bài để xóa cùng lúc.' })), refreshBtn),
+    kindTabs(kind), kpiHost,
+    kind === 'vocab' ? h('a', { class: 'card all-card', href: K.route + '?id=all' }, h('span', { class: 'all-ic', 'aria-hidden': 'true', text: '★' }),
+      h('span', null, h('strong', { text: 'Tổng hợp tất cả bài từ vựng' }), h('span', { class: 'muted small-text', text: 'Cộng điểm của mỗi học sinh qua mọi bài đã giao' })), h('span', { class: 'as-go', 'aria-hidden': 'true', text: '›' })) : null,
+    h('section', { class: 'card sx-list', 'aria-label': 'Danh sách bài giao' }, h('div', { class: 'toolbar' }, search, sortSel), chipsHost, selHost, listHost), bar));
+  listHost.append(loading('Đang tải danh sách bài…'));
+  const sortFns = {
+    new: (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')), old: (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')),
+    name: (a, b) => String(a.name).localeCompare(String(b.name), 'vi'), most: (a, b) => (b.count || 0) - (a.count || 0), least: (a, b) => (a.count || 0) - (b.count || 0),
+    due: (a, b) => { const k = x => { const s = asStatus(x); return s === 'open' ? x.due : s === 'nodue' ? 1e15 : 4e15 - x.due; }; return k(a) - k(b); }
   };
-  const view = () => { const rows = filtered(); return { rows: sortRows(rows, M.sort), studs: sortRows(statsByStudent(rows, M.split), M.ssort), top: statsTopWords(rows) }; };
-  const tableHost = h('div'), studentHost = h('div'), topHost = h('div');
+  const FILTERS = [['all', 'Tất cả', () => true], ['open', 'Đang mở', a => asStatus(a) !== 'expired'], ['expired', 'Hết hạn', a => asStatus(a) === 'expired'], ['empty', 'Chưa ai nộp', a => !a.count]];
+  const filtered = () => { const q = fold(S.q.trim()), fn = (FILTERS.find(f => f[0] === S.f) || FILTERS[0])[2]; return (list || []).filter(a => fn(a) && (!q || fold(a.name).includes(q))).sort(sortFns[S.sort] || sortFns.new); };
+  function load(manual) {
+    if (manual) { refreshBtn.disabled = true; refreshBtn.textContent = '⟳ Đang tải…'; }
+    let changed = false;
+    loadAsList(kind, (l, cached) => { if (!cached) changed = true; if (!alive) return; list = l; const ids = new Set(l.map(a => a.id)); [...S.sel].forEach(id => { if (!ids.has(id)) S.sel.delete(id); }); draw(); })
+      .then(() => { if (manual && alive && !changed) toast('Danh sách đã là mới nhất.'); })
+      .catch(e => { if (!alive) return; if (list) toast(e.message, 'error'); else listHost.replaceChildren(h('div', { class: 'box error', role: 'alert' }, h('p', { text: statsErrMsg(e.message) }), h('button', { class: 'btn small', type: 'button', onclick: () => { listHost.replaceChildren(loading()); load(); } }, 'Thử lại'))); })
+      .finally(() => { if (alive && manual) { refreshBtn.disabled = false; refreshBtn.textContent = '⟳ Tải lại'; } });
+  }
+  function row(a) {
+    const s = asStatus(a), on = S.sel.has(a.id);
+    const cb = h('input', { type: 'checkbox', 'aria-label': 'Chọn bài ' + a.name, checked: on, onchange: e => { if (e.target.checked) S.sel.add(a.id); else S.sel.delete(a.id); li.classList.toggle('sel', e.target.checked); paintSel(); } });
+    const li = h('li', { class: 'as-row' + (on ? ' sel' : '') },
+      h('label', { class: 'as-cb' }, cb),
+      h('div', { class: 'as-main' },
+        h('a', { class: 'as-name', href: K.route + '?id=' + encodeURIComponent(a.id), text: a.name || a.id }),
+        h('div', { class: 'as-meta' }, h('span', { class: 'badge ' + s, text: AS_STATUS[s] }),
+          a.due ? h('span', { text: dueText(a) }) : null,
+          Array.isArray(a.codes) ? h('span', { text: a.codes.length ? `👤 Giao riêng ${a.codes.length} mã` : '👥 Giao chung' }) : null,
+          a.createdAt ? h('span', { text: 'Giao ngày ' + fmtDay(a.createdAt) }) : null)),
+      h('div', { class: 'as-count' + (a.count ? '' : ' zero') }, h('strong', { text: String(a.count || 0) }), h('span', { text: 'lượt nộp' })),
+      h('span', { class: 'as-go', 'aria-hidden': 'true', text: '›' }));
+    return li;
+  }
+  function paintSel() {
+    const vis = filtered(), n = S.sel.size, allVis = vis.length > 0 && vis.every(a => S.sel.has(a.id)), some = vis.some(a => S.sel.has(a.id));
+    const exp = (list || []).filter(a => asStatus(a) === 'expired');
+    const all = h('input', { type: 'checkbox', id: 'hub-all', checked: allVis, onchange: e => { vis.forEach(a => { if (e.target.checked) S.sel.add(a.id); else S.sel.delete(a.id); }); draw(); } });
+    all.indeterminate = some && !allVis;
+    selHost.replaceChildren(vis.length ? h('label', { class: 'check', for: 'hub-all' }, all, allVis ? `Bỏ chọn ${vis.length} bài đang hiện` : `Chọn tất cả ${vis.length} bài đang hiện`) : h('span'),
+      exp.length ? h('button', { class: 'btn small ghost', type: 'button', onclick: () => { exp.forEach(a => S.sel.add(a.id)); draw(); } }, `☑ Chọn ${exp.length} bài hết hạn`) : null);
+    bar.classList.toggle('on', n > 0);
+    const chosen = (list || []).filter(a => S.sel.has(a.id)), subs = chosen.reduce((s, a) => s + (Number(a.count) || 0), 0);
+    bar.replaceChildren(n ? h('div', { class: 'bulkbar-in' },
+      h('span', { class: 'bulk-n' }, h('strong', { text: `Đã chọn ${n} bài` }), h('span', { class: 'muted small-text', text: ` · ${subs} lượt nộp` })),
+      h('div', { class: 'row wrap' }, h('button', { class: 'btn small', type: 'button', onclick: () => { S.sel.clear(); draw(); } }, 'Bỏ chọn'),
+        h('button', { class: 'btn small danger', type: 'button', onclick: bulkDelete }, `🗑 Xóa ${n} bài`))) : null);
+  }
+  function draw() {
+    if (!list) return;
+    const now = list.length, subs = list.reduce((s, a) => s + (Number(a.count) || 0), 0), open = list.filter(a => asStatus(a) !== 'expired').length;
+    kpiHost.replaceChildren(kpi('Bài đã giao', now), kpi('Tổng lượt nộp', subs, now ? 'TB ' + (subs / now).toFixed(1) + ' lượt/bài' : ''), kpi('Đang mở', open, 'còn hạn hoặc không hạn', 'good'), kpi('Hết hạn', now - open, now - open ? 'có thể dọn bớt' : '', now - open ? 'warn' : ''));
+    chipsHost.replaceChildren(...FILTERS.map(([k, t, fn]) => h('button', { type: 'button', class: 'tag-btn', 'aria-pressed': String(S.f === k), onclick: () => { S.f = k; S.page = 1; draw(); } }, `${t} (${list.filter(fn).length})`)));
+    const vis = filtered(), pages = Math.max(1, Math.ceil(vis.length / PAGE)); S.page = clamp(S.page, 1, pages);
+    if (!list.length) listHost.replaceChildren(h('div', { class: 'empty' }, h('p', { class: 'big-ic', text: kind === 'test' ? '📝' : '📚' }), h('p', { class: 'muted', text: kind === 'test' ? 'Chưa có bài test nào được giao hoặc nộp.' : 'Chưa có bài nào được giao / chưa có kết quả.' }), h('a', { class: 'btn primary', href: '#/' }, 'Về trang chủ để giao bài')));
+    else if (!vis.length) listHost.replaceChildren(h('div', { class: 'empty muted' }, 'Không có bài nào khớp tìm kiếm / bộ lọc. ', h('button', { class: 'btn small', type: 'button', onclick: () => { S.q = ''; search.value = ''; S.f = 'all'; draw(); } }, 'Xóa bộ lọc')));
+    else listHost.replaceChildren(h('ul', { class: 'as-list' }, vis.slice((S.page - 1) * PAGE, S.page * PAGE).map(row)), vis.length > PAGE ? pager(S.page, pages, p => { S.page = p; draw(); }) : null);
+    paintSel();
+  }
+  async function bulkDelete() {
+    const chosen = (list || []).filter(a => S.sel.has(a.id)); if (!chosen.length) return;
+    if (!(await confirmPurgeMany(chosen))) return;
+    const gone = new Set(chosen.map(a => a.id));
+    S.sel.clear(); list = list.filter(a => !gone.has(a.id)); draw();
+    runDelete(kind, chosen, () => { if (alive) load(); });
+  }
+  load();
+  return { destroy() { alive = false; } };
+}
+
+/* --- Bảng điều khiển một bài (từ vựng hoặc test) --- */
+function StatsDetail(root, kind, id) {
+  const K = STATS_KIND[kind], st = Settings.data, isAll = kind === 'vocab' && id === 'all';
+  let alive = true, a = isAll ? { id: 'all', name: 'Tổng hợp tất cả bài từ vựng' } : { id, name: 'Đang tải…', _ph: 1 }, rows = null;
+  const D = { tab: 'stud', F: { q: '', min: '', max: '', cls: '' }, split: false, rs: { sort: { key: 'submittedAt', dir: -1 }, page: 1 }, ss: { sort: { key: 'pct', dir: -1 }, page: 1 }, qsort: 'order' };
+  const headHost = h('div'), bodyHost = h('div', { class: 'stack' });
+  root.classList.add('wide');
+  root.replaceChildren(h('div', { class: 'stack sx' }, h('a', { class: 'back-link', href: K.route }, '‹ Danh sách ' + K.label.toLowerCase()), headHost, bodyHost));
+  bodyHost.append(loading('Đang tải kết quả…'));
+  paintHead();
+  if (!isAll) loadAsList(kind, (l, cached) => {
+    if (!alive) return; const m = l.find(x => x.id === id);
+    if (m) { a = m; paintHead(); } else if (!cached && a._ph && a.name === 'Đang tải…') { a = Object.assign({}, a, { name: 'Bài ' + id }); paintHead(); }
+  }).catch(() => {});
+  function paintHead() {
+    const s = isAll ? null : asStatus(a), link = !isAll && assignLink(a, kind);
+    const exp = rows ? exportMenu(kind === 'test' ? testExports() : vocabExports()) : null;
+    headHost.replaceChildren(h('div', { class: 'card sx-hero' },
+      h('div', { class: 'sx-hero-top' },
+        h('div', { class: 'sx-hero-title' }, h('p', { class: 'eyebrow', text: K.icon + ' ' + K.label }), h('h1', { text: a.name || a.id })),
+        h('div', { class: 'row wrap sx-actions' },
+          !isAll ? h('button', { class: 'btn', type: 'button', disabled: !link && !a.link, onclick: () => shareModal(a, kind) }, '🔗 Link & QR') : null,
+          exp,
+          h('button', { class: 'btn', type: 'button', title: 'Tải lại kết quả', 'aria-label': 'Tải lại kết quả', onclick: () => loadRes(true) }, '⟳'),
+          !isAll ? h('button', { class: 'btn danger', type: 'button', onclick: removeOne }, '🗑 Xóa bài') : null)),
+      isAll ? h('p', { class: 'muted', text: 'Cộng điểm mọi lần làm của cùng một mã học sinh qua tất cả các bài từ vựng.' }) : h('div', { class: 'as-meta' },
+        h('span', { class: 'badge ' + s, text: AS_STATUS[s] }), a.due ? h('span', { text: dueText(a) }) : h('span', { text: 'Không đặt hạn nộp' }),
+        Array.isArray(a.codes) ? h('span', { text: a.codes.length ? `👤 Giao riêng ${a.codes.length} mã` : '👥 Giao chung cho mọi mã' }) : null,
+        a.createdAt ? h('span', { text: 'Giao ngày ' + fmtDay(a.createdAt) }) : null)));
+  }
+  async function removeOne() {
+    if (!(await confirmPurgeMany([a]))) return;
+    runDelete(kind, [a]);
+    location.hash = K.route;
+  }
+  async function loadRes(manual) {
+    if (manual) { rows = null; delete Mem[K.resKey + id]; bodyHost.replaceChildren(loading('Đang tải kết quả…')); }
+    try {
+      await swr(K.resKey + id, async () => {
+        const r = await API.get(st.scriptUrl, kind === 'test' ? { action: 'testResults', teacherKey: st.teacherKey, id } : { action: 'results', id, teacherKey: st.teacherKey });
+        if (!r.ok) throw new Error(r.error === 'unauthorized' ? 'Teacher Key không đúng.' : (r.message || r.error));
+        return kind === 'test' ? r.results : r;
+      }, d => { if (alive) ingest(d); });
+    } catch (e) {
+      if (alive) bodyHost.replaceChildren(h('div', { class: 'box error', role: 'alert' }, h('p', { text: statsErrMsg(e.message) }), h('button', { class: 'btn small', type: 'button', onclick: () => loadRes(true) }, 'Thử lại')));
+    }
+  }
+  function ingest(d) {
+    if (kind === 'test') {
+      rows = (d || []).map(x => { const score = Number(x.score) || 0, max = Number(x.max) || 0; return { name: String(x.name || ''), cls: String(x.cls || ''), score, max, pct: pct100(score, max), totalMs: Number(x.totalMs) || 0, submittedAt: x.submittedAt, late: !!x.late, lateN: x.late ? 1 : 0, items: Array.isArray(x.items) ? x.items : [] }; });
+    } else {
+      if (!isAll && d.assignment && a._ph) a = Object.assign({}, d.assignment, { id, _ph: 1 });
+      rows = (d.results || []).map(x => { const det = x.details || [], score = Number(x.score) || 0, max = det.reduce((s, w) => s + (Number(w.max) || 10), 0);
+        return { name: String(x.name || ''), cls: String(x.cls || ''), an: x.assignmentName || '', score, max, pct: pct100(score, max), words: det.length, totalWords: Number(x.totalWords) || 0, status: x.status || '',
+          totalMs: Number(x.totalMs) || 0, weak: det.filter(Scoring.needsWork).length, submittedAt: x.submittedAt, details: det, late: !!x.late, lateN: x.late ? 1 : 0 }; });
+    }
+    paintHead(); layout();
+  }
+  const view = () => applyFilters(rows, D.F);
+  const kpiHost = h('div', { class: 'kpis' }), histHost = h('div'), tabsHost = h('div'), tabBody = h('div', { class: 'stack', role: 'tabpanel' });
   function layout() {
-    const classes = [...new Set(M.rows.map(r => r.cls))].filter(Boolean).sort();
-    const inp = (id, label, k, type) => h('div', null, h('label', { for: id, text: label }), h('input', { type: type || 'text', id, value: M.f[k], oninput: e => { M.f[k] = e.target.value; M.page = 1; M.spage = 1; draw(); } }));
-    body.replaceChildren(
-      h('div', { class: 'filters' }, inp('f-name', 'Lọc theo mã / tên', 'name'),
-        h('div', null, h('label', { for: 'f-cls', text: 'Lớp (dữ liệu cũ)' }), h('select', { id: 'f-cls', onchange: e => { M.f.cls = e.target.value; M.page = 1; M.spage = 1; draw(); } }, h('option', { value: '' }, 'Tất cả'), classes.map(c => h('option', { value: c, selected: c === M.f.cls }, c)))),
-        inp('f-min', 'Tổng điểm từ', 'min', 'number'), inp('f-max', 'Đến', 'max', 'number')),
-      h('div', { class: 'row wrap' },
-        h('button', { class: 'btn', onclick: () => Exporter.csv(M.cur, view().rows) }, '⬇ CSV kết quả'),
-        h('button', { class: 'btn', onclick: () => Exporter.csvStudents(M.cur, view().studs) }, '⬇ CSV tổng theo HS'),
-        h('button', { class: 'btn', onclick: () => { const v = view(); Exporter.xlsx(M.cur, v.rows, v.top, v.studs); } }, '⬇ Excel'),
-        h('button', { class: 'btn', onclick: () => { const v = view(); Exporter.pdf(M.cur, v.rows, v.top, v.studs); } }, '⬇ PDF')),
-      h('h2', { text: 'Tổng điểm theo học sinh' }),
-      h('p', { class: 'hint', text: 'Cộng điểm của mọi lần làm (kể cả lần dừng sớm/tự lưu) của cùng một Mã học sinh (dữ liệu cũ: cùng một tên, không phân biệt hoa/thường).' }),
-      h('label', { class: 'check', for: 'f-split' }, h('input', { type: 'checkbox', id: 'f-split', checked: M.split, onchange: e => { M.split = e.target.checked; M.spage = 1; draw(); } }), 'Tách theo lớp (chỉ cho dữ liệu cũ có tên + lớp)'),
-      studentHost,
-      h('h2', { text: 'Kết quả từng lần làm' }), tableHost,
-      h('h2', { text: 'Top từ bị gõ sai / xem lại / bỏ qua nhiều nhất' }), topHost);
+    if (!rows.length) return bodyHost.replaceChildren(h('div', { class: 'card empty' }, h('p', { class: 'big-ic', text: '📭' }), h('p', { class: 'muted', text: 'Chưa có học sinh nào nộp bài này.' }),
+      !isAll ? h('button', { class: 'btn primary', type: 'button', onclick: () => shareModal(a, kind) }, '🔗 Lấy link giao bài') : null));
+    const classes = [...new Set(rows.map(r => r.cls))].filter(Boolean).sort();
+    bodyHost.replaceChildren(kpiHost, h('div', { class: 'sx-split' }, histHost, h('div', { class: 'card stack' }, h('h2', { text: 'Bộ lọc' }), resultFilters(D.F, classes, () => { D.rs.page = 1; D.ss.page = 1; draw(); }),
+      h('p', { class: 'hint', text: 'Bộ lọc áp dụng cho chỉ số, biểu đồ, các bảng bên dưới và file xuất.' }))),
+      h('div', { class: 'card stack' }, tabsHost, tabBody));
     draw();
   }
   function draw() {
-    const rows = filtered(), v = view(), pages = Math.max(1, Math.ceil(rows.length / PAGE)); M.page = clamp(M.page, 1, pages);
-    const avg = rows.length ? (rows.reduce((s, r) => s + r.score, 0) / rows.length).toFixed(1) : '—';
-    const avgMax = rows.length ? (rows.reduce((s, r) => s + r.max, 0) / rows.length).toFixed(0) : '—';
-    tableHost.replaceChildren(
-      h('p', { class: 'muted', text: `${rows.length} lượt nộp · tổng điểm trung bình mỗi lượt ${avg}/${avgMax}` }),
-      rows.length ? sortTable(M.cur ? M.cur.name : '', resCols(), v.rows.slice((M.page - 1) * PAGE, M.page * PAGE), M.sort, k => { M.sort = nextSort(M.sort, k, ['name', 'cls', 'an', 'status', 'submittedAt']); draw(); })
-        : h('div', { class: 'card empty', text: 'Không có kết quả phù hợp bộ lọc.' }),
-      rows.length > PAGE ? pager(M.page, pages, p => { M.page = p; draw(); }) : null);
-    const sp = Math.max(1, Math.ceil(v.studs.length / PAGE)); M.spage = clamp(M.spage, 1, sp);
-    studentHost.replaceChildren(
-      v.studs.length ? sortTable('Tổng điểm theo mã học sinh', STUDENT_COLS.filter(c => c.k !== 'cls' || M.rows.some(r => r.cls)), v.studs.slice((M.spage - 1) * PAGE, M.spage * PAGE), M.ssort, k => { M.ssort = nextSort(M.ssort, k, ['name', 'cls', 'last']); draw(); }) : h('p', { class: 'muted', text: 'Chưa có dữ liệu.' }),
-      v.studs.length > PAGE ? pager(M.spage, sp, p => { M.spage = p; draw(); }) : null);
-    const top = v.top, mx = Math.max(1, ...top.map(t => t.wrong + t.extra + t.skip));
-    topHost.replaceChildren(top.length ? h('div', { class: 'stack' },
-      h('p', { class: 'hint' }, h('span', { style: 'color:var(--danger)', text: '■ Gõ sai ' }), h('span', { style: 'color:var(--warn)', text: '■ Lượt xem thêm ' }), h('span', { style: 'color:var(--muted)', text: '■ Bỏ qua' })),
-      h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['Từ', 'Gõ sai', 'Xem thêm', 'Bỏ qua', 'Số HS', 'Biểu đồ'].map((t, i) => h('th', { scope: 'col', class: i && i < 5 ? 'num' : '', text: t })))),
-        h('tbody', null, top.map(t => h('tr', null, h('td', { text: t.word }), h('td', { class: 'num', text: t.wrong }), h('td', { class: 'num', text: t.extra }), h('td', { class: 'num', text: t.skip }), h('td', { class: 'num', text: t.n }),
-          h('td', null, h('div', { class: 'hbar', role: 'img', 'aria-label': `${t.word}: ${t.wrong} lần sai, ${t.extra} lượt xem thêm, ${t.skip} lần bỏ qua`, style: `width:${Math.max(8, (t.wrong + t.extra + t.skip) / mx * 100)}%` },
-            h('span', { class: 'w', style: `flex:${t.wrong}` }), h('span', { class: 'v', style: `flex:${t.extra}` }), h('span', { class: 's', style: `flex:${t.skip}` }))))))))) : h('p', { class: 'muted', text: 'Chưa có từ nào bị sai, xem lại hoặc bỏ qua.' }));
+    const v = view(), pcts = v.map(r => r.pct), studs = byStud(v), n = v.length;
+    const avg = n ? Math.round(pcts.reduce((s, p) => s + p, 0) / n) : 0, late = v.filter(r => r.late).length, avgMs = n ? v.reduce((s, r) => s + r.totalMs, 0) / n : 0;
+    const filt = n !== rows.length ? `(lọc ${n}/${rows.length})` : '';
+    if (kind === 'test') kpiHost.replaceChildren(kpi('Bài nộp', n, filt), kpi('Học sinh', studs.length), kpi('Điểm trung bình', n ? avg + '%' : '—', '', n ? pctTone(avg) : ''),
+      kpi('Cao nhất', n ? Math.max(...pcts) + '%' : '—', n ? 'thấp nhất ' + Math.min(...pcts) + '%' : ''), kpi('Nộp trễ', late, '', late ? 'warn' : ''), kpi('Thời gian TB', n ? fmtTime(avgMs) : '—'));
+    else { const done = v.filter(r => r.status === 'done' || !r.status).length;
+      kpiHost.replaceChildren(kpi('Lượt nộp', n, filt), kpi('Học sinh', studs.length), kpi('Điểm trung bình', n ? avg + '%' : '—', n ? 'TB ' + (v.reduce((s, r) => s + r.score, 0) / n).toFixed(1) + ' điểm/lượt' : '', n ? pctTone(avg) : ''),
+        kpi('Làm hết bài', n ? pct100(done, n) + '%' : '—', `${done}/${n} lượt`), kpi('Nộp trễ', late, '', late ? 'warn' : ''), kpi('Thời gian TB', n ? fmtTime(avgMs) : '—')); }
+    histHost.replaceChildren(histogram(pcts));
+    const third = kind === 'test' ? { k: 'q', label: '❓ Theo câu hỏi' } : { k: 'w', label: '⚠ Từ khó', n: statsTopWords(v, 30).length };
+    tabsHost.replaceChildren(tabBar([{ k: 'stud', label: '👤 Theo học sinh', n: studs.length }, { k: 'res', label: kind === 'test' ? '🧾 Từng bài nộp' : '🧾 Từng lượt làm', n }, third], D.tab, k => { D.tab = k; draw(); }));
+    if (D.tab === 'stud') drawStud(v, studs); else if (D.tab === 'res') drawRes(v); else if (D.tab === 'w') drawWords(v); else drawQuestions(v);
   }
-  return { destroy() {} };
+  /* Theo học sinh */
+  function byStud(v) {
+    if (kind === 'test') {
+      const m = new Map();
+      v.forEach(x => {
+        const key = Norm.text(x.name).toLowerCase() + (D.split ? '|' + Norm.text(x.cls).toLowerCase() : '');
+        let e = m.get(key); if (!e) { e = { name: x.name, classes: new Set(), attempts: 0, total: 0, max: 0, best: 0, time: 0, last: '' }; m.set(key, e); }
+        e.attempts++; e.total += x.score; e.max += x.max; e.best = Math.max(e.best, x.pct); e.time += x.totalMs; if (x.cls) e.classes.add(x.cls);
+        if (String(x.submittedAt) > e.last) e.last = String(x.submittedAt);
+      });
+      return [...m.values()].map(e => ({ name: e.name, cls: [...e.classes].join(', '), attempts: e.attempts, total: round2(e.total), max: round2(e.max), pct: pct100(e.total, e.max), best: e.best, time: e.time, last: e.last }));
+    }
+    return statsByStudent(v, D.split).map(e => Object.assign(e, { pct: pct100(e.total, e.max) }));
+  }
+  function drawStud(v, studs) {
+    const hasCls = rows.some(r => r.cls), host = h('div');
+    const cols = [{ k: 'name', label: 'Mã HS / Họ tên', get: e => e.name }, ...(hasCls ? [{ k: 'cls', label: 'Lớp (cũ)', get: e => e.cls }] : []),
+      { k: 'pct', label: '% điểm', el: e => meter(e.pct) }, { k: 'attempts', label: 'Số lần', num: 1, get: e => e.attempts },
+      { k: 'total', label: 'Tổng điểm', num: 1, get: e => e.total + '/' + e.max },
+      kind === 'test' ? { k: 'best', label: 'Cao nhất', num: 1, get: e => e.best + '%' } : { k: 'best', label: 'Lần cao nhất', num: 1, get: e => e.best },
+      ...(kind === 'test' ? [] : [{ k: 'words', label: 'Từ đã làm', num: 1, get: e => e.words }]),
+      { k: 'time', label: 'Tổng thời gian', num: 1, get: e => fmtTime(e.time) }, { k: 'last', label: 'Lần gần nhất', get: e => fmtShort(e.last) },
+      { nosort: 1, label: '', el: e => h('button', { class: 'btn small', type: 'button', onclick: () => studModal(e, v) }, 'Xem') }];
+    const redraw = () => pagedTable(host, cols, studs, D.ss, ['name', 'cls', 'last'], redraw);
+    const weak = studs.filter(e => e.pct < 50).length;
+    tabBody.replaceChildren(
+      h('div', { class: 'row wrap between' }, h('p', { class: 'hint', text: 'Cộng điểm mọi lần làm của cùng một mã học sinh. Bấm tiêu đề cột để sắp xếp.' + (weak ? ` Có ${weak} học sinh dưới 50%.` : '') }),
+        hasCls ? h('label', { class: 'check', for: 'sx-split' }, h('input', { type: 'checkbox', id: 'sx-split', checked: D.split, onchange: e => { D.split = e.target.checked; D.ss.page = 1; draw(); } }), 'Tách theo lớp (dữ liệu cũ)') : null),
+      host);
+    redraw();
+  }
+  function studModal(e, v) {
+    const mine = v.filter(r => sameStudent(r, e, D.split)).sort((x, y) => String(y.submittedAt).localeCompare(String(x.submittedAt)));
+    wideModal(Modal.open(e.name + (e.cls ? ' · ' + e.cls : ''), h('div', { class: 'stack' },
+      h('div', { class: 'kpis' }, kpi('Số lần', e.attempts), kpi('% tổng', e.pct + '%', '', pctTone(e.pct)), kpi('Tổng thời gian', fmtTime(e.time))),
+      h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, [...(isAll ? ['Bài'] : []), 'Điểm', '%', 'Thời gian', 'Nộp lúc', ''].map(c => h('th', { scope: 'col', text: c })))),
+        h('tbody', null, mine.map(r => h('tr', null, isAll ? h('td', { style: 'white-space:normal', text: r.an }) : null, h('td', { class: 'num', text: r.score + '/' + r.max }), h('td', null, meter(r.pct)), h('td', { class: 'num', text: fmtTime(r.totalMs) }),
+          h('td', { text: fmtShort(r.submittedAt) + (r.late ? ' (trễ)' : '') }), h('td', null, h('button', { class: 'btn small', type: 'button', onclick: () => attemptModal(r) }, 'Chi tiết'))))))))));
+  }
+  /* Từng lượt nộp */
+  function drawRes(v) {
+    const hasCls = rows.some(r => r.cls), host = h('div');
+    const cols = [{ k: 'name', label: 'Mã HS / Họ tên', get: r => r.name }, ...(hasCls ? [{ k: 'cls', label: 'Lớp (cũ)', get: r => r.cls }] : []), ...(isAll ? [{ k: 'an', label: 'Bài', get: r => r.an }] : []),
+      { k: 'pct', label: '% điểm', el: r => meter(r.pct) }, { k: 'score', label: 'Điểm', num: 1, get: r => r.score + '/' + r.max },
+      ...(kind === 'test' ? [] : [{ k: 'words', label: 'Từ đã làm', num: 1, get: r => r.totalWords ? r.words + '/' + r.totalWords : r.words }, { k: 'status', label: 'Trạng thái', get: r => STATUS_LABEL[r.status] || '—' }, { k: 'weak', label: 'Từ yếu', num: 1, get: r => r.weak }]),
+      { k: 'totalMs', label: 'Thời gian', num: 1, get: r => fmtTime(r.totalMs) },
+      { k: 'submittedAt', label: 'Nộp lúc', el: r => h('span', null, fmtShort(r.submittedAt), r.late ? h('span', { class: 'badge expired', style: 'margin-left:.35rem', text: 'Trễ' }) : null) },
+      { nosort: 1, label: '', el: r => h('button', { class: 'btn small', type: 'button', onclick: () => attemptModal(r) }, 'Chi tiết') }];
+    const redraw = () => pagedTable(host, cols, v, D.rs, ['name', 'cls', 'an', 'status', 'submittedAt'], redraw);
+    tabBody.replaceChildren(h('p', { class: 'hint', text: 'Mỗi dòng là một lần học sinh nộp (kể cả lần dừng sớm / tự lưu). Bấm “Chi tiết” để xem từng ' + (kind === 'test' ? 'câu trả lời.' : 'từ.') }), host);
+    redraw();
+  }
+  function attemptModal(r) {
+    const title = `${r.name} – ${r.score}/${r.max} (${r.pct}%)`;
+    if (kind === 'test') return wideModal(Modal.open(title, h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['Câu hỏi', 'Dạng', 'Trả lời', 'Điểm'].map(c => h('th', { scope: 'col', text: c })))),
+      h('tbody', null, r.items.map(it => h('tr', { class: it.ok === 'right' ? '' : 'bad-row' }, h('td', { style: 'white-space:normal;min-width:160px', text: it.q }), h('td', { text: QTYPES[it.t] || it.t }), h('td', { style: 'white-space:normal', text: it.a || '—' }), h('td', { class: 'num', text: it.g + '/' + it.m }))))))));
+    wideModal(Modal.open(title, h('div', { class: 'stack' },
+      h('p', { class: 'muted', text: [isAll ? r.an : '', STATUS_LABEL[r.status] || '', `${r.words}${r.totalWords ? '/' + r.totalWords : ''} từ`, fmtTime(r.totalMs), 'nộp ' + fmtShort(r.submittedAt) + (r.late ? ' (trễ)' : '')].filter(Boolean).join(' · ') }),
+      r.details.length ? h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['Từ', 'Điểm', 'Gõ sai', 'Lượt xem', 'Bỏ qua', 'Thời gian'].map((c, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: c })))),
+        h('tbody', null, r.details.map(w => h('tr', { class: Scoring.needsWork(w) ? 'bad-row' : '' }, h('td', { text: w.word }), h('td', { class: 'num', text: (Number(w.score) || 0) + '/' + (Number(w.max) || 10) }),
+          h('td', { class: 'num', text: w.wrongCount || 0 }), h('td', { class: 'num', text: w.views || 0 }), h('td', { class: 'num', text: w.skipped ? '✓' : '' }), h('td', { class: 'num', text: fmtTime(Number(w.timeMs) || 0) })))))) : h('p', { class: 'muted', text: 'Không có chi tiết từng từ.' }),
+      h('p', { class: 'hint', text: 'Dòng tô đỏ: từ học sinh còn yếu (gõ sai, xem lại nhiều hoặc bỏ qua).' }))));
+  }
+  /* Từ khó (từ vựng) */
+  function drawWords(v) {
+    const top = statsTopWords(v, 30), mx = Math.max(1, ...top.map(t => t.wrong + t.extra + t.skip));
+    tabBody.replaceChildren(top.length ? h('div', { class: 'stack' },
+      h('p', { class: 'hint' }, 'Các từ học sinh gặp khó nhiều nhất. ', h('span', { class: 'lg w', text: 'Gõ sai' }), h('span', { class: 'lg v', text: 'Xem thêm' }), h('span', { class: 'lg s', text: 'Bỏ qua' })),
+      h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['#', 'Từ', 'Gõ sai', 'Xem thêm', 'Bỏ qua', 'Số lượt', 'Mức độ'].map((t, i) => h('th', { scope: 'col', class: i > 1 && i < 6 ? 'num' : '', text: t })))),
+        h('tbody', null, top.map((t, i) => h('tr', null, h('td', { class: 'muted', text: String(i + 1) }), h('td', null, h('strong', { text: t.word })), h('td', { class: 'num', text: t.wrong }), h('td', { class: 'num', text: t.extra }), h('td', { class: 'num', text: t.skip }), h('td', { class: 'num', text: t.n }),
+          h('td', null, h('div', { class: 'hbar', role: 'img', 'aria-label': `${t.word}: ${t.wrong} lần sai, ${t.extra} lượt xem thêm, ${t.skip} lần bỏ qua`, style: `width:${Math.max(8, (t.wrong + t.extra + t.skip) / mx * 100)}%` },
+            h('span', { class: 'w', style: `flex:${t.wrong}` }), h('span', { class: 'v', style: `flex:${t.extra}` }), h('span', { class: 's', style: `flex:${t.skip}` }))))))))) : h('div', { class: 'empty muted', text: '🎉 Chưa có từ nào bị sai, xem lại hoặc bỏ qua.' }));
+  }
+  /* Theo câu hỏi (test) */
+  function qStats(v) {
+    const qm = {}, order = [];
+    v.forEach(x => x.items.forEach(it => { let o = qm[it.id]; if (!o) { o = qm[it.id] = { id: it.id, q: it.q, t: it.t, n: 0, right: 0, partial: 0 }; order.push(it.id); } o.n++; if (it.ok === 'right') o.right++; else if (it.ok === 'partial') o.partial++; }));
+    return order.map((k, i) => { const o = qm[k]; return Object.assign(o, { idx: i + 1, pr: pct100(o.right, o.n), pp: pct100(o.partial, o.n), pw: o.n ? 100 - pct100(o.right, o.n) - pct100(o.partial, o.n) : 0 }); });
+  }
+  function drawQuestions(v) {
+    let qs = qStats(v); if (D.qsort === 'hard') qs = qs.slice().sort((x, y) => x.pr - y.pr || y.pw - x.pw);
+    const hard = qs.filter(o => o.pr < 50).length;
+    tabBody.replaceChildren(
+      h('div', { class: 'row wrap between' }, h('p', { class: 'hint', text: hard ? `${hard} câu có dưới 50% học sinh làm đúng – nên ôn lại.` : 'Tỉ lệ làm đúng của từng câu hỏi.' }),
+        h('div', { class: 'kseg small', role: 'group', 'aria-label': 'Thứ tự câu' }, [['order', 'Theo thứ tự đề'], ['hard', 'Khó nhất trước']].map(([k, t]) => h('button', { type: 'button', 'aria-pressed': String(D.qsort === k), onclick: () => { D.qsort = k; draw(); } }, t)))),
+      qs.length ? h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['#', 'Câu hỏi', 'Dạng', 'Đúng', 'Tỉ lệ (đúng / một phần / sai)'].map((c, i) => h('th', { scope: 'col', class: i === 3 ? 'num' : '', text: c })))),
+        h('tbody', null, qs.map(o => h('tr', { class: o.pr < 50 ? 'bad-row' : '' }, h('td', { class: 'muted', text: String(o.idx) }), h('td', { style: 'white-space:normal;min-width:200px', text: o.q }), h('td', { class: 'small-text', text: QTYPES[o.t] || o.t }),
+          h('td', { class: 'num' }, h('strong', { text: o.pr + '%' })),
+          h('td', null, h('div', { class: 'hbar qbar', role: 'img', 'aria-label': `Đúng ${o.pr}%, một phần ${o.pp}%, sai hoặc bỏ trống ${o.pw}%` },
+            h('span', { class: 'ok', style: `flex:${o.pr}` }), h('span', { class: 'v', style: `flex:${o.pp}` }), h('span', { class: 'w', style: `flex:${o.pw}` })))))))) : h('div', { class: 'empty muted', text: 'Chưa có dữ liệu câu hỏi.' }),
+      h('p', { class: 'hint' }, h('span', { class: 'lg ok', text: 'Đúng' }), h('span', { class: 'lg v', text: 'Một phần' }), h('span', { class: 'lg w', text: 'Sai / bỏ trống' })));
+  }
+  /* Xuất file (theo bộ lọc hiện tại) */
+  function vocabExports() {
+    const cur = () => ({ id: a.id, name: a.name, due: a.due || 0 }), v = () => { const r = sortRows(view(), D.rs.sort); return { rows: r, studs: sortRows(byStud(r), D.ss.sort), top: statsTopWords(r) }; };
+    return [['📄 CSV kết quả từng lượt', () => Exporter.csv(cur(), v().rows)], ['📄 CSV tổng theo học sinh', () => Exporter.csvStudents(cur(), v().studs)],
+      ['📊 Excel (3 trang tính)', () => { const x = v(); Exporter.xlsx(cur(), x.rows, x.top, x.studs); }], ['🖨 PDF', () => { const x = v(); Exporter.pdf(cur(), x.rows, x.top, x.studs); }]];
+  }
+  function testExports() {
+    const base = 'ket-qua-test_' + String(a.name || 'bai').replace(/[^\wÀ-ỹ-]+/g, '_').slice(0, 40) + '_' + new Date().toISOString().slice(0, 10);
+    const resRows = () => sortRows(view(), D.rs.sort).map(x => ({ 'Mã HS / Họ tên': safeCell(x.name), 'Lớp (cũ)': safeCell(x.cls), 'Điểm': x.score, 'Tối đa': x.max, '%': x.pct, 'Thời gian (giây)': Math.round(x.totalMs / 1000), 'Nộp lúc': fmtDate(x.submittedAt), 'Trễ': x.late ? 'Trễ' : '' }));
+    const studRows = () => sortRows(byStud(view()), D.ss.sort).map(e => ({ 'Mã HS / Họ tên': safeCell(e.name), 'Lớp (cũ)': safeCell(e.cls), 'Số lần làm': e.attempts, 'Tổng điểm': e.total, 'Tổng tối đa': e.max, '% tổng': e.pct, '% cao nhất': e.best, 'Tổng thời gian (giây)': Math.round(e.time / 1000), 'Lần gần nhất': fmtDate(e.last) }));
+    const qRows = () => qStats(view()).map(o => ({ '#': o.idx, 'Câu hỏi': safeCell(o.q), 'Dạng': QTYPES[o.t] || o.t, 'Số lượt': o.n, '% đúng': o.pr, '% một phần': o.pp, '% sai/bỏ trống': o.pw }));
+    const csv = (name, data) => { if (!window.Papa) return toast('Thư viện CSV chưa tải được.', 'error'); download(name, '﻿' + Papa.unparse(data), 'text/csv;charset=utf-8'); };
+    return [['📄 CSV kết quả từng bài nộp', () => csv(base + '.csv', resRows())], ['📄 CSV tổng theo học sinh', () => csv(base + '_tong-theo-hs.csv', studRows())],
+      ['📊 Excel (3 trang tính)', () => {
+        if (!window.XLSX) return toast('Thư viện Excel chưa tải được.', 'error');
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resRows()), 'Kết quả');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(studRows()), 'Tổng theo học sinh');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(qRows()), 'Theo câu hỏi');
+        XLSX.writeFile(wb, base + '.xlsx');
+      }]];
+  }
+  loadRes();
+  return { destroy() { alive = false; } };
 }
+function StatsView(root, id) { if (!statsGuard(root)) return {}; return id ? StatsDetail(root, 'vocab', id) : StatsHub(root, 'vocab'); }
+function TestStatsView(root, id) { if (!statsGuard(root)) return {}; return id ? StatsDetail(root, 'test', id) : StatsHub(root, 'test'); }
 
 /* ===================== 10c. EXPORTER (CSV / Excel / PDF) ===================== */
 const Exporter = {
@@ -4916,113 +5201,6 @@ function TestEditView(root, id) {
   return { destroy() { if (dirty) persist(); clearTimeout(timer); } };
 }
 
-/* ---------- Thống kê bài test (giáo viên) ---------- */
-function TestStatsView(root) {
-  const st = Settings.data;
-  if (!API.validUrl(st.scriptUrl) || !st.teacherKey) { root.replaceChildren(errorPanel('Hãy cấu hình Apps Script URL và Teacher Key trong Cài đặt.', h('a', { class: 'btn primary', href: '#/settings' }, 'Mở Cài đặt'))); return {}; }
-  const statsErr = e => h('div', { class: 'box error', role: 'alert' }, h('p', { text: /Hành động/.test(e.message) ? 'Apps Script chưa được cập nhật bản mới. Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → New version.' : e.message }), h('button', { class: 'btn small', onclick: () => location.reload() }, 'Thử lại'));
-  const sel = h('select', { id: 'ts-sel', 'aria-label': 'Chọn bài test', onchange: () => load() }), out = h('div', { class: 'stack' }), info = h('div'); let list = [];
-  root.replaceChildren(h('div', { class: 'stack' }, h('h1', { text: 'Thống kê bài test' }), h('div', { class: 'card' }, h('label', { for: 'ts-sel', text: 'Chọn bài test' }), sel,
-    h('div', { class: 'row wrap', style: 'margin-top:.5rem' }, h('button', { class: 'btn small', onclick: () => load() }, '⟳ Tải lại'))), info, out));
-  let lastLoaded = null, rq = 0;
-  function fillT(l) {                              // bản đã lưu (hiện ngay) rồi bản mới từ máy chủ
-    const keep = sel.value; list = l;
-    if (!l.length) { sel.replaceChildren(); info.replaceChildren(); lastLoaded = null; out.replaceChildren(h('p', { class: 'muted', text: 'Chưa có bài test nào được giao hoặc nộp.' })); return; }
-    sel.replaceChildren(l.map(a => h('option', { value: a.id }, `${a.name} (${a.count} bài nộp)`)));
-    sel.value = keep && l.some(x => x.id === keep) ? keep : l[0].id;
-    if (sel.value !== lastLoaded) load();
-    else { const cur = l.find(x => x.id === sel.value); info.replaceChildren(cur ? assignInfoCard(cur, 'test', onDelT, () => TestStatsView(root)) : null); }
-  }
-  function onDelT(a) {
-    const l = list.filter(x => x.id !== a.id);
-    cacheSet('testAssignments', l, true); delete Mem['tres:' + a.id]; lastLoaded = null; rq++; fillT(l);
-  }
-  out.replaceChildren(loading());
-  swr('testAssignments', async () => {
-    const r = await API.get(st.scriptUrl, { action: 'testAssignments', teacherKey: st.teacherKey }); if (!r.ok) throw new Error(r.message || r.error);
-    return r.assignments;
-  }, fillT, true).catch(e => out.replaceChildren(statsErr(e)));
-  async function load() {
-    const id = sel.value, my = ++rq; lastLoaded = id;
-    const cur = list.find(x => x.id === id);
-    info.replaceChildren(cur ? assignInfoCard(cur, 'test', onDelT, () => TestStatsView(root)) : null);
-    if (!id) return;
-    if (!Mem['tres:' + id]) out.replaceChildren(loading());
-    try {
-      await swr('tres:' + id, async () => {
-        const r = await API.get(st.scriptUrl, { action: 'testResults', teacherKey: st.teacherKey, id }); if (!r.ok) throw new Error(r.message || r.error);
-        return r.results;
-      }, results => { if (my === rq) renderRes(results); });
-    } catch (e) { if (my === rq) out.replaceChildren(statsErr(e)); }
-  }
-  function renderRes(results) {
-    try {
-      const rows = results.slice().sort((a, b) => a.submittedAt < b.submittedAt ? 1 : -1);
-      if (!rows.length) return out.replaceChildren(h('p', { class: 'muted', text: 'Chưa có học sinh nào nộp bài này.' }));
-      const pct = x => x.max ? Math.round(x.score / x.max * 100) : 0, avg = Math.round(rows.reduce((s, x) => s + pct(x), 0) / rows.length);
-      const qm = {}, order = []; rows.forEach(x => x.items.forEach(it => { const o = qm[it.id] || (qm[it.id] = { q: it.q, t: it.t, n: 0, right: 0, partial: 0 }); if (!qm[it.id].seen) { order.push(it.id); qm[it.id].seen = 1; } o.n++; if (it.ok === 'right') o.right++; else if (it.ok === 'partial') o.partial++; }));
-      const detail = x => Modal.open(`${x.name} – ${x.score}/${x.max}`, h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['Câu hỏi', 'Dạng', 'Trả lời', 'Điểm'].map(c => h('th', { scope: 'col', text: c })))),
-        h('tbody', null, x.items.map(it => h('tr', { class: it.ok === 'right' ? '' : 'bad-row' }, h('td', { style: 'white-space:normal;min-width:160px', text: it.q }), h('td', { text: QTYPES[it.t] || it.t }), h('td', { style: 'white-space:normal', text: it.a || '—' }), h('td', { class: 'num', text: it.g + '/' + it.m })))))));
-      const T = { sort: { key: 'submittedAt', dir: -1 }, page: 1, ssort: { key: 'total', dir: -1 }, spage: 1, split: false };
-      rows.forEach(x => { x.score = Number(x.score) || 0; x.max = Number(x.max) || 0; x.totalMs = Number(x.totalMs) || 0; x.pct = pct(x); x.lateN = x.late ? 1 : 0; });
-      const rcols = [
-        { k: 'name', label: 'Mã HS / Họ tên (cũ)', get: x => x.name }, { k: 'cls', label: 'Lớp (dữ liệu cũ)', get: x => x.cls },
-        { k: 'score', label: 'Điểm', num: 1, get: x => x.score + '/' + x.max }, { k: 'pct', label: '%', num: 1, get: x => x.pct + '%' },
-        { k: 'totalMs', label: 'Thời gian', num: 1, get: x => fmtTime(x.totalMs) }, { k: 'submittedAt', label: 'Nộp lúc', get: x => fmtDate(x.submittedAt) },
-        { k: 'lateN', label: 'Trễ', get: x => x.late ? 'Trễ' : '' },
-        { nosort: 1, label: 'Chi tiết', el: x => h('button', { class: 'btn small', onclick: () => detail(x) }, 'Chi tiết') }];
-      const scols = [
-        { k: 'name', label: 'Mã HS / Họ tên (cũ)', get: e => e.name }, { k: 'cls', label: 'Lớp (dữ liệu cũ)', get: e => e.cls },
-        { k: 'attempts', label: 'Số lần làm', num: 1, get: e => e.attempts }, { k: 'total', label: 'Tổng điểm', num: 1, get: e => e.total },
-        { k: 'max', label: 'Tổng tối đa', num: 1, get: e => e.max }, { k: 'pct', label: '% tổng', num: 1, get: e => e.pct + '%' },
-        { k: 'best', label: '% cao nhất', num: 1, get: e => e.best + '%' }, { k: 'time', label: 'Tổng thời gian', num: 1, get: e => fmtTime(e.time) },
-        { k: 'last', label: 'Lần gần nhất', get: e => fmtDate(e.last) }];
-      const byStudent = split => {
-        const m = new Map();
-        rows.forEach(x => {
-          const key = Norm.text(x.name).toLowerCase() + (split ? '|' + Norm.text(x.cls).toLowerCase() : '');
-          let e = m.get(key); if (!e) { e = { name: x.name, classes: new Set(), attempts: 0, total: 0, max: 0, best: 0, time: 0, last: '' }; m.set(key, e); }
-          e.attempts++; e.total += x.score; e.max += x.max; e.best = Math.max(e.best, x.pct); e.time += x.totalMs; if (x.cls) e.classes.add(x.cls);
-          if (String(x.submittedAt) > e.last) e.last = String(x.submittedAt);
-        });
-        return [...m.values()].map(e => ({ name: e.name, cls: [...e.classes].join(', '), attempts: e.attempts, total: round2(e.total), max: round2(e.max), pct: e.max ? Math.round(e.total / e.max * 100) : 0, best: e.best, time: e.time, last: e.last }));
-      };
-      const PAGE = 10, tableHost = h('div'), studHost = h('div');
-      const sortedRows = () => sortRows(rows, T.sort), sortedStuds = () => sortRows(byStudent(T.split), T.ssort);
-      function draw() {
-        const rp = Math.max(1, Math.ceil(rows.length / PAGE)); T.page = clamp(T.page, 1, rp);
-        tableHost.replaceChildren(sortTable('', rcols, sortedRows().slice((T.page - 1) * PAGE, T.page * PAGE), T.sort, k => { T.sort = nextSort(T.sort, k, ['name', 'cls']); T.page = 1; draw(); }),
-          rows.length > PAGE ? pager(T.page, rp, p => { T.page = p; draw(); }) : null);
-        const studs = sortedStuds(), sp = Math.max(1, Math.ceil(studs.length / PAGE)); T.spage = clamp(T.spage, 1, sp);
-        studHost.replaceChildren(sortTable('', scols, studs.slice((T.spage - 1) * PAGE, T.spage * PAGE), T.ssort, k => { T.ssort = nextSort(T.ssort, k, ['name', 'cls', 'last']); T.spage = 1; draw(); }),
-          studs.length > PAGE ? pager(T.spage, sp, p => { T.spage = p; draw(); }) : null);
-      }
-      out.replaceChildren(
-        h('div', { class: 'card row wrap', style: 'justify-content:space-around;text-align:center' }, h('div', null, h('div', { class: 'score-big', text: String(rows.length) }), h('div', { class: 'muted', text: 'Bài nộp' })), h('div', null, h('div', { class: 'score-big', text: avg + '%' }), h('div', { class: 'muted', text: 'Điểm TB' })),
-          h('div', null, h('div', { class: 'score-big', text: Math.max.apply(null, rows.map(pct)) + '%' }), h('div', { class: 'muted', text: 'Cao nhất' }))),
-        h('h2', { text: 'Tổng điểm theo học sinh' }),
-        h('p', { class: 'hint', text: 'Cộng điểm của mọi lần nộp của cùng một Mã học sinh (dữ liệu cũ: cùng tên). Bấm tiêu đề cột để sắp xếp.' }),
-        h('label', { class: 'check', for: 'ts-split' }, h('input', { type: 'checkbox', id: 'ts-split', onchange: e => { T.split = e.target.checked; T.spage = 1; draw(); } }), 'Tách theo lớp (chỉ cho dữ liệu cũ có tên + lớp)'),
-        studHost,
-        h('h2', { text: 'Kết quả từng bài nộp' }), tableHost,
-        h('h2', { text: 'Tỉ lệ làm đúng theo câu' }),
-        h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, ['#', 'Câu hỏi', 'Dạng', 'Đúng', 'Một phần', 'Sai/bỏ trống'].map(c => h('th', { scope: 'col', text: c })))),
-          h('tbody', null, order.map((k, i) => { const o = qm[k]; return h('tr', null, h('td', { text: String(i + 1) }), h('td', { style: 'white-space:normal;min-width:180px', text: o.q }), h('td', { text: QTYPES[o.t] || o.t }), h('td', { class: 'num', text: Math.round(o.right / o.n * 100) + '%' }), h('td', { class: 'num', text: Math.round(o.partial / o.n * 100) + '%' }), h('td', { class: 'num', text: Math.round((o.n - o.right - o.partial) / o.n * 100) + '%' })); })))),
-        h('div', { class: 'row wrap' },
-          h('button', { class: 'btn', onclick: () => {
-            const data = sortedRows().map(x => [x.name, x.cls, x.score, x.max, x.pct, Math.round(x.totalMs / 1000), x.submittedAt, x.late ? 'yes' : ''].map(safeCell));
-            download('ket-qua-test.csv', '\ufeff' + Papa.unparse({ fields: ['Mã HS / Họ tên', 'Lớp (cũ)', 'Điểm', 'Tối đa', '%', 'Giây', 'Nộp lúc', 'Trễ'], data }), 'text/csv;charset=utf-8');
-          } }, '⬇ Xuất CSV'),
-          h('button', { class: 'btn', onclick: () => {
-            const data = sortedStuds().map(e => [e.name, e.cls, e.attempts, e.total, e.max, e.pct, e.best, Math.round(e.time / 1000), e.last].map(safeCell));
-            download('ket-qua-test_tong-theo-hs.csv', '\ufeff' + Papa.unparse({ fields: ['Mã HS / Họ tên', 'Lớp (cũ)', 'Số lần làm', 'Tổng điểm', 'Tổng tối đa', '% tổng', '% cao nhất', 'Tổng thời gian (giây)', 'Lần gần nhất'], data }), 'text/csv;charset=utf-8');
-          } }, '⬇ CSV tổng theo HS')));
-      draw();
-    } catch (e) { out.replaceChildren(statsErr(e)); }
-  }
-  return { destroy() {} };
-}
-
 /* ===================== 10d. MẬT KHẨU TRUY CẬP APP ===================== */
 /** SHA-256 thuần JS (không phụ thuộc crypto.subtle nên chạy cả khi mở file trực tiếp / http). */
 const sha256 = (() => {
@@ -5131,8 +5309,8 @@ const Lock = {
 function renderNav() {
   if (document.body.dataset.route === 'assign') { $('#nav').replaceChildren(); return; }
   const path = location.hash.replace(/^#/, '').split('?')[0] || '/';
-  const items = [['#/', 'Trang chủ', '/'], Settings.data.teacherOk ? ['#/stats', 'Thống kê', '/stats'] : null, Settings.data.teacherOk ? ['#/teststats', 'Thống kê test', '/teststats'] : null, ['#/settings', 'Cài đặt', '/settings'], Auth.enabled() ? ['#/logout', 'Đăng xuất', '/logout'] : null].filter(Boolean);
-  $('#nav').replaceChildren(...items.map(([href, t, p]) => h('a', { href, 'aria-current': path === p ? 'page' : null }, t)));
+  const items = [['#/', 'Trang chủ', '/'], Settings.data.teacherOk ? ['#/stats', 'Thống kê', '/stats'] : null, ['#/settings', 'Cài đặt', '/settings'], Auth.enabled() ? ['#/logout', 'Đăng xuất', '/logout'] : null].filter(Boolean);
+  $('#nav').replaceChildren(...items.map(([href, t, p]) => h('a', { href, 'aria-current': path === p || (p === '/stats' && path === '/teststats') ? 'page' : null }, t)));
 }
 const Router = {
   cur: null,
@@ -5162,14 +5340,17 @@ const Router = {
       if (path === '/' || path === '') this.cur = HomeView(root);
       else if (path === '/settings') this.cur = SettingsView(root);
       else if (path === '/tao-mat-khau') this.cur = PassTool(root);
-      else if (path === '/stats') this.cur = StatsView(root);
+      else if (path === '/stats' || path === '/teststats') {
+        const m = query.match(/(?:^|&)id=([^&]*)/); let sid = m ? m[1] : '';
+        try { sid = decodeURIComponent(sid); } catch (_) {}
+        this.cur = (path === '/stats' ? StatsView : TestStatsView)(root, /^[\w-]{1,64}$/.test(sid) ? sid : '');
+      }
       else if (path === '/assign' || path === '/taketest') {
         const pick = key => { const m = query.match(new RegExp('(?:^|&)' + key + '=([^&]*)')); return m ? m[1] : ''; };
         const dec = v => { try { return decodeURIComponent(v); } catch (_) { return v; } };
         this.cur = AssignView(root, { d: dec(pick('d')).replace(/ /g, '+'), id: dec(pick('id')), s: dec(pick('s')), kind: path === '/taketest' ? 'test' : '', hs: pick('hs') === '1' });
       } else if (path.startsWith('/test-edit/')) this.cur = TestEditView(root, path.slice(11));
       else if (path.startsWith('/test-practice/')) this.cur = TestPracticeView(root, path.slice(15));
-      else if (path === '/teststats') this.cur = TestStatsView(root);
       else if (path.startsWith('/practice/')) this.cur = PracticeView(root, path.slice(10));
       else { root.replaceChildren(errorPanel('Không tìm thấy trang này.')); this.cur = null; }
     } catch (e) { console.error(e); root.replaceChildren(errorPanel('Đã xảy ra lỗi: ' + e.message)); this.cur = null; }

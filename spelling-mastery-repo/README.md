@@ -136,7 +136,9 @@ Mỗi câu có thể kèm: điểm riêng, đoạn văn (reading), hình ảnh (
 **Làm bài:** từng câu một, bảng số câu (xanh = đã làm), đồng hồ đếm ngược (tự nộp khi hết giờ), cảnh báo khi thoát giữa chừng.
 **Xem kết quả tại chỗ:** sau khi nộp, bấm vào số câu → câu đó hiện lại với đáp án đúng/sai, đáp án chuẩn và **giải thích** (khi sai/bỏ trống/đúng một phần). Giáo viên có thể tắt xem lại cho từng bài.
 
-**Giao bài / thống kê:** giống bài từ vựng (link tự chứa ≤ 2000 ký tự, nếu dài thì lưu đề lên sheet `Tests` và dùng link ngắn; hạn nộp & số lần do máy chủ quyết định). Kết quả vào sheet `TestResults` (điểm được máy chủ tính lại từ từng câu). Xem ở menu **Thống kê test**: bảng điểm, chi tiết từng học sinh, tỉ lệ đúng theo câu, xuất CSV. **Sau khi cập nhật `Code.gs` nhớ Deploy → New version.**
+**Trang Thống kê (giáo viên):** danh sách bài giao có tìm kiếm, lọc (đang mở / hết hạn / chưa ai nộp), sắp xếp và **xóa hàng loạt** (tích chọn nhiều bài hoặc bấm "Chọn bài hết hạn" → 🗑 Xóa). Bấm vào một bài để xem bảng điều khiển: chỉ số tổng quan, biểu đồ phân bố điểm, tab Theo học sinh / Từng lượt / Từ khó (bài test: Theo câu hỏi), bộ lọc theo % điểm, menu Xuất file. Xóa hàng loạt nhanh nhất khi `Code.gs` bản 13 (action `deleteAssignments`); Apps Script cũ vẫn xóa được, chỉ chậm hơn (xóa lần lượt từng bài).
+
+**Giao bài / thống kê:** giống bài từ vựng (link tự chứa ≤ 2000 ký tự, nếu dài thì lưu đề lên sheet `Tests` và dùng link ngắn; hạn nộp & số lần do máy chủ quyết định). Kết quả vào sheet `TestResults` (điểm được máy chủ tính lại từ từng câu). Xem ở menu **Thống kê → tab 📝 Bài test**: bảng điểm, chi tiết từng học sinh, tỉ lệ đúng theo câu, xuất CSV/Excel. **Sau khi cập nhật `Code.gs` nhớ Deploy → New version.**
 Lưu ý: không có máy chủ chấm riêng nên đáp án nằm trong dữ liệu đề – phù hợp kiểm tra tại lớp/luyện tập, không phải thi chống gian lận.
 
 ### Nhập CSV / Excel
@@ -168,7 +170,7 @@ Khi học sinh mở link giao bài (từ vựng hoặc test), **thanh header (t�
 - **data.json trên GitHub:** file đơn lẻ tối đa 25 MiB nếu tải lên bằng giao diện web, 100 MiB nếu đẩy bằng git (cảnh báo từ 50 MiB). Repo nên < 1 GB. File càng lớn thì mỗi lần mở trang chủ (đồng bộ) càng chậm.
 
 ## 12. Khắc phục: thống kê bài test không có dữ liệu
-1. **Kết quả bài test nằm ở menu "Thống kê test"**, không phải "Thống kê" (trang đó chỉ dành cho bài từ vựng).
+1. **Kết quả bài test nằm ở menu "Thống kê" → tab "📝 Bài test"** (tab "📚 Bài từ vựng" chỉ dành cho bài từ vựng).
 2. Phải dán lại `Code.gs` mới nhất **và** Deploy → Manage deployments → ✎ → Version: **New version**. Cài đặt → **Kiểm tra kết nối** sẽ báo đỏ nếu Apps Script còn bản cũ.
 3. Link giao bài phải được tạo SAU khi cấu hình Apps Script URL (URL nằm trong link). Link tạo khi chưa có URL sẽ không gửi được kết quả.
 4. Bài nộp lúc Apps Script còn bản cũ sẽ ở lại hàng đợi trên máy học sinh và hiện "Lỗi – Thử lại"; sau khi bạn cập nhật, học sinh mở lại link/bấm **Thử lại** để gửi.
