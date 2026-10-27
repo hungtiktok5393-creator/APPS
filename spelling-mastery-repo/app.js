@@ -593,7 +593,8 @@ const codeErrorMsg = r => ({
   code_disabled: 'Mã học sinh này đã bị xóa hoặc khóa nên không dùng được. Hãy hỏi giáo viên để nhận mã mới.',
   rate_limited: 'Bạn bấm hơi nhanh. Đợi 2–3 giây rồi bấm lại nhé.',
   busy: 'Máy chủ đang bận. Hãy thử lại sau vài giây.',
-  bad_request: 'Mã học sinh không hợp lệ. Hãy nhập lại.'
+  bad_request: 'Mã học sinh không hợp lệ. Hãy nhập lại.',
+  not_assigned: 'Bài này không được giao cho mã học sinh của bạn. Hãy kiểm tra lại mã hoặc hỏi giáo viên.'
 })[r && r.error] || (r && r.message) || 'Không kiểm tra được mã học sinh. Hãy thử lại.';
 /** Khung "điểm bài này + số dư mới" (tự cập nhật theo hàng đợi gửi). est = điểm dự kiến tính trên máy */
 function pointsPanel(psid, code, est) {
@@ -1302,7 +1303,8 @@ function HomeView(root) {
     const cpIn = h('input', { type: 'number', id: 'a-cp', min: 0, max: 1000, step: 1, inputmode: 'numeric', placeholder: String(Scoring.defCP), value: s.correctPts != null ? s.correctPts : '' });
     const ppIn = h('input', { type: 'number', id: 'a-pp', min: 0, max: 1000, step: 1, inputmode: 'numeric', placeholder: String(Scoring.defPP), value: s.peekPenalty != null ? s.peekPenalty : '' });
     const out = h('div', { 'aria-live': 'polite', class: 'stack' });
-    const go = h('button', { class: 'btn primary', onclick: create }, 'Tạo link giao bài');
+    const tg = targetPicker('a');
+    const go = h('button', { class: 'btn primary', onclick: create }, 'Giao bài & tạo link');
     Modal.open('Giao bài – ' + s.name, h('div', null,
       h('label', { for: 'a-name', text: 'Tên bài giao (học sinh thấy tên này, và hiện trong Thống kê)' }), nameIn,
       h('p', { class: 'hint', text: 'Đổi tên ở đây không làm đổi tên thẻ bộ từ. Để trống = dùng tên thẻ.' }),
@@ -1312,14 +1314,17 @@ function HomeView(root) {
       h('label', { for: 'a-pp', text: 'Điểm trừ mỗi lần xem lại (lần giao này)' }), ppIn,
       h('p', { class: 'hint', text: 'Điền sẵn từ bộ từ. Để trống = dùng mặc định chung. Máy chủ tính điểm thật theo các giá trị này.' }),
       h('p', { class: 'hint', text: 'Học sinh đăng nhập bằng Mã học sinh (tạo ở trang giáo viên), không nhập tên/lớp. Điểm cộng vào tài khoản của mã đó.' }),
+      tg.el,
       h('div', { class: 'row end' }, go), out));
     async function create() {
       const dueMs = new Date(due.value).getTime();
       if (!dueMs || dueMs <= Date.now()) return out.replaceChildren(h('p', { class: 'err', text: 'Hạn nộp phải ở tương lai.' }));
       if (!window.LZString) return out.replaceChildren(h('p', { class: 'err', text: 'Thư viện nén (lz-string) chưa tải được – kiểm tra mạng rồi thử lại.' }));
+      const st = Settings.data, url = st.scriptUrl, canSheet = API.validUrl(url) && !!st.teacherKey, codes = tg.codes();
+      if (tg.personal() && !codes.length) return out.replaceChildren(h('p', { class: 'err', text: 'Hãy nhập hoặc chọn ít nhất một mã học sinh.' }));
+      if (tg.personal() && !canSheet) return out.replaceChildren(h('p', { class: 'err', text: 'Giao riêng theo mã cần kết nối Apps Script: vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối.' }));
       go.disabled = true; out.replaceChildren(loading('Đang tạo link…'));
-      const st = Settings.data, url = st.scriptUrl, canSheet = API.validUrl(url) && !!st.teacherKey;
-      const a = { id: shortId(), name: Norm.text(nameIn.value).slice(0, 80) || s.name, link: '', words: s.cards, tts: { lang: s.tts.lang, rate: s.tts.rate }, due: dueMs, shuffle: !!s.shuffle, max: clamp(parseInt(max.value, 10) || 0, 0, 20), req: false, correctPts: cleanPts(cpIn.value), peekPenalty: cleanPts(ppIn.value) };
+      const a = { codes, id: shortId(), name: Norm.text(nameIn.value).slice(0, 80) || s.name, link: '', words: s.cards, tts: { lang: s.tts.lang, rate: s.tts.rate }, due: dueMs, shuffle: !!s.shuffle, max: clamp(parseInt(max.value, 10) || 0, 0, 20), req: false, correctPts: cleanPts(cpIn.value), peekPenalty: cleanPts(ppIn.value) };
       const payload = { v: 1, id: a.id, n: a.name, w: a.words.map(c => [c.en, c.vi]), t: { l: a.tts.lang, r: a.tts.rate }, due: a.due, sh: a.shuffle ? 1 : 0, max: a.max, req: a.req ? 1 : 0, u: API.validUrl(url) ? url : '' };
       if (a.correctPts !== undefined) payload.cp = a.correctPts; if (a.peekPenalty !== undefined) payload.pp = a.peekPenalty;   // chỉ để hiển thị; điểm thật do máy chủ
       const base = location.href.split('#')[0];
@@ -1332,7 +1337,7 @@ function HomeView(root) {
           a.link = shortLink;
           try { await withRetry(async () => { const r = await API.post(url, { action: 'saveAssignment', teacherKey: st.teacherKey, assignment: a }); if (!r.ok) throw new Error(r.message || r.error); });
             link = shortLink; mode = 'sheet'; }
-          catch (e) { mode = 'inline-long'; notes.push('Không lưu được bộ từ lên Google Sheet (' + e.message + '). Đang dùng link dài.'); }
+          catch (e) { mode = 'inline-long'; notes.push('Không lưu được bộ từ lên Google Sheet (' + e.message + '). Đang dùng link dài.' + (codes.length ? ' Bài CHƯA được giao cho các mã đã chọn – hãy bấm “Thử tạo link ngắn lại”.' : '')); }
         } else { mode = 'inline-long'; notes.push('Link đang rất dài vì chưa kết nối Google Apps Script. Vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối, rồi bấm “Thử tạo link ngắn lại” để có link ngắn chia sẻ được qua Zalo/Messenger.'); }
       } else if (canSheet) {   // đăng ký hạn nộp / số lần ở máy chủ (nguồn quyết định), không gửi danh sách từ
         try { const r = await API.post(url, { action: 'saveAssignment', teacherKey: st.teacherKey, assignment: Object.assign({}, a, { words: null }) }); if (!r.ok) throw new Error(r.message || r.error); }
@@ -1343,6 +1348,7 @@ function HomeView(root) {
       const canvas = h('canvas', { 'aria-label': 'Mã QR của link giao bài', role: 'img' });
       out.replaceChildren(
         h('p', { class: 'ok', text: mode === 'sheet' ? '✓ Link ngắn (bộ từ đã lưu trên Google Sheet).' : '✓ Link chứa toàn bộ dữ liệu bài.' }),
+        mode === 'sheet' ? h('p', { class: 'ok', text: codes.length ? `✓ Đã giao riêng cho ${codes.length} mã học sinh – bài hiện trong tab “Bài được giao” của các mã này.` : '✓ Đã giao cho tất cả mã học sinh – bài hiện trong tab “Bài được giao” ở trang học sinh.' }) : null,
         h('p', { class: 'hint', text: `Độ dài link: ${link.length} ký tự · Hạn: ${fmtDate(dueMs)}` }),
         ...notes.map(n => h('div', { class: 'box warn', text: n })),
         mode === 'inline-long' ? h('div', { class: 'row wrap' }, h('button', { class: 'btn small', onclick: () => create() }, '↻ Thử tạo link ngắn lại')) : null,
@@ -1734,7 +1740,8 @@ function AssignView(root, q) {
       !a.test && a.words.length ? h('p', { class: 'muted', text: `Điểm: +${a.correctPts != null ? a.correctPts : Scoring.defCP} mỗi từ đúng · −${a.peekPenalty != null ? a.peekPenalty : Scoring.defPP} mỗi lần xem lại` }) : null,
       a.max ? h('p', { class: 'muted', text: `Số lần làm: ${attempts()}/${a.max}` }) : null,
       !a.scriptUrl ? h('div', { class: 'box warn', text: 'Bài này chưa có máy chủ nhận điểm nên chưa thể kiểm tra Mã học sinh. Hãy báo giáo viên tạo lại link.' }) : null,
-      lock, codeBox, err, startBtn));
+      lock, codeBox, err, startBtn,
+      q.hs ? h('a', { class: 'btn ghost', href: 'hoc-sinh.html#bai-giao' }, '← Về trang học sinh') : null));
     tick(); timer = setInterval(tick, 1000);
 
     async function begin() {
@@ -1746,7 +1753,7 @@ function AssignView(root, q) {
       err.textContent = ''; checking = true; startBtn.disabled = true; startBtn.textContent = 'Đang kiểm tra mã…';
       const reset = () => { checking = false; startBtn.textContent = '▶ Vào làm bài'; startBtn.disabled = expired || !!(a.max && attempts() >= a.max); };
       let r;
-      try { r = await withRetry(() => API.post(a.scriptUrl, { action: 'checkCode', code: c }), 2); }
+      try { r = await withRetry(() => API.post(a.scriptUrl, { action: 'checkCode', code: c, refId: a.id }), 2); }
       catch (e) { if (dead) return; err.textContent = 'Không kiểm tra được mã: ' + e.message + ' (cần có mạng để vào làm bài).'; return reset(); }
       if (dead) return;
       if (!r.ok || r.valid === false) {
@@ -1807,7 +1814,7 @@ function SettingsView(root) {
       if (!r.ok) throw new Error(r.message || r.error);
       Settings.save(Object.assign(v, { teacherOk: !!r.teacher }));
       res.replaceChildren(h('p', { class: r.teacher ? 'ok' : 'err', text: r.teacher ? '✓ Kết nối thành công và Teacher Key hợp lệ.' : '⚠ Kết nối được máy chủ nhưng Teacher Key trống hoặc sai – chưa mở được Bảng thống kê.' }),
-        (r.v || 0) < 7 ? h('p', { class: 'err', text: '⚠ Apps Script chưa phải bản mới nhất (bản mới đọc/ghi Sheet nhanh hơn rõ rệt: tạo link, thống kê, xóa bài). Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → Version: New version.' }) : null);
+        (r.v || 0) < 10 ? h('p', { class: 'err', text: '⚠ Apps Script chưa phải bản mới nhất (bản mới có giao bài riêng theo mã học sinh, đọc/ghi Sheet nhanh hơn). Dán lại Code.gs rồi Deploy → Manage deployments → ✎ → Version: New version.' }) : null);
       renderNav();
     } catch (e) { res.replaceChildren(h('p', { class: 'err', text: 'Không kết nối được: ' + e.message })); }
   }
@@ -1937,6 +1944,47 @@ const tsOf = v => {
 const nfmt = n => (Number(n) || 0).toLocaleString('vi-VN');
 const studentBase = () => new URL('hoc-sinh.html', location.href).href;
 const studentLink = code => studentBase() + '?code=' + encodeURIComponent(code);
+/* ---------- "Giao cho": tất cả mã học sinh hoặc chỉ một số mã (bài hiện trong tab "Bài được giao" của trang học sinh) ---------- */
+const splitCodes = v => { const seen = new Set(); String(v || '').split(/[,;\r\n]+/).map(normCode).forEach(c => { if (c.length >= 3) seen.add(c); }); return [...seen]; };
+function targetPicker(pfx) {
+  const sel = new Set(); let students = null;
+  const allR = h('input', { type: 'radio', name: pfx + '-tg', id: pfx + '-tg-all', checked: true, onchange: () => upd() });
+  const someR = h('input', { type: 'radio', name: pfx + '-tg', id: pfx + '-tg-some', onchange: () => upd() });
+  const ta = h('textarea', { id: pfx + '-codes', rows: 3, class: 't-codes', spellcheck: 'false', autocapitalize: 'characters', autocomplete: 'off', placeholder: 'Mỗi mã một dòng hoặc cách nhau dấu phẩy, vd: AB3K7M, 6A01',
+    oninput: () => { sel.clear(); splitCodes(ta.value).forEach(c => sel.add(c)); drawList(); count(); } });
+  const info = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const filter = h('input', { type: 'search', style: 'width:100%', placeholder: 'Lọc theo mã / ghi chú (vd: 6A)', 'aria-label': 'Lọc danh sách mã', oninput: () => drawList() });
+  const list = h('div', { class: 'stack', style: 'max-height:240px;overflow:auto;gap:.15rem' });
+  const tools = h('div', { class: 'stack', hidden: true }, filter,
+    h('div', { class: 'row wrap' }, h('button', { type: 'button', class: 'btn small', onclick: () => bulk(true) }, '☑ Chọn tất cả (đang lọc)'), h('button', { type: 'button', class: 'btn small', onclick: () => bulk(false) }, '☐ Bỏ chọn (đang lọc)')), list);
+  const pickBtn = h('button', { type: 'button', class: 'btn small', onclick: load }, '👥 Chọn từ danh sách mã');
+  const some = h('div', { class: 'stack', hidden: true }, h('label', { for: pfx + '-codes', text: 'Mã học sinh được giao' }), ta, h('div', { class: 'row wrap' }, pickBtn), tools, info);
+  const shown = () => { const f = normCode(filter.value), fn = String(filter.value || '').trim().toLowerCase(); return (students || []).filter(s => s.active !== false && (!fn || s.code.includes(f) || String(s.note || '').toLowerCase().includes(fn))); };
+  function writeTa() { ta.value = [...sel].join('\n'); count(); }
+  function bulk(on) { shown().forEach(s => on ? sel.add(s.code) : sel.delete(s.code)); writeTa(); drawList(); }
+  function drawList() {
+    if (!students) return;
+    const rows = shown();
+    list.replaceChildren(...(rows.length ? rows.slice(0, 500).map(s => h('label', { class: 'check' },
+      h('input', { type: 'checkbox', checked: sel.has(s.code), onchange: e => { e.target.checked ? sel.add(s.code) : sel.delete(s.code); writeTa(); } }),
+      h('strong', { text: s.code }), s.note ? h('span', { class: 'muted', text: ' · ' + s.note }) : null)) : [h('p', { class: 'muted', text: 'Không có mã nào khớp.' })]));
+  }
+  async function load() {
+    if (!TA.ready()) return toast('Cần Apps Script URL + Teacher Key (Cài đặt) để tải danh sách mã.', 'error');
+    pickBtn.disabled = true; pickBtn.textContent = 'Đang tải…';
+    try { const r = await TA.call('listStudents', {}, { retry: true }); students = (r.students || []).map(s => ({ code: normCode(s.code), note: s.note, active: s.active })).filter(s => s.code).sort((a, b) => String(a.note || '').localeCompare(String(b.note || ''), 'vi') || a.code.localeCompare(b.code)); tools.hidden = false; drawList(); }
+    catch (e) { toast('Không tải được danh sách mã: ' + e.message, 'error'); }
+    pickBtn.disabled = false; pickBtn.textContent = '↻ Tải lại danh sách mã';
+  }
+  function count() { info.textContent = sel.size ? `Đã chọn ${sel.size} mã.` : 'Chưa chọn mã nào.'; }
+  function upd() { some.hidden = !someR.checked; if (someR.checked && !students && TA.ready()) load(); count(); }
+  const el = h('fieldset', { class: 'stack', style: 'border:1px solid var(--border);border-radius:10px;padding:.6rem .8rem' },
+    h('legend', { text: 'Giao cho' }),
+    h('label', { class: 'check', for: pfx + '-tg-all' }, allR, 'Tất cả học sinh có mã'),
+    h('label', { class: 'check', for: pfx + '-tg-some' }, someR, 'Chỉ một số mã học sinh (giao riêng)'),
+    some, h('p', { class: 'hint', text: 'Bài sẽ hiện trong tab “Bài được giao” ở trang học sinh của các mã được giao (cần Apps Script + Teacher Key). Mã không được giao không làm / không nộp được bài này.' }));
+  return { el, personal: () => someR.checked, codes: () => someR.checked ? [...sel] : [] };
+}
 async function copyAny(text) {
   const tmp = h('textarea', { 'aria-hidden': 'true', tabindex: '-1', style: 'position:fixed;left:-9999px;top:0;opacity:0' });
   tmp.value = text; document.body.append(tmp);
@@ -2506,6 +2554,7 @@ function assignInfoCard(a, kind, onDeleted, onFailed) {
   return h('div', { class: 'card stack' },
     h('h2', { text: 'Thông tin bài giao' }),
     h('p', { class: 'muted', text: `${a.name} · Hạn nộp: ${a.due ? fmtDate(a.due) : '—'}` + (a.due ? (expired ? ' · đã hết hạn' : ' · còn hạn') : '') }),
+    Array.isArray(a.codes) ? h('p', { class: 'muted', text: a.codes.length ? `Giao riêng cho ${a.codes.length} mã: ${a.codes.slice(0, 60).join(', ')}${a.codes.length > 60 ? '…' : ''}` : 'Giao cho: tất cả học sinh có mã' }) : null,
     link ? h('div', { class: 'stack' }, h('label', { text: 'Link giao bài (copy lại để gửi học sinh)' }), box,
         h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', type: 'button', onclick: async () => toast(await copyText(link, box) ? 'Đã sao chép link.' : 'Hãy chọn và copy thủ công.') }, '📋 Copy link')))
       : h('p', { class: 'hint', text: 'Link của bài này chưa được lưu (bài giao từ phiên bản cũ). Hãy tạo lại link từ thẻ ở trang chủ nếu cần.' }),
@@ -4387,32 +4436,35 @@ function openAssignTest(t) {
   const due = h('input', { type: 'datetime-local', id: 'ta-due', value: toLocalInput(Date.now() + 7 * 864e5) });
   const max = h('input', { type: 'number', id: 'ta-max', min: 0, max: 20, value: 0 });
   const nameIn = h('input', { type: 'text', id: 'ta-name', maxlength: 80, value: t.name, autocomplete: 'off' });
-  const out = h('div', { 'aria-live': 'polite', class: 'stack' }), go = h('button', { class: 'btn primary', onclick: create }, 'Tạo link giao bài');
+  const out = h('div', { 'aria-live': 'polite', class: 'stack' }), go = h('button', { class: 'btn primary', onclick: create }, 'Giao bài & tạo link'), tg = targetPicker('ta');
   Modal.open('Giao bài test – ' + t.name, h('div', null,
     h('label', { for: 'ta-name', text: 'Tên bài giao (học sinh thấy tên này, và hiện trong Thống kê test)' }), nameIn,
     h('p', { class: 'hint', text: 'Đổi tên ở đây không làm đổi tên thẻ bài test. Để trống = dùng tên thẻ.' }),
     h('label', { for: 'ta-due', text: 'Hạn nộp (giờ máy bạn)' }), due, h('label', { for: 'ta-max', text: 'Số lần làm tối đa (0 = không giới hạn)' }), max,
-    h('p', { class: 'hint', text: 'Học sinh đăng nhập bằng Mã học sinh (không nhập tên/lớp). Mỗi câu đúng được cộng điểm của câu (đặt trong trình soạn, mặc định 10).' }), h('div', { class: 'row end' }, go), out));
+    h('p', { class: 'hint', text: 'Học sinh đăng nhập bằng Mã học sinh (không nhập tên/lớp). Mỗi câu đúng được cộng điểm của câu (đặt trong trình soạn, mặc định 10).' }), tg.el, h('div', { class: 'row end' }, go), out));
   async function create() {
     const dueMs = new Date(due.value).getTime();
     if (!dueMs || dueMs <= Date.now()) return out.replaceChildren(h('p', { class: 'err', text: 'Hạn nộp phải ở tương lai.' }));
     if (!window.LZString) return out.replaceChildren(h('p', { class: 'err', text: 'Thư viện nén chưa tải được – kiểm tra mạng.' }));
+    const st = Settings.data, url = st.scriptUrl, canSheet = API.validUrl(url) && !!st.teacherKey, test = slimTest(t), codes = tg.codes();
+    if (tg.personal() && !codes.length) return out.replaceChildren(h('p', { class: 'err', text: 'Hãy nhập hoặc chọn ít nhất một mã học sinh.' }));
+    if (tg.personal() && !canSheet) return out.replaceChildren(h('p', { class: 'err', text: 'Giao riêng theo mã cần kết nối Apps Script: vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối.' }));
     go.disabled = true; out.replaceChildren(loading('Đang tạo link…'));
-    const st = Settings.data, url = st.scriptUrl, canSheet = API.validUrl(url) && !!st.teacherKey, test = slimTest(t);
-    const a = { id: shortId(), name: Norm.text(nameIn.value).slice(0, 80) || t.name, link: '', due: dueMs, max: clamp(parseInt(max.value, 10) || 0, 0, 20), req: false, shuffle: false, tts: {}, words: null };
+    const a = { codes, id: shortId(), name: Norm.text(nameIn.value).slice(0, 80) || t.name, link: '', due: dueMs, max: clamp(parseInt(max.value, 10) || 0, 0, 20), req: false, shuffle: false, tts: {}, words: null };
     const base = location.href.split('#')[0], payload = { v: 1, id: a.id, n: a.name, test, due: a.due, max: a.max, req: a.req ? 1 : 0, u: API.validUrl(url) ? url : '' };
     let link = base + '#/taketest?d=' + Link.pack(payload), mode = 'inline', notes = [];
     const shortLink = base + '#/taketest?id=' + a.id + '&s=' + encodeURIComponent(API.short(url));
     a.link = link;       // lưu link lên Sheet để xem/copy lại trong Thống kê test
     const post = body => API.post(url, Object.assign({ action: 'saveTest', teacherKey: st.teacherKey, assignment: a }, body)).then(r => { if (!r.ok) throw new Error(r.message || r.error); });
     if (canSheet || link.length > 2000) {
-      if (canSheet) { a.link = shortLink; try { await withRetry(() => post({ test })); link = shortLink; mode = 'sheet'; } catch (e) { mode = 'long'; notes.push('Không lưu được đề lên Google Sheet (' + e.message + '). Đang dùng link dài.'); } }
+      if (canSheet) { a.link = shortLink; try { await withRetry(() => post({ test })); link = shortLink; mode = 'sheet'; } catch (e) { mode = 'long'; notes.push('Không lưu được đề lên Google Sheet (' + e.message + '). Đang dùng link dài.' + (codes.length ? ' Bài CHƯA được giao cho các mã đã chọn – hãy bấm “Thử tạo link ngắn lại”.' : '')); } }
       else { mode = 'long'; notes.push('Link đang rất dài vì chưa kết nối Google Apps Script. Vào Cài đặt → dán Apps Script URL + Teacher Key → Kiểm tra kết nối, rồi bấm “Thử tạo link ngắn lại” để có link ngắn chia sẻ được qua Zalo/Messenger.'); }
     } else if (canSheet) { try { await post({ test: null }); } catch (e) { notes.push('Chưa đăng ký hạn nộp lên máy chủ (' + e.message + ').'); } }
     else notes.push('Chưa cấu hình Apps Script: học sinh làm được nhưng kết quả sẽ không được ghi về Sheet.');
     const box = h('textarea', { readonly: true, 'aria-label': 'Link giao bài test', style: 'min-height:90px;font-size:.8rem', onfocus: e => e.target.select() }); box.value = link;
     const canvas = h('canvas', { 'aria-label': 'Mã QR', role: 'img' });
     out.replaceChildren(h('p', { class: 'ok', text: mode === 'sheet' ? '✓ Link ngắn (đề đã lưu trên Google Sheet).' : '✓ Link chứa toàn bộ đề.' }),
+      mode === 'sheet' ? h('p', { class: 'ok', text: codes.length ? `✓ Đã giao riêng cho ${codes.length} mã học sinh – bài hiện trong tab “Bài được giao” của các mã này.` : '✓ Đã giao cho tất cả mã học sinh – bài hiện trong tab “Bài được giao” ở trang học sinh.' }) : null,
       h('p', { class: 'hint', text: `Độ dài link: ${link.length} ký tự · Hạn: ${fmtDate(dueMs)}` }), ...notes.map(n => h('div', { class: 'box warn', text: n })),
       mode === 'long' ? h('div', { class: 'row wrap' }, h('button', { class: 'btn small', onclick: () => create() }, '↻ Thử tạo link ngắn lại')) : null,
       h('div', { class: 'box', text: 'Lưu ý: đáp án đúng nằm trong dữ liệu đề (ứng dụng không có máy chủ chấm điểm riêng) – phù hợp bài kiểm tra tại lớp / luyện tập, không phải thi nghiêm ngặt.' }), box,
@@ -4853,7 +4905,8 @@ const Router = {
     }
     document.body.dataset.route = isAssign ? 'assign' : 'app';
     const brand = $('.brand');
-    if (isAssign && student) brand.removeAttribute('href'); else brand.setAttribute('href', '#/');   // học sinh: tên app không bấm được
+    const fromHs = isAssign && /(?:^|&)hs=1(?:&|$)/.test(query);              // mở từ tab "Bài được giao" ở trang học sinh
+    if (fromHs) brand.setAttribute('href', 'hoc-sinh.html#bai-giao'); else if (isAssign && student) brand.removeAttribute('href'); else brand.setAttribute('href', '#/');   // học sinh: tên app không bấm được
     document.title = 'Spelling Mastery – Chính tả từ vựng';
     const used = !isAssign && /^\/(practice|test-practice|test-edit)\/([\w-]+)$/.exec(path);      // ghi nhận "dùng gần đây"
     if (used) Prefs.touch(used[1] === 'practice' ? 'set' : 'test', used[2]);
@@ -4866,7 +4919,7 @@ const Router = {
       else if (path === '/assign' || path === '/taketest') {
         const pick = key => { const m = query.match(new RegExp('(?:^|&)' + key + '=([^&]*)')); return m ? m[1] : ''; };
         const dec = v => { try { return decodeURIComponent(v); } catch (_) { return v; } };
-        this.cur = AssignView(root, { d: dec(pick('d')).replace(/ /g, '+'), id: dec(pick('id')), s: dec(pick('s')), kind: path === '/taketest' ? 'test' : '' });
+        this.cur = AssignView(root, { d: dec(pick('d')).replace(/ /g, '+'), id: dec(pick('id')), s: dec(pick('s')), kind: path === '/taketest' ? 'test' : '', hs: pick('hs') === '1' });
       } else if (path.startsWith('/test-edit/')) this.cur = TestEditView(root, path.slice(11));
       else if (path.startsWith('/test-practice/')) this.cur = TestPracticeView(root, path.slice(15));
       else if (path === '/teststats') this.cur = TestStatsView(root);

@@ -7,11 +7,11 @@
   <meta name="color-scheme" content="light dark">
   <title>Trang học sinh – Spelling Mastery</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%93%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=20261027c">
-  <link rel="stylesheet" href="student.css?v=20261027c">
-  <link rel="stylesheet" href="games.css?v=20261027c">
-  <link rel="stylesheet" href="games2.css?v=20261027c">
-  <link rel="stylesheet" href="garden.css?v=20261027c">
+  <link rel="stylesheet" href="style.css?v=20261027d">
+  <link rel="stylesheet" href="student.css?v=20261027d">
+  <link rel="stylesheet" href="games.css?v=20261027d">
+  <link rel="stylesheet" href="games2.css?v=20261027d">
+  <link rel="stylesheet" href="garden.css?v=20261027d">
 </head>
 <body>
   <a class="skip" href="#app">Bỏ qua điều hướng</a>
@@ -50,11 +50,18 @@
       </section>
 
       <div class="home-tabs" role="tablist" aria-label="Khu vực" id="tabs">
+        <button class="home-tab" role="tab" id="t-bai-giao" aria-controls="p-bai-giao" data-tab="bai-giao">📋 Bài được giao <span class="home-count" id="bg-count" hidden></span></button>
         <button class="home-tab" role="tab" id="t-ho-so" aria-controls="p-ho-so" data-tab="ho-so">Hồ sơ</button>
         <button class="home-tab" role="tab" id="t-xep-hang" aria-controls="p-xep-hang" data-tab="xep-hang">Xếp hạng</button>
         <button class="home-tab" role="tab" id="t-tro-choi" aria-controls="p-tro-choi" data-tab="tro-choi">Trò chơi</button>
         <button class="home-tab" role="tab" id="t-khu-vuon" aria-controls="p-khu-vuon" data-tab="khu-vuon">Khu vườn</button>
       </div>
+
+      <section id="p-bai-giao" role="tabpanel" aria-labelledby="t-bai-giao" class="card" hidden>
+        <div class="page-head"><h2>Bài được giao</h2><button class="btn small" id="btn-open" type="button">Làm mới</button></div>
+        <p class="hint">Bài giáo viên giao cho bạn và còn hạn nộp. Bấm vào một bài để làm – làm xong, điểm được cộng vào số dư.</p>
+        <ul id="open-list" class="st-open" aria-live="polite"></ul>
+      </section>
 
       <section id="p-ho-so" role="tabpanel" aria-labelledby="t-ho-so" class="stack" hidden>
         <div class="card"><h2>Số dư theo thời gian</h2><div id="chart"></div></div>
@@ -112,10 +119,10 @@
   </dialog>
   <div id="toasts" aria-live="polite"></div>
   <noscript><p class="center">Cần bật JavaScript.</p></noscript>
-  <script src="student.js?v=20261027c" defer></script>
-  <script src="games.js?v=20261027c" defer></script>
-  <script src="games2.js?v=20261027c" defer></script>
-  <script src="garden.js?v=20261027c" defer></script>
-  <script src="garden-ui.js?v=20261027c" defer></script>
+  <script src="student.js?v=20261027d" defer></script>
+  <script src="games.js?v=20261027d" defer></script>
+  <script src="games2.js?v=20261027d" defer></script>
+  <script src="garden.js?v=20261027d" defer></script>
+  <script src="garden-ui.js?v=20261027d" defer></script>
 </body>
 </html>
