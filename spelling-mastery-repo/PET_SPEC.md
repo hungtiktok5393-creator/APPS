@@ -1,6 +1,6 @@
 # PET_SPEC – Game "Thú cưng" (Pet.gs + pet-art.js + pet.js + pet.css)
 
-Tab **🐾 Thú cưng** trên trang học sinh, kế bên Khu vườn.
+Tab **🐾 Thú cưng** trên trang học sinh, kế bên 🏙️ Nông trại & Phố.
 
 ## Cài đặt (Apps Script)
 1. Dán **Pet.gs** (tệp mới) và **Code.gs** (VERSION 14) vào cùng dự án Apps Script.

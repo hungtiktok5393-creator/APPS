@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 14;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 15;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -395,7 +395,7 @@ const STUDENT_HEADERS = ['code', 'createdAt', 'note', 'active', 'balance', 'tota
 const LEDGER_HEADERS = ['timestamp', 'code', 'delta', 'reason', 'refId', 'balanceAfter', 'detail'];
 const CONFIG_HEADERS = ['key', 'value'];
 const CLAIM_HEADERS = ['submissionId', 'timestamp'];
-const LEDGER_REASONS = ['vocab', 'test', 'game', 'teacher_adjust', 'garden', 'pet'];   // 'pet' = game Thú cưng (Pet.gs) – không tính vào báo cáo phụ huynh
+const LEDGER_REASONS = ['vocab', 'test', 'game', 'teacher_adjust', 'garden', 'pet', 'city'];   // 'garden' = Khu vườn cũ (đã gỡ, giữ để đọc lịch sử) · 'pet' Thú cưng · 'city' Nông trại & Thành phố – hai game này không tính vào báo cáo phụ huynh
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // bỏ 0 O 1 I L
 const CODE_LEN = 6;
 const CONFIG_DEFAULTS = {
@@ -403,11 +403,11 @@ const CONFIG_DEFAULTS = {
   gamesEnabled: true, maxBet: 200, maxBetPct: 25, dailyLossLimit: 300,
   game_slots_enabled: true, game_wheel_enabled: true, game_hilo_enabled: true, game_mines_enabled: true, game_crash_enabled: true,
   game_dice_enabled: true, game_plinko_enabled: true, game_scratch_enabled: true, game_keno_enabled: true, game_coin_enabled: true,
-  gardenEnabled: true, gardenCostPct: 100,
+  cityEnabled: true, cityCostPct: 100, cityDailySpendCap: 0,
   petEnabled: true, petDailyMin: 25, petDailySpendCap: 0
 };
-const GAME_ACTIONS = {}, GARDEN_ACTIONS = {}, PET_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
-let _gamesReg = false, _gardenReg = false, _petReg = false, _cfg = null, _tk = null;
+const GAME_ACTIONS = {}, CITY_ACTIONS = {}, PET_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
+let _gamesReg = false, _cityReg = false, _petReg = false, _cfg = null, _tk = null;
 
 /* ---------- Tiện ích dùng chung (Games.gs gọi được) ---------- */
 function jsonOut_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -432,7 +432,7 @@ function foldCode_(v) {              // bỏ dấu tiếng Việt, đ→d, viế
 }
 function normCode_(v) { return foldCode_(v).slice(0, CODE_MAX); }
 function isActive_(v) { return !(v === false || String(v).toLowerCase() === 'false'); }
-function maskCode_(c) { return String(c); }   // v11: không che mã nữa (giữ tên hàm cho Games.gs / Garden.gs)
+function maskCode_(c) { return String(c); }   // v11: không che mã nữa (giữ tên hàm cho Games.gs / Pet.gs / City.gs)
 function rateLimit_(code, action) {   // ≤ 1 yêu cầu / giây / (mã, action)
   const c = CacheService.getScriptCache(), k = 'rl:' + action + ':' + code;
   if (c.get(k)) throw apiError_('rate_limited', 'Thao tác quá nhanh, thử lại sau 1 giây.');
@@ -903,7 +903,7 @@ function familyReport_(codes) {
   // → KHÔNG gửi gì về bài giao chung (không danh sách, không kết quả, không lịch, không từ sai) để phụ huynh không hiểu lầm con lười.
   const now = Date.now(), from = now - P_DAYS * DAY_MS, set = {}, R = {};
   codes.forEach(function (c) { set[c] = 1; R[c] = { code: c, exists: false, note: '', active: false, balance: 0, totalEarned: 0, rank: null, totalStudents: 0, createdAt: '', lastActive: '',
-    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, garden: 0, teacher: 0 }, games7: 0, gamesNet7: 0 }; });
+    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, teacher: 0 }, games7: 0, gamesNet7: 0 }; });
   const day = function (c, d) { const o = R[c].days; return o[d] || (o[d] = { v: 0, t: 0, ms: 0, g: 0 }); };
   // 0) Bài giao: id → danh sách mã (rỗng = giao chung → bỏ qua hoàn toàn)
   const A = rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)), own = {};
@@ -972,8 +972,9 @@ function familyReport_(codes) {
       const t = msOf_(v[i][0]); if (t && t < from) { stop = true; break; }
       const c = String(v[i][1]); if (!set[c]) continue;
       const dl = Number(v[i][2]) || 0, rs = String(v[i][3]), L = R[c].ledger;
-      if (rs === 'vocab' || rs === 'test') { if (isOwn(String(v[i][4]), c)) L.study += dl; }   // chỉ điểm từ bài giao riêng else if (rs === 'game') L.game += dl; else if (rs === 'garden') L.garden += dl; else if (rs === 'teacher_adjust') L.teacher += dl;
-      // reason 'pet' (game Thú cưng) cố ý KHÔNG tính vào bất kỳ mục nào của báo cáo phụ huynh
+      if (rs === 'vocab' || rs === 'test') { if (isOwn(String(v[i][4]), c)) L.study += dl; }   // chỉ điểm từ bài giao riêng
+      else if (rs === 'game') L.game += dl; else if (rs === 'teacher_adjust') L.teacher += dl;
+      // reason 'city' (Nông trại & Thành phố), 'pet' (Thú cưng), 'garden' (Khu vườn cũ) cố ý KHÔNG tính vào bất kỳ mục nào của báo cáo phụ huynh
     }
     scanned += end - st + 1; end = st - 1;
   }
@@ -1010,7 +1011,7 @@ function route(action, params, method) {
   try {
     action = String(action || '').slice(0, 40); params = params || {}; method = method || 'POST';
     if (!_gamesReg) { _gamesReg = true; if (typeof registerGameActions_ === 'function') registerGameActions_(GAME_ACTIONS); }
-    if (!_gardenReg) { _gardenReg = true; if (typeof registerGardenActions_ === 'function') registerGardenActions_(GARDEN_ACTIONS); }   // Garden.gs: reg.<action> = function (params, student) {...}
+    if (!_cityReg) { _cityReg = true; if (typeof registerCityActions_ === 'function') registerCityActions_(CITY_ACTIONS); }             // City.gs: cityGet / cityAct / cityBoard / cityVisit / cityLike
     if (!_petReg) { _petReg = true; if (typeof registerPetActions_ === 'function') registerPetActions_(PET_ACTIONS); }                  // Pet.gs: petInfo / petGet / petAct / petBoard
     const post = method === 'POST', own = Object.prototype.hasOwnProperty;
     _auth = post ? { token: params.token, password: params.password } : {};   // mật khẩu / token của học sinh cho requireStudent_ (GET không nhận mật khẩu)
@@ -1026,10 +1027,10 @@ function route(action, params, method) {
         if (!cfgBool_('gamesEnabled', true)) throw apiError_('games_disabled', 'Trò chơi đang tắt.');
         return okWrap_((typeof g === 'function' ? g : g.fn)(params, s));
       }
-      if (own.call(GARDEN_ACTIONS, action)) {
-        const f = GARDEN_ACTIONS[action], s = requireStudent_(params.code);
-        if (!cfgBool_('gardenEnabled', true)) throw apiError_('garden_disabled', 'Khu vườn đang tắt.');
-        return okWrap_((typeof f === 'function' ? f : f.fn)(params, s));
+      if (own.call(CITY_ACTIONS, action)) {
+        const f = CITY_ACTIONS[action], s = requireStudent_(params.code);
+        if (!cfgBool_('cityEnabled', true)) throw apiError_('city_disabled', 'Nông trại & Thành phố đang tắt.');
+        return okWrap_(f(params, s));
       }
       if (own.call(PET_ACTIONS, action)) {
         const f = PET_ACTIONS[action], s = requireStudent_(params.code);
