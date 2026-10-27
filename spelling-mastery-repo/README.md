@@ -223,9 +223,9 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 **Mật khẩu học sinh**
 - Giáo viên đặt tự do (tối đa 32 ký tự, phân biệt hoa/thường): khi tạo mã (dòng `MÃ | ghi chú | mật khẩu`, hoặc tích "Tự tạo mật khẩu 4 chữ số"), nút 🔑 ở từng dòng, hoặc **🔑 Mật khẩu hàng loạt**. Ô trống = mã không cần mật khẩu.
 - Cần mã + mật khẩu để vào **trang học sinh** và **làm bài được giao**. Đăng nhập đúng → máy nhớ (token), lần sau vào thẳng. Đổi mật khẩu → mọi máy phải đăng nhập lại. Sai 6 lần / 10 phút → khóa 10 phút.
-- Máy chủ kiểm tra token ở mọi thao tác của học sinh (hồ sơ, bài giao, nộp bài, cộng điểm, trò chơi, khu vườn) – không chỉ ở giao diện.
+- Máy chủ kiểm tra token ở mọi thao tác của học sinh (hồ sơ, bài giao, nộp bài, cộng điểm, trò chơi, thành phố, thú cưng) – không chỉ ở giao diện.
 - Mật khẩu hiện trong bảng học sinh, CSV và thẻ in.
-- **Mã học sinh không còn bị che** ở bất kỳ đâu (bảng xếp hạng, khu vườn).
+- **Mã học sinh không còn bị che** ở bất kỳ đâu (bảng xếp hạng, thành phố).
 
 **Trang học sinh:** tab "Bài được giao" tách thành **📚 Bài chung** (giao cho mọi mã) và **👤 Bài của riêng bạn** (chỉ giao cho mã đó).
 
@@ -239,5 +239,14 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 **Nút ☀️/🌙** có trên thanh trên cùng của trang giáo viên, học sinh, phụ huynh và trên màn hình vào làm bài; lựa chọn dùng chung mọi trang (`theme.js`).
 
 ## 🐾 Thú cưng (Pet.gs)
-Tab mới trên trang học sinh, cạnh Khu vườn. Học sinh dùng điểm làm bài để nuôi thú; **mỗi ngày phải chi ≥ 25 điểm cho đồ ăn + chăm sóc, không thì thú mất**. Không tính vào báo cáo phụ huynh.
+Tab trên trang học sinh, cạnh 🏙️ Nông trại & Phố. Học sinh dùng điểm làm bài để nuôi thú; **mỗi ngày phải chi ≥ 25 điểm cho đồ ăn + chăm sóc, không thì thú mất**. Không tính vào báo cáo phụ huynh.
 Cài: dán `Pet.gs` + `Code.gs` (VERSION 14) vào Apps Script rồi Deploy → New version. Chi tiết: `PET_SPEC.md`.
+
+## 🏙️ Nông trại & Thành phố (City.gs) – thay cho Khu vườn
+Khu vườn cũ đã được **xoá hoàn toàn** (Garden.gs, garden*.js/css). Thay bằng game xây **nông trại + thành phố mở rộng và nâng cấp vô tận** ở tab **🏙️ Nông trại & Phố**.
+- Trồng trọt (kéo ngón tay để gieo/thu nhiều ruộng), chăn nuôi, 13 nhà máy, đơn hàng, chợ, nhà ở cao tầng dần khi nâng cấp, dịch vụ, trang trí, 12 kỳ quan thế giới, ngày/đêm theo giờ thật, xe cộ – người đi bộ – máy bay – rồng bay, thăm & thả tim thành phố bạn bè, nhiệm vụ ngày, thành tích, quà ghé thăm.
+- **Không có gì bị mất hay reset**: cây không héo, không có chơi lại từ đầu, cất công trình vào kho vẫn giữ nguyên cấp.
+- **Điểm học tập ⭐** dùng để: mua đất mới (vô tận), kỳ quan, trang trí & nhà cao cấp, tăng tốc, bùa x2, trợ lý tự động, nâng cấp vĩnh viễn, giống cây quý, xe & thú cưng dạo phố, chủ đề mặt đất, hiệu ứng (pháo hoa, tuyết, hoa đào…), đổi xu. Không có hộp quà may rủi, giá luôn hiện trước.
+- **Không tính vào báo cáo phụ huynh** (reason `city` bị `familyReport_` bỏ qua, không ghi GameLog).
+
+**Cài đặt:** dán `City.gs` (tệp mới) + `Code.gs` (VERSION 15) vào Apps Script, **xoá tệp `Garden.gs` cũ** trong dự án Apps Script, rồi Deploy → Manage deployments → ✎ → New version. Sheet `City` tự tạo ở lần gọi đầu (sheet `Garden` cũ có thể xoá tay). Chi tiết: `CITY_SPEC.md`.

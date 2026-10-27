@@ -35,7 +35,7 @@ Chỉ bài `due > now` còn dữ liệu; sắp hạn gần nhất trước; tố
 
 ## 6. route()
 - Action trong `GAME_ACTIONS`: `requireStudent_(code)` KHÔNG rate limit 1 giây (an toàn nhờ requestId + `withLock_`), kiểm `gamesEnabled`.
-- Sau `registerGameActions_` gọi `registerGardenActions_(GARDEN_ACTIONS)` nếu hàm tồn tại (Garden.gs). Chữ ký: `reg.<action> = function (params, student) {...}`.
+- (Đã thay bằng City.gs ở v15 – xem CITY_SPEC.md.) Trước đây: sau `registerGameActions_` gọi `registerGardenActions_(GARDEN_ACTIONS)` nếu hàm tồn tại (Garden.gs). Chữ ký: `reg.<action> = function (params, student) {...}`.
   route: `requireStudent_(code)` → `cfgBool_('gardenEnabled',true)` (tắt → `garden_disabled` "Khu vườn đang tắt.") → `okWrap_(fn(params, student))`.
 - Vẫn có rate limit: checkCode, submitResult, getProfile, getLeaderboard.
 
@@ -63,5 +63,5 @@ Chỉ bài `due > now` còn dữ liệu; sắp hạn gần nhất trước; tố
 | Tung xu | coin | `coinStart`, `coinFlip`, `coinCashout` |
 
 ## 9. Trang học sinh (client)
-Tab: ho-so | kiem-diem | khu-vuon | tro-choi | xep-hang. Khu vườn: `SMGarden.mount(root, {api,getBalance,setBalance,toast,sfx,requestId,code})` / `SMGarden.unmount()`.
+Tab: … | thanh-pho | thu-cung. Nông trại & Thành phố: `SMCity.mount(root, {api,getBalance,setBalance,toast,requestId,code})` / `SMCity.unmount()` (Khu vườn đã gỡ – xem CITY_SPEC.md).
 `SMGame.addGame(key,icon,name)` để games2.js thêm tab trò. Mã học sinh dùng chung với trang làm bài qua localStorage `sm_studentCode`.
