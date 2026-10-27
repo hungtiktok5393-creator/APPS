@@ -6,7 +6,7 @@
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261027e', BREAK_EVERY = 20;
+const VER = '20261027f', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
 const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash'], ['dice', '🎲', 'Xúc xắc'], ['plinko', '🔻', 'Plinko'], ['scratch', '🎟️', 'Thẻ cào'], ['keno', '🔢', 'Keno mini'], ['coin', '🪙', 'Tung xu']];
@@ -61,7 +61,7 @@ const api = (action, params) => call(action, Object.assign({ code: S.code }, par
 /* ---- Toast & âm thanh ---- */
 function toast(m, err) { const t = el('div', 'toast' + (err ? ' error' : ''), m); $('toasts').append(t); setTimeout(() => t.remove(), 3800); }
 let ac, muted = LS.get('sm_snd') === '0';
-const TONES = { click: [[600, .04]], coin: [[880, .07], [1320, .12]], win: [[523, .1], [659, .1], [784, .1], [1047, .2]], lose: [[300, .14], [220, .24]], tick: [[1000, .02]], spin: [[400, .05], [500, .05], [600, .05]], error: [[180, .2, 'sawtooth']] };
+const TONES = { click: [[600, .04]], coin: [[880, .07], [1320, .12]], win: [[523, .1], [659, .1], [784, .1], [1047, .2]], lose: [[300, .14], [220, .24]], tick: [[1000, .02]], near: [[660, .06], [880, .06], [990, .14]], spin: [[400, .05], [500, .05], [600, .05]], error: [[180, .2, 'sawtooth']] };
 function sfx(n) {
   if (muted) return;
   try {
@@ -71,7 +71,7 @@ function sfx(n) {
 }
 
 /* ---- Số dư, mức cược, hạn mức, khóa ---- */
-function setBal(n) { S.bal = Math.max(0, Math.floor(+n) || 0); $('bal').textContent = nf(S.bal); $('gbal').textContent = nf(S.bal); clampBet(); evalLock(); }
+function setBal(n) { S.bal = Math.max(0, Math.floor(+n) || 0); $('bal').textContent = nf(S.bal); $('gbal').textContent = nf(S.bal); clampBet(); evalLock(); earnCta(); }
 const lossLeft = () => S.cfg.dailyLossLimit > 0 ? Math.max(0, S.cfg.dailyLossLimit + Math.min(0, S.todayNet)) : Infinity;
 function betCap() { const c = S.cfg; let m = Math.min(c.maxBet > 0 ? c.maxBet : Infinity, Math.max(1, Math.floor(S.bal * (c.maxBetPct || 100) / 100)), S.bal, lossLeft()); return isFinite(m) ? Math.max(0, m) : S.bal; }
 function clampBet() { const i = $('bet'); let v = Math.floor(+i.value) || 0; const cap = betCap(); if (v > cap) v = cap; if (v < 0) v = 0; if (document.activeElement !== i || v !== +i.value && i.value !== '') i.value = v || ''; i.max = cap; $('bet-hint').textContent = 'Cược tối đa lúc này: ' + nf(cap) + ' (theo luật máy chủ và số dư).'; }
@@ -151,14 +151,14 @@ async function loadOpen(quiet) {
   let r;
   try { r = await api('listOpenAssignments', {}); }
   catch (e) { ul.replaceChildren(el('li', 'st-empty err', e.message)); return; }
-  S.openAt = Date.now();
+  S.openAt = Date.now(); S.open = r.items || []; earnCta();
   const items = r.items || [], att = attemptsMap(), now = Number(r.serverTime) || Date.now();
   cnt.hidden = !items.length; cnt.textContent = items.length;
   ul.replaceChildren();
   if (!items.length) { ul.append(el('li', 'st-empty muted', 'Hiện chưa có bài nào được giao cho bạn. 🎉')); return; }
   items.forEach(x => {
     const test = x.kind === 'test', done = att[x.id] || 0, full = x.max > 0 && done >= x.max;
-    const href = 'index.html#/' + (test ? 'taketest' : 'assign') + '?id=' + encodeURIComponent(x.id) + '&s=' + encodeURIComponent(shortUrl(url())) + '&hs=1';
+    const href = asgHref(x);
     const a = el('a', 'st-oc'); a.href = href; a.onclick = shareCode;
     const m = el('div', 'm'); m.append(el('b', '', x.name || x.id));
     const bits = [test ? 'Bài test' : 'Từ vựng' + (x.count ? ' · ' + x.count + ' từ' : ''), 'Hạn ' + fmtDue(x.due) + ' (' + leftText(x.due, now) + ')'];
@@ -174,6 +174,26 @@ async function loadOpen(quiet) {
     a.append(el('span', 'ic', test ? '📝' : '📘'), m, el('span', 'go', '›'));
     const li = el('li'); li.append(a); ul.append(li);
   });
+}
+
+/* ---- Nhắc làm bài khi sắp hết điểm (khu trò chơi): hết điểm thì làm bài để có điểm chơi tiếp ---- */
+const LOW_BAL = 30;   // dưới mức này (hoặc dưới 3 lần mức cược) thì hiện nhắc
+const asgHref = x => 'index.html#/' + (x.kind === 'test' ? 'taketest' : 'assign') + '?id=' + encodeURIComponent(x.id) + '&s=' + encodeURIComponent(shortUrl(url())) + '&hs=1';
+function earnCta() {
+  const box = $('earn-cta'); if (!box) return;
+  const low = S.code && S.cfg.gamesEnabled !== false && (S.bal < 1 || S.bal < Math.max(LOW_BAL, 3 * (Math.floor(+$('bet').value) || 0)));
+  if (!low) { box.hidden = true; S.ctaOn = false; return; }
+  if (!S.open && Date.now() - (S.openAt || 0) > 60000) { S.openAt = Date.now(); loadOpen(1); }   // lấy danh sách bài một lần (im lặng)
+  const pts = S.cfg.vocabCorrectPoints ?? 5, att = attemptsMap();
+  const items = (S.open || []).filter(x => !(x.max > 0 && (att[x.id] || 0) >= x.max));
+  const first = items.find(x => x.kind !== 'test') || items[0];
+  const t = el('b', '', S.bal < 1 ? '😮 Hết điểm rồi! Làm bài để có điểm chơi tiếp nhé.' : '⚡ Sắp hết điểm (còn ' + nf(S.bal) + '). Nạp thêm điểm bằng cách làm bài!');
+  const sub = el('span', 'hint', 'Mỗi từ đúng +' + pts + ' điểm → làm đúng 5 từ là +' + nf(5 * pts) + ' điểm.' + (S.open ? (items.length ? ' Bạn có ' + items.length + ' bài đang mở.' : ' Hiện chưa có bài mới – hãy nhờ thầy cô giao bài.') : ''));
+  const acts = el('div', 'earn-acts');
+  if (first) { const a = el('a', 'btn primary', (first.kind === 'test' ? '📝 Làm bài: ' : '📘 Làm bài: ') + (first.name || first.id)); a.href = asgHref(first); a.onclick = shareCode; acts.append(a); }
+  const all = el('button', 'btn' + (first ? '' : ' primary'), '📋 Xem bài được giao'); all.type = 'button'; all.onclick = () => show('bai-giao'); acts.append(all);
+  box.replaceChildren(t, sub, acts); box.hidden = false;
+  if (!S.ctaOn) { S.ctaOn = true; if (box.animate && !reduced.matches) box.animate([{ transform: 'scale(.96)', opacity: .4 }, { transform: 'scale(1.02)', opacity: 1 }, { transform: 'scale(1)' }], { duration: 350 }); }
 }
 
 /* ---- Xếp hạng ---- */
@@ -277,18 +297,19 @@ function init() {
     const c = norm($('code-in').value); $('code-in').value = c; if (!/^[A-Z0-9]{3,16}$/.test(c)) return ($('login-err').textContent = 'Mã gồm 3–16 chữ hoặc số.'); enter(c);
   };
   $('code-in').oninput = e => { e.target.value = norm(e.target.value); };
-  $('btn-change').onclick = () => { warmStop(); closeGarden(); LS.set('sm_code', null); S.code = ''; document.dispatchEvent(new CustomEvent('smgame:stop')); S.rounds = S.pnl = S.sinceBreak = 0; S.game = null; S.tab = ''; S.openAt = 0; $('open-list').replaceChildren(); $('bg-count').hidden = true; sum(); loginView(); $('code-in').value = ''; $('code-in').focus(); };
+  $('btn-change').onclick = () => { warmStop(); closeGarden(); LS.set('sm_code', null); S.code = ''; document.dispatchEvent(new CustomEvent('smgame:stop')); S.rounds = S.pnl = S.sinceBreak = 0; S.open = null; S.game = null; S.tab = ''; S.openAt = 0; $('open-list').replaceChildren(); $('bg-count').hidden = true; sum(); loginView(); $('code-in').value = ''; $('code-in').focus(); };
   $('btn-refresh').onclick = () => loadProfile().then(() => toast('Đã cập nhật.'), e => toast(e.message, 1));
   $('btn-board').onclick = loadBoard; $('btn-open').onclick = () => loadOpen(); $('btn-stop').onclick = stop;
   document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); b.onkeydown = e => { const i = TABS.indexOf(b.dataset.tab), n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null; if (n != null) { const t = document.querySelectorAll('[data-tab]')[(n + TABS.length) % TABS.length]; show(t.dataset.tab); t.focus(); } }; });
   const q = $('quick'); [['10', () => 10], ['50', () => 50], ['100', () => 100], ['½', () => Math.floor(S.bal / 2)], ['MAX', betCap]].forEach(([n, f]) => { const b = el('button', 'btn small', n); b.type = 'button'; b.setAttribute('aria-label', n === 'MAX' ? 'Cược tối đa' : n === '½' ? 'Cược một nửa số dư' : 'Cược ' + n); b.onclick = () => { $('bet').value = f(); clampBet(); LS.set('sm_bet', $('bet').value); sfx('click'); }; q.append(b); });
-  $('bet').oninput = () => { clampBet(); }; $('bet').onchange = () => LS.set('sm_bet', $('bet').value); $('bet').value = LS.get('sm_bet') || 10;
+  $('bet').oninput = () => { clampBet(); earnCta(); }; $('bet').onchange = () => LS.set('sm_bet', $('bet').value); $('bet').value = LS.get('sm_bet') || 10;
   const sn = $('btn-snd'); const paint = () => { sn.textContent = muted ? '🔇' : '🔊'; sn.setAttribute('aria-pressed', !muted); sn.setAttribute('aria-label', muted ? 'Bật âm thanh' : 'Tắt âm thanh'); }; paint(); sn.onclick = () => { muted = !muted; LS.set('sm_snd', muted ? '0' : '1'); paint(); sfx('click'); };
   const fb = $('btn-fast'); if (fb) { const pf = () => { fb.setAttribute('aria-pressed', S.fast); fb.textContent = S.fast ? '⚡ Nhanh: bật' : '⚡ Nhanh: tắt'; }; pf(); fb.onclick = () => { S.fast = !S.fast; LS.set('sm_fast', S.fast ? '1' : '0'); pf(); sfx('click'); }; }
   $('break-go').onclick = () => $('break-dlg').close(); $('break-stop').onclick = () => { $('break-dlg').close(); stop(); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.code && Date.now() - S.last > 30000) { S.last = Date.now(); loadProfile().catch(() => {}); if (S.tab === 'bai-giao') loadOpen(1); } });
   window.addEventListener('pageshow', e => { if (e.persisted && S.code) { loadProfile().catch(() => {}); if (S.tab === 'bai-giao') loadOpen(1); } });   // quay lại từ trang làm bài (nút Back)
   window.addEventListener('hashchange', () => S.code && show(location.hash.slice(1)));
+  { const st = $('game-stage'), box = el('div', 'card earn-cta'); box.id = 'earn-cta'; box.hidden = true; box.setAttribute('role', 'status'); const host = st && st.parentElement; if (host) host.parentElement.insertBefore(box, host); }
   sum(); tabsG(); rules();
   const p = new URLSearchParams(location.search), c = norm(p.get('code') || LS.get('sm_code'));
   if (p.has('code')) history.replaceState(null, '', location.pathname + location.hash);

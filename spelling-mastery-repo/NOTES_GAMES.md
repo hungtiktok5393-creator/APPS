@@ -1,3 +1,12 @@
+# Bản 20261027f – "Suýt trúng" (trung thực) + nhắc làm bài khi sắp hết điểm
+- Dòng "suýt trúng" trong khung kết quả (+ âm thanh riêng, viền cam). CHỈ mô tả kết quả thật máy chủ đã trả, không sắp đặt/ép kết quả, xác suất giữ nguyên:
+  máy quay đúng 2 giống ("Thêm 1 ⭐ nữa là ×9") · vòng quay kim dừng cạnh ô ≥×2 · xúc xắc thua cách vùng thắng 1–3 số · plinko rơi ô lỗ sát ô lãi (hoặc sát ô lớn gấp đôi) ·
+  thẻ cào thua có 2 ô cùng biểu tượng giá trị cao (⭐ trở lên, viền cam đứt) · keno thiếu đúng 1 số · cao–thấp lá bằng nhau / còn 1 bước là tự rút · dò mìn còn 1 ô là tự rút ·
+  tên lửa nổ ở ≥80% mức tự rút · tung xu thua khi chỉ cần thêm 1 lần Ngửa.
+- Hộp nhắc "Sắp hết điểm" phía trên khu trò chơi khi số dư < 30 hoặc < 3 lần mức cược (hết điểm: "Hết điểm rồi!"): nêu điểm mỗi từ đúng (vocabCorrectPoints), nút đi thẳng tới bài đang mở đầu tiên (ưu tiên bài từ vựng, bỏ bài đã hết lượt) + nút "Xem bài được giao". Danh sách bài lấy im lặng bằng listOpenAssignments (tối đa 1 lần/phút).
+- Sửa lỗi có sẵn: bóng plinko đôi khi lỗi ở khung hình đầu (mốc rAF sớm hơn lúc bắt đầu).
+- ?v= → 20261027f. Không đổi Games.gs / Code.gs (không cần deploy lại Apps Script).
+
 # NOTES_GAMES – 10 trò, tỷ lệ thắng ≈ 45% + nhịp nhanh (bản 20261027e)
 
 ## Tỷ lệ thắng 45% (thắng = ván có net > 0), hoàn trả (RTP) giữ ≈ 90%

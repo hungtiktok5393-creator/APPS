@@ -57,3 +57,9 @@ main{max-width:760px;padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px
 .st-oc .go{flex:none;font-size:1.6rem;color:var(--muted)}
 #garden-root{min-height:120px}
 .st-soon{text-align:center}
+
+/* Nhắc làm bài khi sắp hết điểm (khu trò chơi) */
+.earn-cta{display:grid;gap:.4rem;text-align:center;border:2px solid var(--primary);background:color-mix(in srgb,var(--primary) 8%,var(--surface))}
+.earn-cta[hidden]{display:none}
+.earn-acts{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem}
+.earn-acts .btn{min-height:48px;text-decoration:none}

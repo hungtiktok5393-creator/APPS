@@ -44,7 +44,8 @@
       catch (e) { c.clear(t); c.active = false; c.unhold(before); roll.textContent = '—'; throw e; }
       c.clear(t); roll.textContent = String(r.roll); roll.classList.toggle('win', +r.net > 0);
       mark.hidden = false; mark.style.transform = 'translateX(' + (+r.roll - 0.5) + '%)';
-      c.finish(r, 'Số lăn ' + r.roll + ' · ' + (r.dir === 'under' ? 'dưới ' : 'trên ') + r.target + ' · Hệ số ' + fx(r.mult, true));
+      const gap = r.dir === 'under' ? +r.roll - (+r.target - 1) : (+r.target + 1) - +r.roll;   // lăn thua: cách vùng thắng bao nhiêu số
+      c.finish(r, 'Số lăn ' + r.roll + ' · ' + (r.dir === 'under' ? 'dưới ' : 'trên ') + r.target + ' · Hệ số ' + fx(r.mult, true), !r.win && gap >= 1 && gap <= 3 ? 'Suýt trúng! Chỉ cách ' + gap + ' số' : '');
     }
     mark.hidden = true; paint();
   }
@@ -87,12 +88,12 @@
     }
     function drop(path, ms) {
       return new Promise(res => {
-        if (G.reducedMotion || ms <= 0) { Pk.ball = null; return res(); }
+        if (G.reducedMotion || ms <= 0 || !path.length) { Pk.ball = null; return res(); }
         let R = 0; const pts = [[px(0, 0), py(0) - 28]]; const xs = [px(0, 0)];
         path.forEach((b, i) => { R += b; pts.push([px(i + 1, R), i + 1 < PROWS ? py(i + 1) : py(PROWS - 1) + 40]); });
         const t0 = performance.now(), n = path.length;
         c.loop(now => {
-          const k = Math.min(1, (now - t0) / ms), pos = k * n, i = Math.min(n - 1, Math.floor(pos)), u = pos - i, a = pts[i], b = pts[i + 1];
+          const k = Math.max(0, Math.min(1, (now - t0) / ms)), pos = k * n, i = Math.max(0, Math.min(n - 1, Math.floor(pos))), u = pos - i, a = pts[i], b = pts[i + 1];
           Pk.ball = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u * u + (u < .5 ? -Math.sin(u * 3.1416) * 8 : 0)];
           draw();
           if (k >= 1) { c.stopLoop(); res(); }
@@ -107,7 +108,8 @@
       if (Array.isArray(r.table) && r.table.length === PROWS + 1) Pk.tbl = { risk: r.risk, t: r.table.map(Number) };
       await drop((r.path || []).map(x => (x ? 1 : 0)), G.fast ? 250 : 700);
       Pk.hot = Math.max(0, Math.min(PROWS, Math.floor(+r.slot) || 0)); Pk.ball = [px(PROWS, Pk.hot), py(PROWS - 1) + 40]; paint();
-      c.finish(r, 'Ô số ' + (Pk.hot + 1) + ' · Hệ số ' + fx(r.mult));
+      const T = Pk.tbl ? Pk.tbl.t : PK[Pk.risk], nb = Math.max(T[Pk.hot - 1] || 0, T[Pk.hot + 1] || 0);
+      c.finish(r, 'Ô số ' + (Pk.hot + 1) + ' · Hệ số ' + fx(r.mult), +r.mult < 1 && nb > 1 ? 'Suýt có lãi! Lệch 1 ô là ' + fx(nb) : +r.mult > 1 && nb >= +r.mult * 2 ? 'Sát ô ' + fx(nb) + '!' : '');
     }
     c.cleanup = () => { Pk.ball = null; };
     paint();
@@ -116,6 +118,7 @@
   /* ================= 3. THẺ CÀO ================= */
   const SCR = { cherry: '🍒', lemon: '🍋', orange: '🍊', grape: '🍇', melon: '🍉', peach: '🍑', bell: '🔔', clover: '🍀', heart: '❤️', moon: '🌙', star: '⭐', rainbow: '🌈', gem: '💠', crown: '👑', diamond: '💎', seven: '7️⃣' };
   const scr = k => SCR[k] || String(k);
+  const SCR_B = { cherry: 1.2, lemon: 1.2, orange: 1.2, grape: 1.2, melon: 1.2, peach: 1.2, bell: 1.45, clover: 1.45, heart: 1.7, moon: 1.9, star: 2.4, rainbow: 3.6, gem: 4.8, crown: 7.2, diamond: 12, seven: 30 };   // giống G_SCR_BASE
   function buildScratch(c) {
     const T = { r: null, shown: new Set(), done: true };
     const grid = el('div', 'sc-grid', null, { role: 'group', 'aria-label': 'Thẻ cào 9 ô' });
@@ -130,7 +133,13 @@
     function conclude() {
       if (!T.r || T.done) return; T.done = true; const r = T.r; all.hidden = true;
       if (r.win) cells.forEach((b, i) => { if (r.cells[i] === r.win.symbol) b.classList.add('win'); });
-      c.finish(r, r.win ? r.win.count + ' × ' + scr(r.win.symbol) + ' · Hệ số ' + fx(r.mult, true) : 'Không có biểu tượng nào xuất hiện ≥3 lần');
+      let near = '';   // thẻ thua có 2 ô cùng một biểu tượng giá trị cao → thiếu 1 ô
+      if (!r.win) {
+        const cnt = {}; r.cells.forEach(k => { cnt[k] = (cnt[k] || 0) + 1; });
+        const best = Object.keys(cnt).filter(k => cnt[k] === 2 && (SCR_B[k] || 0) >= 2.4).sort((a, b) => SCR_B[b] - SCR_B[a])[0];
+        if (best) { near = 'Suýt trúng! 2 × ' + scr(best) + ', thiếu 1 ô là ' + fx(SCR_B[best], true); cells.forEach((b, i) => { if (r.cells[i] === best) b.classList.add('near'); }); }
+      }
+      c.finish(r, r.win ? r.win.count + ' × ' + scr(r.win.symbol) + ' · Hệ số ' + fx(r.mult, true) : 'Không có biểu tượng nào xuất hiện ≥3 lần', near);
     }
     function reveal(i) {
       if (!T.r || T.shown.has(i)) return; T.shown.add(i);
@@ -195,7 +204,8 @@
       const dr = (r.draw || []).map(Number), shown = [];
       for (const n of dr) { shown.push(n); paint(shown); G.sfx('tick'); await c.wait(18); }
       paint(dr, r.hits);
-      c.finish(r, 'Trúng ' + r.hits + '/' + P.picks.length + ' số · Hệ số ' + fx(r.mult, true));
+      const tb = KN[P.picks.length] || [], need = tb.findIndex(m => m > 0);
+      c.finish(r, 'Trúng ' + r.hits + '/' + P.picks.length + ' số · Hệ số ' + fx(r.mult, true), !(+r.mult > 0) && need > 0 && +r.hits === need - 1 ? 'Suýt trúng! Chỉ thiếu 1 số là ' + fx(tb[need], true) : '');
     }
     paint();
   }
@@ -248,7 +258,8 @@
       await c.anim(coin, [{ transform: 'rotateY(90deg)' }, { transform: 'rotateY(0)' }], { duration: 100 });
       if (r.active === false) {
         const lose = r.result === 'lose';
-        c.finish(Object.assign({ bet: C.bet, payout: 0 }, r), lose ? 'Ra Sấp sau ' + C.steps + ' lần thắng' : 'Tự rút ' + fx(r.mult, true) + ' sau ' + r.steps + ' lần thắng'); paint();
+        const near = lose && C.auto && C.steps >= 1 && C.next >= C.auto ? 'Suýt thắng! Chỉ cần thêm 1 lần Ngửa là ' + fx(C.next, true) : '';
+        c.finish(Object.assign({ bet: C.bet, payout: 0 }, r), lose ? 'Ra Sấp sau ' + C.steps + ' lần thắng' : 'Tự rút ' + fx(r.mult, true) + ' sau ' + r.steps + ' lần thắng', near); paint();
       } else { G.sfx('coin'); load(r); }
     }
     async function cashout() {

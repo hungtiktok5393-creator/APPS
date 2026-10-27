@@ -184,14 +184,19 @@
     };
 
     /* Kết thúc ván: banner kết quả + sfx + ghi nhận phiên */
-    c.finish = (r, title) => {
+    /* near: dòng "suýt trúng" – CHỈ mô tả kết quả thật máy chủ đã trả (không sắp đặt kết quả) */
+    c.finish = (r, title, near) => {
       const bet = +r.bet || 0, payout = +r.payout || 0, net = typeof r.net === 'number' ? r.net : payout - bet;
       c.active = false;
-      c.res.hidden = false; c.res.className = 'gm-result ' + (net > 0 ? 'win' : net < 0 ? 'lose' : 'even');
+      c.res.hidden = false; c.res.className = 'gm-result ' + (net > 0 ? 'win' : net < 0 ? 'lose' : 'even') + (near ? ' near' : '');
       c.res.replaceChildren(
         el('b', 'gm-r1', (net > 0 ? 'Thắng ' : net < 0 ? 'Thua ' : 'Hòa vốn ') + (net ? sg(net) + ' điểm' : '')),
         el('span', 'gm-r2', [title, 'Cược ' + nf(bet) + ' → nhận ' + nf(payout)].filter(Boolean).join(' · ')));
-      G.sfx(net > 0 ? 'win' : net < 0 ? 'lose' : 'coin');
+      if (near) {
+        const n = el('span', 'gm-near', near); c.res.append(n);
+        c.anim(n, [{ transform: 'scale(.8)', opacity: 0 }, { transform: 'scale(1.08)', opacity: 1 }, { transform: 'scale(1)' }], { duration: 260 });
+      }
+      G.sfx(near && net <= 0 ? 'near' : net > 0 ? 'win' : net < 0 ? 'lose' : 'coin');
       G.settle({ delta: net, balance: r.balance });
       c.lock();
     };
@@ -230,6 +235,7 @@
   const SYM = { cherry: '🍒', lemon: '🍋', bell: '🔔', star: '⭐', diamond: '💎', gem: '💎', seven: '7️⃣', '7': '7️⃣' };
   const SYM_LIST = ['🍒', '🍋', '🔔', '⭐', '💎', '7️⃣'];
   const sym = k => SYM[String(k).toLowerCase()] || String(k);
+  const TRIPLE = { cherry: 4, lemon: 5, bell: 6, star: 9, diamond: 18, seven: 45 };   // giống G_SLOT_TRIPLE (chỉ để viết dòng "suýt trúng")
 
   function buildSlots(c) {
     const reels = [0, 1, 2].map(() => { const win = el('div', 'sl-reel'), strip = el('div', 'sl-strip'); win.append(strip); return { win, strip, face: '❔' }; });
@@ -271,7 +277,12 @@
         else if (raw[0] === raw[1]) w = [0, 1]; else if (raw[1] === raw[2]) w = [1, 2]; else if (raw[0] === raw[2]) w = [0, 2];
         w.forEach(i => reels[i].win.classList.add('win'));
       }
-      c.finish(r, 'Hệ số ' + fx(r.mult));
+      let near = '';   // đúng 2 giống → thêm 1 nữa là bộ ba
+      if (raw.length === 3 && !(raw[0] === raw[1] && raw[1] === raw[2])) {
+        const p = raw[0] === raw[1] || raw[0] === raw[2] ? raw[0] : raw[1] === raw[2] ? raw[1] : null;
+        if (p && TRIPLE[p]) near = 'Suýt nổ hũ! Thêm 1 ' + sym(p) + ' nữa là ' + fx(TRIPLE[p]);
+      }
+      c.finish(r, 'Hệ số ' + fx(r.mult), near);
     }
   }
 
@@ -354,7 +365,8 @@
       if (L.length !== segs.length || L.some((m, i) => m !== segs[i])) { segs = L; paint(); }
       await landOn(idx);
       hub.textContent = fx(r.mult);
-      c.finish(r, 'Ô số ' + (idx + 1) + ' · Hệ số ' + fx(r.mult));
+      const nb = Math.max(segs[(idx + 1) % segs.length], segs[(idx - 1 + segs.length) % segs.length]);
+      c.finish(r, 'Ô số ' + (idx + 1) + ' · Hệ số ' + fx(r.mult), +r.mult < 1 && nb >= 2 ? 'Suýt trúng! Kim dừng sát ô ' + fx(nb) : '');
     }
     paint();
   }
@@ -431,9 +443,11 @@
       let r; try { r = await c.send('hiloGuess', { guess: dir }); } finally { nxt.classList.remove('wait'); }
       await flip(nxt, r.card);
       if (r.active === false) { // thua, hoặc đạt trần ×100 tự rút
-        if (r.prev) setCard(cur, r.prev);
+        if (r.prev && typeof r.prev === 'object') setCard(cur, r.prev);
         const lose = r.result === 'lose';
-        c.finish(Object.assign({ bet: H.bet, payout: 0 }, r), lose ? 'Lá kế là ' + cardName(r.card) : 'Tự rút ' + fx(r.mult) + ' sau ' + r.steps + ' lần đoán đúng');
+        const prevRank = typeof r.prev === 'object' && r.prev ? r.prev.rank : r.prev;
+        const near = !lose ? '' : r.card && +prevRank === +r.card.rank ? 'Sát nút! Lá bằng nhau' : H.auto && H.steps >= 1 && (H.mult || 0) * 13 / 12 >= H.auto * 0.97 ? 'Chỉ còn 1 lần đoán đúng nữa là tự rút!' : '';
+        c.finish(Object.assign({ bet: H.bet, payout: 0 }, r), lose ? 'Lá kế là ' + cardName(r.card) : 'Tự rút ' + fx(r.mult) + ' sau ' + r.steps + ' lần đoán đúng', near);
         paint();
       } else {
         G.sfx('coin'); H.trail.push(H.card); load(r);
@@ -472,6 +486,7 @@
     const rndCell = () => { const f = []; for (let i = 0; i < 25; i++) if (!M.set.has(i)) f.push(i); return f[Math.floor(Math.random() * f.length)]; };
     c.hot = () => { const i = rndCell(); if (i == null) return; c.run(() => (c.active ? reveal(i) : start(i))); };
     const surv = (m, k) => { let p = 1; for (let i = 0; i < k; i++) p *= (25 - m - i) / (25 - i); return p; };
+    const mMult = (m, k) => Math.min(100, 0.9 / surv(m, k));
     const winChance = (m, a) => { if (!a) return null; for (let k = 1; k <= 25 - m; k++) { const p = surv(m, k); if (Math.min(100, 0.9 / p) >= a) return p; } return surv(m, 25 - m); };
 
     const cellLabel = (i, s) => 'Ô hàng ' + (Math.floor(i / 5) + 1) + ' cột ' + (i % 5 + 1) + ': ' + s;
@@ -530,7 +545,8 @@
       if (r.result === 'lose') {
         const hit = r.hit != null ? r.hit : i; mark(hit, 'hit'); showMines(r.mines, hit);
         c.anim(grid, [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 160 });
-        c.finish(Object.assign({ bet: M.bet, payout: 0 }, r), 'Trúng mìn sau ' + M.steps + ' ô an toàn'); paint();
+        const k = Math.floor(+r.steps) || 0, nextM = mMult(M.mines, k + 1);
+        c.finish(Object.assign({ bet: M.bet, payout: 0 }, r), 'Trúng mìn sau ' + k + ' ô an toàn', M.auto && k >= 1 && nextM >= M.auto ? 'Suýt thắng! Chỉ còn 1 ô nữa là tự rút ' + fx(nextM) : ''); paint();
       } else if (r.result === 'cashout' || r.active === false) { // lật hết / đạt trần: máy chủ tự rút
         mark(i, 'safe'); M.set.add(i); showMines(r.mines);
         c.finish(Object.assign({ bet: M.bet }, r), 'Tự rút ở ' + fx(r.mult) + ' sau ' + r.steps + ' ô'); paint();
@@ -639,7 +655,8 @@
       K.endT = cp != null ? Math.log(Math.max(1, cp)) / K.rate : tNow();
       big.textContent = cp != null ? fx(cp, true) : '💥'; sub.textContent = 'Tên lửa đã nổ';
       draw(K.endT, 'boom'); c.say(''); idleInfo();
-      if (K.bet > 0 || typeof r.bet === 'number') c.finish(Object.assign({ bet: K.bet, payout: 0 }, r), cp != null ? 'Tên lửa nổ ở ' + fx(cp, true) : 'Tên lửa nổ trước khi lệnh rút tới nơi');
+      const near = cp != null && K.auto && cp >= K.auto * 0.8 && cp < K.auto ? 'Suýt chạm ' + fx(K.auto, true) + '! Chỉ thiếu ' + fx(Math.round((K.auto - cp) * 100) / 100, true).slice(1) : '';
+      if (K.bet > 0 || typeof r.bet === 'number') c.finish(Object.assign({ bet: K.bet, payout: 0 }, r), cp != null ? 'Tên lửa nổ ở ' + fx(cp, true) : 'Tên lửa nổ trước khi lệnh rút tới nơi', near);
       else { // khôi phục sau khi đã nổ mà không biết mức cược
         c.active = false; c.res.hidden = false; c.res.className = 'gm-result lose';
         c.res.replaceChildren(el('b', 'gm-r1', 'Tên lửa đã nổ' + (cp != null ? ' ở ' + fx(cp, true) : '')), el('span', 'gm-r2', 'Ván trước đã kết thúc và đã tính vào số dư.'));
