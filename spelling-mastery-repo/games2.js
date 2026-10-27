@@ -1,47 +1,44 @@
 /* Spelling Mastery – 5 trò mới: Xúc xắc (dice), Plinko, Thẻ cào (scratch), Keno mini, Tung xu (coin).
  * Dùng SMGameKit (xuất từ games.js): cùng ctx, requestId idempotent, khoá bấm đúp, thử lại an toàn.
  * Kết quả LUÔN do máy chủ trả; client chỉ diễn hoạt (transform/opacity/canvas). Văn bản từ máy chủ dùng textContent.
- * Cược được trừ trên màn hình ngay khi bấm (số thật do máy chủ trả). Không có nút tự lặp cược. */
+ * Cược được trừ trên màn hình ngay khi bấm (số thật do máy chủ trả). Không có nút tự lặp cược.
+ * Nhịp nhanh: mỗi ván một lần bấm (hoặc phím Space = c.hot); tỷ lệ thắng mục tiêu ≈ 45% (bảng ở Games.gs). */
 (() => {
   'use strict';
   const G = window.SMGame, K = window.SMGameKit;
   if (!G || !K) { console.warn('games2.js: thiếu SMGame/SMGameKit (student.js, games.js chưa nạp).'); return; }
-  const { el, btn, nf, sg, fx, ls } = K;
+  const { el, btn, nf, sg, fx, ls, autoBox } = K;
   const NAMES2 = { dice: 'Xúc xắc', plinko: 'Plinko', scratch: 'Thẻ cào', keno: 'Keno mini', coin: 'Tung xu' };
   const betOf = c => (c.pend ? c.pend.params.bet : c.bet());
 
   /* ================= 1. XÚC XẮC TRÊN–DƯỚI ================= */
-  const dMult = ch => Math.floor(0.9 * 100 / ch * 100 + 1e-9) / 100;   // giống gR2_(G_RTP*100/chance) ở máy chủ
+  /* Tỷ lệ thắng cố định 45%, hệ số ×2 (giống G_DICE ở máy chủ). Bấm Dưới / Trên là lăn luôn: 1 lần bấm = 1 ván. */
+  const DC = { under: 46, over: 55, chance: 45, mult: 2 };
   function buildDice(c) {
-    const D = { dir: ls.get('sm_dice_dir') === 'over' ? 'over' : 'under', target: Math.floor(+ls.get('sm_dice_t')) || 50 };
+    const D = { dir: ls.get('sm_dice_dir') === 'over' ? 'over' : 'under' };
     const roll = el('div', 'dc-roll', '—', { 'aria-live': 'polite', 'aria-label': 'Số vừa lăn' });
-    const track = el('div', 'dc-track', null, { 'aria-hidden': 'true' }), zone = el('div', 'dc-zone'), mark = el('div', 'dc-mark');
-    track.append(zone, mark);
-    const up = btn('dc-dir', '⬆ Trên', () => setDir('over'), { 'aria-label': 'Thắng nếu số lăn lớn hơn ngưỡng' });
-    const dn = btn('dc-dir', '⬇ Dưới', () => setDir('under'), { 'aria-label': 'Thắng nếu số lăn nhỏ hơn ngưỡng' });
+    const track = el('div', 'dc-track', null, { 'aria-hidden': 'true' }), zLo = el('div', 'dc-zone'), zHi = el('div', 'dc-zone'), mark = el('div', 'dc-mark');
+    zLo.style.left = '0%'; zLo.style.width = (DC.under - 1) + '%'; zHi.style.left = DC.over + '%'; zHi.style.width = (100 - DC.over) + '%';
+    track.append(zLo, zHi, mark);
+    const dn = btn('primary big dc-dir', '⬇ Dưới (1–' + (DC.under - 1) + ')', () => c.run(() => play('under')), { 'aria-label': 'Lăn: thắng nếu số nhỏ hơn ' + DC.under });
+    const up = btn('primary big dc-dir', '⬆ Trên (' + (DC.over + 1) + '–100)', () => c.run(() => play('over')), { 'aria-label': 'Lăn: thắng nếu số lớn hơn ' + DC.over });
     const dirs = el('div', 'dc-dirs'); dirs.append(dn, up);
-    const sl = el('input', 'dc-slider', null, { type: 'range', min: 2, max: 98, step: 1, 'aria-label': 'Ngưỡng từ 2 đến 98' });
-    const info = el('p', 'gm-info'), go = btn('primary big gm-go', 'Lăn xúc xắc', () => c.run(play));
-    const ctl = el('div', 'gm-ctl'); ctl.append(dirs, sl, go); c.zones.push(ctl);
+    const info = el('p', 'gm-info');
+    const ctl = el('div', 'gm-ctl'); ctl.append(dirs); c.zones.push(ctl);
     c.root.append(roll, track, info, c.res, ctl);
-
-    const lim = () => D.dir === 'under' ? [6, 96] : [5, 95];
-    const chance = () => D.dir === 'under' ? D.target - 1 : 100 - D.target;
+    c.hot = () => c.run(() => play(D.dir));   // Space/Enter: lăn lại theo hướng vừa chọn
     function paint() {
-      const [lo, hi] = lim(); D.target = Math.max(lo, Math.min(hi, D.target)); sl.min = lo; sl.max = hi; sl.value = D.target;
       dn.setAttribute('aria-pressed', D.dir === 'under'); up.setAttribute('aria-pressed', D.dir === 'over');
-      const ch = chance(), m = dMult(ch), bet = G.betValue();
-      zone.style.left = (D.dir === 'under' ? 0 : D.target) + '%'; zone.style.width = (D.dir === 'under' ? D.target - 1 : 100 - D.target) + '%';
-      info.textContent = 'Thắng nếu số lăn ' + (D.dir === 'under' ? '< ' : '> ') + D.target + ' · Tỉ lệ thắng ' + ch + '% · Hệ số ' + fx(m, true) + (bet > 0 ? ' · Thắng nhận ' + nf(Math.round(bet * m)) : '');
-      sl.setAttribute('aria-valuetext', 'Ngưỡng ' + D.target + ', tỉ lệ thắng ' + ch + ' phần trăm, hệ số ' + m);
+      zLo.classList.toggle('off', D.dir !== 'under'); zHi.classList.toggle('off', D.dir !== 'over');
+      const bet = G.betValue();
+      info.textContent = 'Bấm Dưới hoặc Trên là lăn ngay · Tỷ lệ thắng ' + DC.chance + '% · Hệ số ' + fx(DC.mult, true) + (bet > 0 ? ' · Thắng nhận ' + nf(Math.round(bet * DC.mult)) : '') + ' · Space = lăn lại';
     }
-    function setDir(d) { D.dir = d; ls.set('sm_dice_dir', d); G.sfx('click'); paint(); }
-    sl.oninput = () => { D.target = +sl.value; ls.set('sm_dice_t', String(D.target)); paint(); };
     const bi = document.getElementById('bet'); if (bi) { bi.addEventListener('input', paint); c.cleanup = () => bi.removeEventListener('input', paint); }
-    async function play() {
-      const P = c.pend ? c.pend.params : { bet: c.bet(), target: D.target, dir: D.dir }; if (!P.bet) return;
-      c.res.hidden = true; c.say(''); c.begin(); const before = c.hold(P.bet);
-      const t = c.every(() => { roll.textContent = String(1 + Math.floor(Math.random() * 100)); }, 55); G.sfx('spin');
+    async function play(dir) {
+      const P = c.pend ? c.pend.params : { bet: c.bet(), dir }; if (!P.bet) return;
+      D.dir = P.dir; ls.set('sm_dice_dir', D.dir); paint();
+      c.res.hidden = true; c.say(''); c.begin(); const before = c.hold(P.bet); roll.classList.remove('win');
+      const t = c.every(() => { roll.textContent = String(1 + Math.floor(Math.random() * 100)); }, 45); G.sfx('spin');
       let r;
       try { r = await c.send('diceRoll', P, { hold: before - P.bet }); }
       catch (e) { c.clear(t); c.active = false; c.unhold(before); roll.textContent = '—'; throw e; }
@@ -53,40 +50,46 @@
   }
 
   /* ================= 2. PLINKO ================= */
-  const PK = { low: [7.6, 2.9, 1.4, 1, 0.8, 0.6, 0.8, 1, 1.4, 2.9, 7.6], mid: [20.2, 5.5, 2, 1.1, 0.6, 0.3, 0.6, 1.1, 2, 5.5, 20.2], high: [43.8, 10.2, 2.9, 0.9, 0.3, 0.1, 0.3, 0.9, 2.9, 10.2, 43.8] };
+  const PROWS = 16;   // giống G_PLINKO_ROWS: 17 ô cuối, 3 ô giữa < ×1, 14 ô còn lại ≥ ×1,5 → thắng 45,45%
+  const PK = {
+    low:  [4, 2.7, 2.1, 1.8, 1.6, 1.5, 1.5, 0.4, 0.3, 0.4, 1.5, 1.5, 1.6, 1.8, 2.1, 2.7, 4],
+    mid:  [23, 9.9, 4.7, 2.7, 1.9, 1.6, 1.5, 0.3, 0.2, 0.3, 1.5, 1.6, 1.9, 2.7, 4.7, 9.9, 23],
+    high: [80, 25, 8.7, 3.6, 2.1, 1.6, 1.5, 0.2, 0.1, 0.2, 1.5, 1.6, 2.1, 3.6, 8.7, 25, 80]
+  };
   const RISKN = { low: 'Thấp', mid: 'Vừa', high: 'Cao' };
   function buildPlinko(c) {
     const Pk = { risk: ['low', 'mid', 'high'].includes(ls.get('sm_plinko_risk')) ? ls.get('sm_plinko_risk') : 'mid', tbl: null, ball: null, hot: -1 };
-    const W = 600, H = 470, CX = 300, DX = 44, Y0 = 34, DY = 38;
-    const wrap = el('div', 'pk-wrap'), cv = el('canvas', 'pk-cv', null, { width: W, height: H, 'aria-label': 'Bảng Plinko 10 hàng', role: 'img' });
+    const W = 600, H = 470, CX = 300, DX = 33, Y0 = 26, DY = 25;
+    const wrap = el('div', 'pk-wrap'), cv = el('canvas', 'pk-cv', null, { width: W, height: H, 'aria-label': 'Bảng Plinko ' + PROWS + ' hàng', role: 'img' });
     wrap.append(cv);
-    const slots = el('div', 'pk-slots', null, { 'aria-label': 'Hệ số 11 ô cuối' }), cellEls = [];
-    for (let i = 0; i < 11; i++) { const s = el('span', 'pk-slot'); slots.append(s); cellEls.push(s); }
+    const slots = el('div', 'pk-slots', null, { 'aria-label': 'Hệ số ' + (PROWS + 1) + ' ô cuối' }), cellEls = [];
+    for (let i = 0; i <= PROWS; i++) { const s = el('span', 'pk-slot'); slots.append(s); cellEls.push(s); }
     const rk = el('div', 'pk-risk', null, { role: 'group', 'aria-label': 'Mức rủi ro' }), rbs = {};
     ['low', 'mid', 'high'].forEach(k => { const b = btn('pk-rb', RISKN[k], () => { Pk.risk = k; ls.set('sm_plinko_risk', k); G.sfx('click'); paint(); }); rbs[k] = b; rk.append(b); });
     const info = el('p', 'gm-info'), go = btn('primary big gm-go', 'Thả bóng', () => c.run(play));
     const ctl = el('div', 'gm-ctl'); ctl.append(rk, go); c.zones.push(ctl);
     c.root.append(wrap, slots, info, c.res, ctl);
+    c.hot = () => c.run(play);
     const px = (i, j) => CX + (j - i / 2) * DX, py = i => Y0 + i * DY;
     function draw() {
       const g = cv.getContext('2d'); if (!g) return;
       const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#0b1233'); gr.addColorStop(1, '#26337a'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
       g.fillStyle = 'rgba(255,255,255,.75)';
-      for (let i = 0; i < 10; i++) for (let j = 0; j <= i; j++) { g.beginPath(); g.arc(px(i, j), py(i), 5, 0, 6.2832); g.fill(); }
-      if (Pk.ball) { g.fillStyle = '#fbbf24'; g.beginPath(); g.arc(Pk.ball[0], Pk.ball[1], 11, 0, 6.2832); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke(); }
+      for (let i = 0; i < PROWS; i++) for (let j = 0; j <= i; j++) { g.beginPath(); g.arc(px(i, j), py(i), 4, 0, 6.2832); g.fill(); }
+      if (Pk.ball) { g.fillStyle = '#fbbf24'; g.beginPath(); g.arc(Pk.ball[0], Pk.ball[1], 9, 0, 6.2832); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke(); }
     }
     function paint() {
       const t = Pk.tbl && Pk.tbl.risk === Pk.risk ? Pk.tbl.t : PK[Pk.risk];
       t.forEach((m, i) => { const s = cellEls[i]; s.textContent = (+m).toLocaleString('vi-VN', { maximumFractionDigits: 2 }); s.className = 'pk-slot ' + (m >= 3 ? 'big' : m >= 1 ? 'mid' : 'low') + (i === Pk.hot ? ' hot' : ''); });
       Object.keys(rbs).forEach(k => rbs[k].setAttribute('aria-pressed', k === Pk.risk));
-      info.textContent = 'Rủi ro ' + RISKN[Pk.risk] + ': ô giữa ít điểm nhất, hai mép nhiều điểm nhất. Bóng rơi 10 hàng, mỗi hàng trái/phải 50%.';
+      info.textContent = 'Rủi ro ' + RISKN[Pk.risk] + ': chỉ 3 ô giữa dưới ×1, mọi ô khác đều lãi (thắng ≈ 45%). Bóng rơi ' + PROWS + ' hàng, mỗi hàng trái/phải 50%. Space = thả tiếp.';
       draw();
     }
     function drop(path, ms) {
       return new Promise(res => {
         if (G.reducedMotion || ms <= 0) { Pk.ball = null; return res(); }
         let R = 0; const pts = [[px(0, 0), py(0) - 28]]; const xs = [px(0, 0)];
-        path.forEach((b, i) => { R += b; pts.push([px(i + 1, R), i + 1 < 10 ? py(i + 1) : py(9) + 60]); });
+        path.forEach((b, i) => { R += b; pts.push([px(i + 1, R), i + 1 < PROWS ? py(i + 1) : py(PROWS - 1) + 40]); });
         const t0 = performance.now(), n = path.length;
         c.loop(now => {
           const k = Math.min(1, (now - t0) / ms), pos = k * n, i = Math.min(n - 1, Math.floor(pos)), u = pos - i, a = pts[i], b = pts[i + 1];
@@ -101,9 +104,9 @@
       c.res.hidden = true; c.say(''); c.begin(); Pk.hot = -1; Pk.ball = null; paint(); const before = c.hold(P.bet); G.sfx('click');
       let r;
       try { r = await c.send('plinkoDrop', P, { hold: before - P.bet }); } catch (e) { c.active = false; c.unhold(before); throw e; }
-      if (Array.isArray(r.table) && r.table.length === 11) Pk.tbl = { risk: r.risk, t: r.table.map(Number) };
-      await drop((r.path || []).map(x => (x ? 1 : 0)), G.fast ? 350 : 1100);
-      Pk.hot = Math.max(0, Math.min(10, Math.floor(+r.slot) || 0)); Pk.ball = [px(10, Pk.hot), py(9) + 60]; paint();
+      if (Array.isArray(r.table) && r.table.length === PROWS + 1) Pk.tbl = { risk: r.risk, t: r.table.map(Number) };
+      await drop((r.path || []).map(x => (x ? 1 : 0)), G.fast ? 250 : 700);
+      Pk.hot = Math.max(0, Math.min(PROWS, Math.floor(+r.slot) || 0)); Pk.ball = [px(PROWS, Pk.hot), py(PROWS - 1) + 40]; paint();
       c.finish(r, 'Ô số ' + (Pk.hot + 1) + ' · Hệ số ' + fx(r.mult));
     }
     c.cleanup = () => { Pk.ball = null; };
@@ -118,9 +121,10 @@
     const grid = el('div', 'sc-grid', null, { role: 'group', 'aria-label': 'Thẻ cào 9 ô' });
     const cells = Array.from({ length: 9 }, (_, i) => { const b = el('button', 'sc-cell', '', { type: 'button' }); b.onclick = () => reveal(i); grid.append(b); return b; });
     const info = el('p', 'gm-info'), all = btn('sc-all', 'Cào hết', () => revealAll());
-    const buy = btn('primary big gm-go', 'Mua thẻ', () => c.run(play));
+    const buy = btn('primary big gm-go', 'Mua & cào thẻ', () => c.run(play));
     const ctl = el('div', 'gm-ctl'); ctl.append(buy); c.zones.push(ctl);
     c.root.append(grid, all, info, c.res, ctl);
+    c.hot = () => c.run(play);
     function blank() { cells.forEach((b, i) => { b.className = 'sc-cell'; b.textContent = ''; b.disabled = true; b.setAttribute('aria-label', 'Ô ' + (i + 1) + ': chưa mua thẻ'); }); all.hidden = true; }
     function cover() { cells.forEach((b, i) => { b.className = 'sc-cell cov'; b.textContent = '▒'; b.disabled = false; b.setAttribute('aria-label', 'Ô ' + (i + 1) + ': chưa cào, bấm để cào'); }); all.hidden = false; }
     function conclude() {
@@ -131,7 +135,7 @@
     function reveal(i) {
       if (!T.r || T.shown.has(i)) return; T.shown.add(i);
       const b = cells[i], k = T.r.cells[i]; b.className = 'sc-cell open'; b.textContent = scr(k); b.disabled = true; b.setAttribute('aria-label', 'Ô ' + (i + 1) + ': ' + k);
-      c.anim(b, [{ transform: 'scale(.7)', opacity: .3 }, { transform: 'scale(1)', opacity: 1 }], { duration: 120 }); G.sfx('tick');
+      c.anim(b, [{ transform: 'scale(.7)', opacity: .3 }, { transform: 'scale(1)', opacity: 1 }], { duration: 90 }); G.sfx('tick');
       if (T.shown.size >= 9) conclude();
     }
     function revealAll() { for (let i = 0; i < 9; i++) reveal(i); }
@@ -142,24 +146,31 @@
       let r;
       try { r = await c.send('scratchBuy', P, { hold: before - P.bet }); } catch (e) { c.active = false; c.unhold(before); throw e; }
       T.r = r; T.shown = new Set(); T.done = false; cover();
-      info.textContent = 'Bấm từng ô để cào, hoặc bấm “Cào hết”. Kết quả đã chốt từ trước khi cào; không bắt buộc cào hết mới tính.';
+      info.textContent = 'Thẻ tự cào. Kết quả đã chốt ở máy chủ từ trước khi cào.';
+      for (let i = 0; i < 9 && !T.done; i++) { reveal(i); if (i < 8) await c.wait(35); }   // tự cào nhanh cả 9 ô → ván kết thúc ngay, bấm tiếp được luôn
+      revealAll();
     }
     c.cleanup = () => { if (T.r && !T.done) { G.settle({ delta: +T.r.net || 0, balance: T.r.balance }); T.done = true; } };   // rời trò khi chưa cào hết: vẫn ghi nhận kết quả đã chốt
-    c.onIdle = () => { T.r = null; T.done = true; blank(); info.textContent = 'Mua thẻ rồi cào 9 ô. Trúng nếu có một biểu tượng xuất hiện từ 3 lần trở lên.'; };
+    c.onIdle = () => { T.r = null; T.done = true; blank(); info.textContent = 'Bấm Mua & cào (hoặc Space): thẻ tự cào 9 ô. Trúng nếu có một biểu tượng xuất hiện từ 3 lần trở lên (≈ 45% số thẻ).'; };
     c.onIdle();
   }
 
   /* ================= 4. KENO MINI ================= */
-  const KN = { 1: [0, 2.25], 2: [0, 0, 6.1], 3: [0, 0, 1.5, 9.25], 4: [0, 0, 0.55, 2.4, 24.5], 5: [0, 0, 0.4, 1, 5, 62.9] };
+  /* Giống máy chủ: 22 số, số bóng rút tuỳ số đã chọn để tỷ lệ thắng ≈ 45% với mọi lựa chọn */
+  const KN_N = 22, KN_D = { 1: 10, 2: 15, 3: 17, 4: 13, 5: 19 };
+  const KN = { 1: [0, 1.98], 2: [0, 0, 1.98], 3: [0, 0, 0, 2.04], 4: [0, 0, 0, 1.4, 4.19], 5: [0, 0, 0, 0, 0, 2.04] };
   function buildKeno(c) {
-    const Kn = { pick: new Set((ls.get('sm_keno') || '').split(',').map(Number).filter(n => n >= 1 && n <= 20).slice(0, 5)) };
-    const grid = el('div', 'kn-grid', null, { role: 'group', 'aria-label': 'Bảng số 1 đến 20, chọn tối đa 5 số' });
-    const cells = Array.from({ length: 20 }, (_, i) => { const b = el('button', 'kn-cell', String(i + 1), { type: 'button' }); b.onclick = () => toggle(i + 1); grid.append(b); return b; });
+    const Kn = { pick: new Set((ls.get('sm_keno') || '').split(',').map(Number).filter(n => n >= 1 && n <= KN_N).slice(0, 5)) };
+    const grid = el('div', 'kn-grid', null, { role: 'group', 'aria-label': 'Bảng số 1 đến ' + KN_N + ', chọn tối đa 5 số' });
+    const cells = Array.from({ length: KN_N }, (_, i) => { const b = el('button', 'kn-cell', String(i + 1), { type: 'button' }); b.onclick = () => toggle(i + 1); grid.append(b); return b; });
     const pay = el('div', 'kn-pay', null, { 'aria-label': 'Bảng trả thưởng' }), info = el('p', 'gm-info');
     const clr = btn('small ghost', 'Xóa chọn', () => { Kn.pick.clear(); save(); paint(); G.sfx('click'); });
+    const rnd = btn('small ghost', 'Chọn nhanh', () => { const k = Math.max(1, Kn.pick.size || 3), a = Array.from({ length: KN_N }, (_, i) => i + 1); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } Kn.pick = new Set(a.slice(0, k)); save(); paint(); G.sfx('click'); });
     const go = btn('primary big gm-go', 'Chơi', () => c.run(play));
-    const ctl = el('div', 'gm-ctl'); ctl.append(grid, clr, go); c.zones.push(ctl);
+    const tools = el('div', 'kn-tools'); tools.append(rnd, clr);
+    const ctl = el('div', 'gm-ctl'); ctl.append(grid, tools, go); c.zones.push(ctl);
     c.root.append(info, ctl, pay, c.res);
+    c.hot = () => { if (Kn.pick.size) c.run(play); };
     const save = () => ls.set('sm_keno', Array.from(Kn.pick).join(','));
     function toggle(n) {
       if (Kn.pick.has(n)) Kn.pick.delete(n); else if (Kn.pick.size < 5) Kn.pick.add(n); else { c.say('Tối đa 5 số. Bỏ một số rồi chọn số khác.', 'warn'); return; }
@@ -172,7 +183,7 @@
         b.setAttribute('aria-pressed', p); b.setAttribute('aria-label', 'Số ' + n + (p ? ', đã chọn' : '') + (d ? (p ? ', trúng' : ', được rút') : ''));
       });
       const k = Kn.pick.size; go.disabled = k < 1; clr.disabled = k < 1;
-      info.textContent = k ? 'Đã chọn ' + k + '/5 số. Máy rút 8 số trong 20.' : 'Chọn từ 1 đến 5 số rồi bấm Chơi. Máy rút 8 số trong 20.';
+      info.textContent = k ? 'Đã chọn ' + k + '/5 số. Máy rút ' + KN_D[k] + ' số trong ' + KN_N + ' · thắng ≈ 45% · Space = chơi tiếp.' : 'Chọn 1–5 số (hoặc Chọn nhanh) rồi bấm Chơi. Máy rút số bóng tuỳ số bạn chọn.';
       pay.replaceChildren();
       if (k) { pay.append(el('b', '', 'Trúng bao nhiêu số → hệ số (chọn ' + k + ' số)')); const t = el('div', 'kn-rows'); KN[k].forEach((m, h) => { if (!m) return; const r = el('span', 'kn-row' + (hits === h ? ' on' : '')); r.textContent = h + ' số: ' + fx(m, true); t.append(r); }); pay.append(t); }
     }
@@ -182,7 +193,7 @@
       let r;
       try { r = await c.send('kenoPlay', P, { hold: before - P.bet }); } catch (e) { c.active = false; c.unhold(before); throw e; }
       const dr = (r.draw || []).map(Number), shown = [];
-      for (const n of dr) { shown.push(n); paint(shown); G.sfx('tick'); await c.wait(45); }
+      for (const n of dr) { shown.push(n); paint(shown); G.sfx('tick'); await c.wait(18); }
       paint(dr, r.hits);
       c.finish(r, 'Trúng ' + r.hits + '/' + P.picks.length + ' số · Hệ số ' + fx(r.mult, true));
     }
@@ -191,41 +202,53 @@
 
   /* ================= 5. TUNG XU LIÊN TIẾP ================= */
   function buildCoin(c) {
-    const C = { bet: 0, steps: 0, mult: null, next: 1.8, pay: null };
+    const C = { bet: 0, steps: 0, mult: null, next: 2, pay: null, auto: 0, p: 0.45 };
     const coin = el('div', 'cn-coin', '🪙', { role: 'img', 'aria-label': 'Đồng xu' });
     const stage = el('div', 'cn-stage'); stage.append(coin);
     const chips = el('div', 'cn-chain', null, { 'aria-label': 'Chuỗi thắng' }), info = el('p', 'gm-info');
-    const go = btn('primary big gm-go', 'Bắt đầu ván', () => c.run(start));
-    const flip = btn('primary big', 'Tung (bạn chọn Ngửa)', () => c.run(doFlip));
+    const go = btn('primary big gm-go', 'Tung (bạn chọn Ngửa)', () => c.run(start));
+    const flip = btn('primary big', 'Tung tiếp', () => c.run(doFlip));
     const cash = btn('big cn-cash', 'Rút', () => c.run(cashout));
-    const ctl = el('div', 'gm-ctl'); ctl.append(go, flip, cash); c.zones.push(ctl);
+    const auto = autoBox('coin', () => paint());
+    const ctl = el('div', 'gm-ctl'); ctl.append(auto.box, go, flip, cash); c.zones.push(ctl);
     c.root.append(stage, chips, info, c.res, ctl);
+    c.hot = () => c.run(c.active ? doFlip : start);   // Space/Enter: tung
     const face = s => { coin.textContent = s === 'heads' ? 'NGỬA' : s === 'tails' ? 'SẤP' : '🪙'; coin.className = 'cn-coin' + (s === 'heads' ? ' h' : s === 'tails' ? ' t' : ''); coin.setAttribute('aria-label', s === 'heads' ? 'Ra mặt ngửa' : s === 'tails' ? 'Ra mặt sấp' : 'Đồng xu'); };
     function paint() {
-      const live = c.active; go.hidden = live; flip.hidden = !live; cash.hidden = !live;
+      const live = c.active; go.hidden = live; flip.hidden = !live; cash.hidden = !live; auto.box.hidden = live;
       chips.replaceChildren(); for (let i = 0; i < Math.min(C.steps, 12); i++) chips.append(el('span', 'cn-chip', '✔'));
-      if (!live) { info.textContent = 'Mỗi lần tung thắng 50% (ra Ngửa). Thắng liên tiếp để nhân hệ số, thua là mất cược.'; return; }
+      if (!live) {
+        const a = auto.get(); let k = 0; if (a) { k = 1; while (k < 20 && Math.min(100, 0.9 / Math.pow(0.45, k)) < a) k++; }
+        info.textContent = 'Mỗi lần tung thắng 45% (ra Ngửa), lần đầu ×2. Một lần bấm = mở ván + tung.' + (a ? ' Tự rút ở ' + fx(a, true) + ' (sau ' + k + ' lần thắng) · tỷ lệ thắng ≈ ' + Math.round(100 * Math.pow(0.45, k)) + '%.' : '');
+        return;
+      }
       const pay = C.pay != null ? C.pay : Math.round(C.bet * (C.mult || 0));
       cash.disabled = C.steps < 1; cash.textContent = C.steps > 0 ? 'Rút ' + nf(pay) + ' điểm (' + fx(C.mult, true) + ')' : 'Rút (cần thắng ít nhất 1 lần)';
-      info.textContent = 'Cược ' + nf(C.bet) + ' · Chuỗi thắng ' + C.steps + ' · Hệ số ' + (C.mult == null ? '—' : fx(C.mult, true)) + ' · Thắng tiếp → ' + fx(C.next, true);
+      info.textContent = 'Cược ' + nf(C.bet) + ' · Chuỗi thắng ' + C.steps + ' · Hệ số ' + (C.mult == null ? '—' : fx(C.mult, true)) + ' · Thắng tiếp → ' + fx(C.next, true) + (C.auto ? ' · Tự rút ở ' + fx(C.auto, true) : '');
     }
-    function load(r) { C.steps = Math.floor(+r.steps) || 0; C.mult = r.mult == null ? null : +r.mult; C.next = +r.nextMult || 1.8; C.pay = typeof r.payoutNow === 'number' ? r.payoutNow : null; paint(); }
-    async function start() {
+    function load(r) { C.steps = Math.floor(+r.steps) || 0; C.mult = r.mult == null ? null : +r.mult; C.next = +r.nextMult || 2; C.pay = typeof r.payoutNow === 'number' ? r.payoutNow : null; if (r.auto != null) C.auto = +r.auto || 0; paint(); }
+    async function start() {   // mở ván + tung lần đầu trong MỘT yêu cầu (coinStart flip:true)
       if (c.active) return;
-      const P = c.pend ? c.pend.params : { bet: c.bet() }; if (!P.bet) return;
+      const P = c.pend ? c.pend.params : { bet: c.bet(), flip: true, auto: auto.get() }; if (!P.bet) return;
       c.res.hidden = true; c.say(''); face(''); const before = c.hold(P.bet);
-      let r; try { r = await c.send('coinStart', P); } catch (e) { c.unhold(before); throw e; }
-      C.bet = +r.bet || P.bet; c.begin(); G.sfx('click'); load(r);
+      coin.classList.add('spin'); G.sfx('spin');
+      let r; try { r = await c.send('coinStart', P); } catch (e) { c.unhold(before); throw e; } finally { coin.classList.remove('spin'); }
+      C.bet = +r.bet || P.bet; C.steps = 0; C.auto = +r.auto || P.auto || 0; c.begin();
+      if (!r.side) { G.sfx('click'); load(r); return; }   // máy chủ cũ (chưa hỗ trợ flip) → ván mở, chưa tung
+      return landed(r);
     }
     async function doFlip() {
       if (!c.active) return;
       coin.classList.add('spin'); G.sfx('spin');
       let r; try { r = await c.send('coinFlip', {}); } finally { coin.classList.remove('spin'); }
+      return landed(r);
+    }
+    async function landed(r) {
       face(r.side);
-      await c.anim(coin, [{ transform: 'rotateY(90deg)' }, { transform: 'rotateY(0)' }], { duration: 140 });
+      await c.anim(coin, [{ transform: 'rotateY(90deg)' }, { transform: 'rotateY(0)' }], { duration: 100 });
       if (r.active === false) {
         const lose = r.result === 'lose';
-        c.finish(Object.assign({ bet: C.bet, payout: 0 }, r), lose ? 'Ra Sấp sau ' + C.steps + ' lần thắng' : 'Đạt hệ số tối đa, tự rút ' + fx(r.mult, true)); paint();
+        c.finish(Object.assign({ bet: C.bet, payout: 0 }, r), lose ? 'Ra Sấp sau ' + C.steps + ' lần thắng' : 'Tự rút ' + fx(r.mult, true) + ' sau ' + r.steps + ' lần thắng'); paint();
       } else { G.sfx('coin'); load(r); }
     }
     async function cashout() {
@@ -233,17 +256,17 @@
       const r = await c.send('coinCashout', {});
       c.finish(Object.assign({ bet: C.bet }, r), 'Rút ở ' + fx(r.mult, true) + ' sau ' + C.steps + ' lần thắng'); paint();
     }
-    c.onIdle = () => { c.active = false; C.steps = 0; C.mult = null; C.next = 1.8; face(''); paint(); };
+    c.onIdle = () => { c.active = false; C.steps = 0; C.mult = null; C.next = 2; face(''); paint(); };
     c.onRestore = (kind, r) => { C.bet = +r.bet || 0; c.begin(); face(''); load(r); c.say('Đã khôi phục ván đang chơi dở.', 'ok'); };
     paint();
   }
 
   /* ================= Luật chơi ================= */
-  G.setRules('dice', ['Máy chủ lăn một số từ 1 đến 100. Chọn “Dưới” (thắng nếu số < ngưỡng) hoặc “Trên” (thắng nếu số > ngưỡng); ngưỡng 2–98, tỉ lệ thắng từ 5% đến 95%.', 'Hệ số = 90 ÷ tỉ lệ thắng (làm tròn xuống 2 số lẻ). Tỉ lệ thắng càng thấp, hệ số càng cao.', 'Hoàn trả lý thuyết ≈ 89–90% với mọi ngưỡng.']);
-  G.setRules('plinko', ['Bóng rơi qua 10 hàng chốt, mỗi hàng sang trái hoặc phải với xác suất 50%. Ô cuối (0–10) quyết định hệ số; ô ở giữa dễ trúng nhất.', 'Ba mức rủi ro: Thấp (tối đa ×7,6), Vừa (tối đa ×20,2), Cao (tối đa ×43,8; nhiều ô dưới ×1).', 'Hoàn trả lý thuyết ≈ 90% cho cả ba mức.']);
-  G.setRules('scratch', ['Thẻ có 9 ô, mỗi ô là một biểu tượng chọn độc lập. Trúng nếu có biểu tượng xuất hiện từ 3 lần trở lên; nếu nhiều biểu tượng cùng đủ 3 lần, tính hệ số cao nhất.', 'Hệ số = hệ số biểu tượng × hệ số số lần (3 ô ×1, 4 ô ×3, 5 ô ×10, 6 ô ×30, 7 ô ×60, 8 ô ×100, 9 ô ×200). Hệ số biểu tượng: 🍒🍋🍊🍇🍉🍑 ×1,7 · 🔔🍀 ×2,05 · ❤️ ×2,4 · 🌙 ×2,7 · ⭐ ×3,4 · 🌈 ×5,1 · 💠 ×6,8 · 👑 ×10,2 · 💎 ×17 · 7️⃣ ×42,5.', 'Kết quả đã chốt ở máy chủ trước khi cào; không cần cào hết mới tính. Khoảng 31,6% số thẻ trúng; hoàn trả lý thuyết ≈ 90%.']);
-  G.setRules('keno', ['Chọn 1–5 số trong 1–20. Máy chủ rút 8 số khác nhau trong 20; hệ số tùy số bạn chọn và số trúng (bảng hiện ngay dưới nút Chơi).', 'Chọn càng nhiều số thì hệ số khi trúng hết càng cao nhưng càng khó.', 'Hoàn trả lý thuyết ≈ 88–90% với mọi số lượng số chọn.']);
-  G.setRules('coin', ['Bấm Bắt đầu rồi Tung: bạn luôn chọn Ngửa, mỗi lần thắng 50%. Thắng k lần liên tiếp có hệ số 1,8 × 2^(k−1) (×1,8, ×3,6, ×7,2, …), trần ×100 thì tự rút.', 'Rút bất cứ lúc nào sau lần thắng đầu tiên; thua một lần là mất cược. Ván dở được khôi phục khi tải lại trang.', 'Hoàn trả lý thuyết 90% với mọi lúc rút (trừ khi chạm trần ×100).']);
+  G.setRules('dice', ['Máy chủ lăn một số từ 1 đến 100. Bấm “Dưới” (thắng nếu số ≤ 45) hoặc “Trên” (thắng nếu số ≥ 56) là lăn ngay.', 'Tỷ lệ thắng cố định 45%, thắng nhận cược × 2. Phím Space = lăn lại theo hướng vừa chọn.', 'Hoàn trả lý thuyết 90%.']);
+  G.setRules('plinko', ['Bóng rơi qua 16 hàng chốt, mỗi hàng sang trái hoặc phải với xác suất 50%. Ô cuối (0–16) quyết định hệ số.', 'Chỉ 3 ô giữa dưới ×1; 14 ô còn lại đều lãi (từ ×1,5) → thắng ≈ 45% ở cả ba mức. Rủi ro Thấp (tối đa ×4), Vừa (tối đa ×23), Cao (tối đa ×80).', 'Hoàn trả lý thuyết ≈ 89–90% cho cả ba mức. Phím Space = thả tiếp.']);
+  G.setRules('scratch', ['Thẻ có 9 ô, mỗi ô là một biểu tượng chọn độc lập; thẻ tự cào ngay khi mua. Trúng nếu có biểu tượng xuất hiện từ 3 lần trở lên; nếu nhiều biểu tượng cùng đủ 3 lần, tính hệ số cao nhất.', 'Hệ số = hệ số biểu tượng × hệ số số lần (3 ô ×1, 4 ô ×3, 5 ô ×10, 6 ô ×30, 7 ô ×60, 8 ô ×100, 9 ô ×200). Hệ số biểu tượng: 🍒🍋🍊🍇🍉🍑 ×1,2 · 🔔🍀 ×1,45 · ❤️ ×1,7 · 🌙 ×1,9 · ⭐ ×2,4 · 🌈 ×3,6 · 💠 ×4,8 · 👑 ×7,2 · 💎 ×12 · 7️⃣ ×30.', 'Kết quả đã chốt ở máy chủ trước khi cào. Khoảng 45% số thẻ trúng; hoàn trả lý thuyết ≈ 89–90%.']);
+  G.setRules('keno', ['Chọn 1–5 số trong 1–22 (hoặc bấm Chọn nhanh). Máy chủ rút một số bóng khác nhau tuỳ số bạn chọn: chọn 1 → rút 10, 2 → 15, 3 → 17, 4 → 13, 5 → 19.', 'Thắng khi: chọn 1 trúng 1 (×1,98) · chọn 2 trúng cả 2 (×1,98) · chọn 3 trúng cả 3 (×2,04) · chọn 4 trúng 3 (×1,4) hoặc 4 (×4,19) · chọn 5 trúng cả 5 (×2,04).', 'Với mọi lựa chọn, tỷ lệ thắng ≈ 44–45% và hoàn trả ≈ 90%. Phím Space = chơi tiếp với các số đang chọn.']);
+  G.setRules('coin', ['Bấm Tung: máy chủ mở ván và tung luôn; bạn luôn chọn Ngửa, mỗi lần thắng 45%. Thắng k lần liên tiếp có hệ số 0,9 ÷ 0,45^k (×2, ×4,44, ×9,88, …), trần ×100.', '“Tự rút ở ×X” (mặc định ×2 = rút sau 1 lần thắng, thắng 45%). Đặt 0 để tự quyết định Tung tiếp / Rút; thua một lần là mất cược.', 'Hoàn trả lý thuyết 90% với mọi lúc rút. Ván dở được khôi phục khi tải lại trang.']);
 
   /* ================= Đăng ký ================= */
   const B2 = { dice: buildDice, plinko: buildPlinko, scratch: buildScratch, keno: buildKeno, coin: buildCoin };

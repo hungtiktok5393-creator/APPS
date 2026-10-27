@@ -7,7 +7,9 @@
  *  - Hilo: suit 0–3 hiển thị ♠ ♥ ♦ ♣; hệ số bước kế tự tính theo công thức trong spec (ưu tiên giá trị `next` nếu khớp).
  *  - Thao tác ghi: mỗi thao tác logic có 1 requestId; lỗi mạng/bận → giữ nguyên requestId + tham số để "Thử lại" (replay an toàn).
  *  - Ván dở: mọi trò tự gọi getActiveGame khi gắn; ván của trò khác → nút chuyển sang trò đó.
- *  - Khi rời khu trò chơi (smgame:stop) trò bị dọn; quay lại sẽ tự gắn lại và đồng bộ từ máy chủ. */
+ *  - Khi rời khu trò chơi (smgame:stop) trò bị dọn; quay lại sẽ tự gắn lại và đồng bộ từ máy chủ.
+ *  - Nhịp nhanh, liên tục: phím Space/Enter = chơi ván kế (c.hot); diễn hoạt ngắn; ván nhiều bước có "Tự rút ở ×X" (máy chủ tự chốt, bớt một lần bấm).
+ *  - Tỷ lệ thắng mục tiêu ≈ 45% mỗi ván (bảng hệ số ở Games.gs). */
 (() => {
   'use strict';
   const G = window.SMGame;
@@ -53,6 +55,28 @@
   };
   const RETRY = new Set(['network', 'busy', 'server_error', 'rate_limited']);
   const friendly = e => MSG[e && e.code] || (e && /^(network|no_url|invalid_code|code_disabled)$/.test(e.code) ? e.message : 'Có lỗi xảy ra. Thử lại nhé.');
+
+  /* Ô "Tự rút ở ×X" cho ván nhiều bước (hilo, mines, crash, coin). 0 hoặc để trống = tắt. Lưu theo trò trong localStorage. */
+  const AUTO_DEF = { hilo: 1.55, mines: 1.55, crash: 2, coin: 2 };
+  function autoBox(game, onChange) {
+    const key = 'sm_auto_' + game, raw = ls.get(key), v0 = raw == null ? AUTO_DEF[game] : (+raw || 0);
+    const inp = el('input', 'gm-auto-in', null, { type: 'number', min: '0', max: '100', step: '0.05', inputmode: 'decimal', 'aria-label': 'Tự rút khi hệ số đạt (0 = tắt)' });
+    inp.value = v0 ? String(v0) : '0';
+    const box = el('label', 'gm-auto'); box.append(el('span', '', 'Tự rút ở ×'), inp, el('small', 'gm-auto-h', '(0 = tắt)'));
+    const get = () => { const a = +String(inp.value).replace(',', '.'); return isFinite(a) && a >= 1.01 ? Math.min(100, Math.floor(a * 100 + 1e-9) / 100) : 0; };
+    inp.addEventListener('change', () => { const a = get(); inp.value = String(a); ls.set(key, String(a)); if (onChange) onChange(a); });
+    inp.addEventListener('input', () => { if (onChange) onChange(get()); });
+    return { box, get, set: a => { inp.value = String(a || 0); }, inp };
+  }
+
+  /* Phím tắt: Space / Enter (khi không gõ trong ô nhập, không đứng trên nút) = thao tác chính của trò đang mở → chơi liên tục không cần chuột */
+  document.addEventListener('keydown', e => {
+    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || (e.key !== ' ' && e.key !== 'Enter')) return;
+    const c = current && insts[current]; if (!c || !c.hot || !c.alive) return;
+    const t = e.target; if (t && t.closest && t.closest('input,textarea,select,button,a,[contenteditable="true"],dialog')) return;
+    const panel = document.getElementById('p-tro-choi'); if (panel && panel.hidden) return;
+    e.preventDefault(); c.hot();
+  });
 
   /* Nếu ván đã xong mà trò đã bị dọn (đổi tab giữa chừng) thì vẫn ghi nhận vào thống kê phiên */
   function late(c, r) {
@@ -181,6 +205,10 @@
         c.rtt = performance.now() - t0; c.otherActive = null;
         const crashed = r.result === 'crash', act = !crashed && r.active && r.game ? String(r.game) : null;
         if (crashed && c.name === 'crash') return c.onRestore('crash', r);
+        if (r.game === 'crash' && r.result === 'cashout' && r.active === false) {   // ván Tên lửa đã được máy chủ tự rút khi bạn vắng mặt
+          if (c.name === 'crash' && +r.bet > 0) { c.bet0 = +r.bet; return c.onRestore('cashed', r); }
+          late(c, r); G.toast('Ván Tên lửa trước đã tự rút ở ' + fx(r.mult, true) + ' (+' + nf(r.net) + ' điểm).');
+        }
         if (act === c.name) return c.onRestore('view', r);
         if (crashed) {
           late(c, r);
@@ -209,8 +237,9 @@
     reels.forEach(rl => { rl.strip.append(el('span', 'sl-sym', rl.face)); machine.append(rl.win); });
     const go = btn('primary big gm-go', 'Quay', () => c.run(spin));
     const zone = el('div', 'gm-ctl'); zone.append(go); c.zones.push(zone);
-    const pay = el('p', 'hint gm-pay', '3 giống: 🍒×5 · 🍋×8 · 🔔×15 · ⭐×30 · 💎×80 · 7️⃣×250. Đúng 2 giống của 🍒 ⭐ 💎 7️⃣: ×1,5. Còn lại: ×0.');
+    const pay = el('p', 'hint gm-pay', '3 giống: 🍒×4 · 🍋×5 · 🔔×6 · ⭐×9 · 💎×18 · 7️⃣×45. 2 giống: 🍒🍋×1,2 · 🔔×1,3 · ⭐×1,4 · 💎×1,6 · 7️⃣×2. Còn lại: ×0.');
     c.root.append(machine, c.res, zone, pay);
+    c.hot = () => c.run(spin);
 
     const rnd = () => SYM_LIST[Math.floor(Math.random() * SYM_LIST.length)];
     const fill = (rl, list) => rl.strip.replaceChildren(...list.map(s => el('span', 'sl-sym', s)));
@@ -222,7 +251,7 @@
     async function land(rl, s) {
       rl.strip.classList.remove('spinning');
       fill(rl, [s].concat(Array.from({ length: 5 }, rnd))); rl.face = s;
-      await c.anim(rl.strip, [{ transform: 'translateY(-83.3333%)' }, { transform: 'translateY(0)' }], { duration: 300, easing: 'cubic-bezier(.2,.8,.25,1)' });
+      await c.anim(rl.strip, [{ transform: 'translateY(-83.3333%)' }, { transform: 'translateY(0)' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.25,1)' });
       fill(rl, [s]);
     }
     async function spin() {
@@ -232,10 +261,10 @@
       reels.forEach(rl => { rl.win.classList.remove('win'); spinning(rl); });
       G.sfx('spin');
       let r;
-      try { r = (await Promise.all([c.send('slotsSpin', { bet }, { hold: before - bet }), c.wait(250)]))[0]; }
+      try { r = await c.send('slotsSpin', { bet }, { hold: before - bet }); }
       catch (e) { c.active = false; c.unhold(before); reels.forEach(rl => show(rl, rl.face)); throw e; }
       const raw = (r.reels || []).slice(0, 3).map(String), keys = raw.map(sym);
-      await Promise.all(reels.map((rl, i) => c.wait(i * 120).then(() => land(rl, keys[i] || '❔')).then(() => G.sfx('tick'))));
+      await Promise.all(reels.map((rl, i) => c.wait(i * 60).then(() => land(rl, keys[i] || '❔')).then(() => G.sfx('tick'))));
       if (+r.mult > 0 && raw.length === 3) { // chỉ tô sáng ô thật sự được trả thưởng
         let w = [];
         if (raw[0] === raw[1] && raw[1] === raw[2]) w = [0, 1, 2];
@@ -247,10 +276,10 @@
   }
 
   /* ================= 2. VÒNG QUAY (wheel) ================= */
-  const WCOL = { 0: '#475569', 0.5: '#b45309', 1.5: '#15803d', 3: '#1d4ed8', 10: '#7e22ce' };
+  const WCOL = { 0: '#475569', 0.5: '#b45309', 1.5: '#15803d', 2: '#1d4ed8', 3: '#1d4ed8', 5: '#7e22ce', 10: '#7e22ce' };
   const wcol = m => WCOL[m] || '#0f766e';
   function defaultSegs() { // bố cục tạm trước lần quay đầu (xác suất đúng như luật; thứ tự thật lấy từ máy chủ)
-    const spec = [[10, 1], [3, 2], [0.5, 4], [1.5, 12], [0, 21]], out = new Array(40).fill(null);
+    const spec = [[5, 1], [2, 3], [0.5, 8], [1.5, 14], [0, 14]], out = new Array(40).fill(null);
     spec.forEach(([m, n], si) => { for (let k = 0; k < n; k++) { let p = Math.round((k + 0.5 + si * 0.13) * 40 / n) % 40; while (out[p] !== null) p = (p + 1) % 40; out[p] = m; } });
     return out;
   }
@@ -276,6 +305,7 @@
     const go = btn('primary big gm-go', 'Quay vòng', () => c.run(spin));
     const zone = el('div', 'gm-ctl'); zone.append(go); c.zones.push(zone);
     c.root.append(wrap, legend, c.res, zone);
+    c.hot = () => c.run(spin);
 
     function paint() {
       drawWheel(cv, segs);
@@ -298,7 +328,7 @@
         const per = 360 / segs.length, target = -((idx + 0.5) * per);
         ang = ((ang % 360) + 360) % 360;
         if (G.reducedMotion) { setAng(((target % 360) + 360) % 360); return res(); }
-        const dur = G.fast ? 500 : 1500, d0 = W_OM * dur / 3000, need = (((target - ang) % 360) + 360) % 360;
+        const dur = G.fast ? 300 : 800, d0 = W_OM * dur / 3000, need = (((target - ang) % 360) + 360) % 360;
         const d = d0 + ((((need - d0) % 360) + 360) % 360); // đủ vòng, dừng đúng giữa ô `idx` ngay dưới kim
         const t0 = performance.now(), a0 = ang; let lastTick = 0, lastSeg = -1; mode = 'dec';
         c.loop(t => {
@@ -316,7 +346,7 @@
       c.res.hidden = true; c.say(''); c.begin(); hub.textContent = '…'; G.sfx('spin'); free();
       const before = c.hold(bet);
       let r;
-      try { r = (await Promise.all([c.send('wheelSpin', { bet }, { hold: before - bet }), c.wait(150)]))[0]; }
+      try { r = await c.send('wheelSpin', { bet }, { hold: before - bet }); }
       catch (e) { c.active = false; c.unhold(before); halt(); hub.textContent = '🎡'; throw e; }
       let L = Array.isArray(r.segments) && r.segments.length >= 2 ? r.segments.map(Number) : segs.slice();
       const idx = Math.min(L.length - 1, Math.max(0, Math.floor(+r.index) || 0));
@@ -352,8 +382,11 @@
     const go = btn('primary big gm-go', 'Bắt đầu ván', () => c.run(start));
     const cash = btn('big hi-cash', 'Rút', () => c.run(cashout));
     const guesses = el('div', 'hi-guess'); guesses.append(hi, lo);
-    const zone = el('div', 'gm-ctl'); zone.append(go, guesses, cash); c.zones.push(zone);
+    const auto = autoBox('hilo', () => paint());
+    const zone = el('div', 'gm-ctl'); zone.append(go, auto.box, guesses, cash); c.zones.push(zone);
     c.root.append(table, trail, info, c.res, zone);
+    /* Space/Enter: chưa có ván → bắt đầu; đang chơi → đoán phía có nhiều lá thắng hơn */
+    c.hot = () => { if (!c.active) return c.run(start); if (!H.card) return; const rk = H.card.rank; c.run(() => guess(13 - rk >= rk - 1 ? 'higher' : 'lower')); };
 
     const srv = (side, calc) => { // ưu tiên hệ số máy chủ báo nếu khớp công thức
       const v = H.srv && H.srv[side], s = typeof v === 'number' ? v : v && typeof v === 'object' ? (v.mult != null ? v.mult : v.multiplier) : null;
@@ -362,8 +395,8 @@
     function paintTrail() { trail.replaceChildren(); H.trail.slice(-8).forEach(cd => { const t = el('span', 'hi-chip' + (cd.suit === 1 || cd.suit === 2 ? ' red' : ''), (RANK[cd.rank] || '?') + (SUIT[cd.suit] || '')); t.setAttribute('aria-label', cardName(cd)); trail.append(t); }); }
     function paint() {
       const live = c.active;
-      go.hidden = live; guesses.hidden = !live; cash.hidden = !live;
-      if (!live || !H.card) { info.textContent = 'Chọn mức cược rồi bấm Bắt đầu. Lá bằng nhau tính là thua.'; return; }
+      go.hidden = live; guesses.hidden = !live; cash.hidden = !live; auto.box.hidden = live;
+      if (!live || !H.card) { const a = auto.get(); info.textContent = 'Bấm Bắt đầu (hoặc phím Space). Lá bằng nhau tính là thua.' + (a ? ' Tự rút khi đạt ' + fx(a) + '.' : ''); return; }
       const rk = H.card.rank, nHi = 13 - rk, nLo = rk - 1, base = H.mult == null ? 0.9 : H.mult;
       const mh = nHi > 0 ? srv('higher', base * 13 / nHi) : null, ml = nLo > 0 ? srv('lower', base * 13 / nLo) : null;
       hi.lastChild.textContent = nHi > 0 ? nHi + '/13 lá · ' + fx(mh) : 'Không thể'; hi.disabled = nHi <= 0;
@@ -371,24 +404,24 @@
       const pay = H.pay != null ? H.pay : Math.round(H.bet * (H.mult || 0));
       cash.disabled = H.steps < 1;
       cash.textContent = H.steps > 0 ? 'Rút ' + nf(pay) + ' điểm (' + fx(H.mult) + ')' : 'Rút (cần đoán đúng ít nhất 1 lần)';
-      info.textContent = 'Cược ' + nf(H.bet) + ' · Hệ số hiện tại ' + (H.mult == null ? '—' : fx(H.mult)) + ' · Đã đúng ' + H.steps + ' lần';
+      info.textContent = 'Cược ' + nf(H.bet) + ' · Hệ số hiện tại ' + (H.mult == null ? '—' : fx(H.mult)) + ' · Đã đúng ' + H.steps + ' lần' + (H.auto ? ' · Tự rút ở ' + fx(H.auto) : '');
     }
     function load(r) {
       if (!r.card) throw Object.assign(new Error('x'), { code: 'server_error' });
       H.card = r.card; H.steps = Math.floor(+r.steps) || 0; H.mult = r.mult == null ? null : +r.mult;
-      H.pay = typeof r.payoutNow === 'number' ? r.payoutNow : null; H.srv = r.next || null;
+      H.pay = typeof r.payoutNow === 'number' ? r.payoutNow : null; H.srv = r.next || null; H.auto = +r.auto || 0;
       setCard(cur, r.card); setCard(nxt, null); paintTrail(); paint();
     }
     async function flip(e, cd) {
-      await c.anim(e, [{ transform: 'rotateY(0)' }, { transform: 'rotateY(90deg)' }], { duration: 70, easing: 'ease-in' });
+      await c.anim(e, [{ transform: 'rotateY(0)' }, { transform: 'rotateY(90deg)' }], { duration: 50, easing: 'ease-in' });
       setCard(e, cd);
-      await c.anim(e, [{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0)' }], { duration: 80, easing: 'ease-out' });
+      await c.anim(e, [{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0)' }], { duration: 60, easing: 'ease-out' });
     }
     async function start() {
       if (c.active) return;
       const bet = c.pend ? c.pend.params.bet : c.bet(); if (!bet) return;
       c.say(''); c.res.hidden = true;
-      const r = await c.send('hiloStart', { bet });
+      const r = await c.send('hiloStart', c.pend ? c.pend.params : { bet, auto: auto.get() });
       H.bet = +r.bet || bet; H.trail = []; c.begin(); G.sfx('click'); load(r);
       c.anim(cur, [{ transform: 'scale(.85)', opacity: .4 }, { transform: 'scale(1)', opacity: 1 }], { duration: 120 });
     }
@@ -400,7 +433,7 @@
       if (r.active === false) { // thua, hoặc đạt trần ×100 tự rút
         if (r.prev) setCard(cur, r.prev);
         const lose = r.result === 'lose';
-        c.finish(Object.assign({ bet: H.bet, payout: 0 }, r), lose ? 'Lá kế là ' + cardName(r.card) : 'Đạt hệ số tối đa, tự rút ' + fx(r.mult));
+        c.finish(Object.assign({ bet: H.bet, payout: 0 }, r), lose ? 'Lá kế là ' + cardName(r.card) : 'Tự rút ' + fx(r.mult) + ' sau ' + r.steps + ' lần đoán đúng');
         paint();
       } else {
         G.sfx('coin'); H.trail.push(H.card); load(r);
@@ -419,21 +452,27 @@
 
   /* ================= 4. DÒ MÌN (mines) ================= */
   function buildMines(c) {
-    const M = { bet: 0, mines: 3, steps: 0, mult: null, next: null, pay: null, set: new Set() };
-    const saved = Math.floor(+ls.get('sm_mines'));
+    const M = { bet: 0, mines: 8, steps: 0, mult: null, next: null, pay: null, auto: 0, set: new Set() };
+    const saved = Math.floor(+ls.get('sm_mines2'));   // khoá mới: mặc định 8 mìn (tỷ lệ thắng ≈ 45% với Tự rút ×1,55)
     if (saved >= 1 && saved <= 10) M.mines = saved;
     const out = el('output', 'mn-count', String(M.mines), { 'aria-live': 'polite' });
     const minus = btn('mn-step', '−', () => stepMines(-1), { 'aria-label': 'Giảm số mìn' }), plus = btn('mn-step', '+', () => stepMines(1), { 'aria-label': 'Tăng số mìn' });
     const stepper = el('div', 'mn-stepper'); stepper.append(el('span', '', 'Số mìn'), minus, out, plus);
     const go = btn('primary big gm-go', 'Bắt đầu ván', () => c.run(start));
-    const setup = el('div', 'gm-ctl'); setup.append(stepper, go);
+    const auto = autoBox('mines', () => paint());
+    const setup = el('div', 'gm-ctl'); setup.append(stepper, auto.box, go);
     const info = el('p', 'gm-info');
     const grid = el('div', 'mn-grid', null, { role: 'group', 'aria-label': 'Bảng 25 ô' });
-    const cells = Array.from({ length: 25 }, (_, i) => { const b = el('button', 'mn-cell', '', { type: 'button' }); b.onclick = () => c.run(() => reveal(i)); grid.append(b); return b; });
+    const cells = Array.from({ length: 25 }, (_, i) => { const b = el('button', 'mn-cell', '', { type: 'button' }); b.onclick = () => c.run(() => (c.active ? reveal(i) : start(i))); grid.append(b); return b; });
     const cash = btn('big mn-cash', 'Rút', () => c.run(cashout));
     const play = el('div', 'gm-ctl'); play.append(grid, cash);
     c.zones.push(setup, play);
     c.root.append(setup, info, play, c.res);
+    /* Space/Enter: chưa có ván → mở ván + lật một ô ngẫu nhiên; đang chơi → lật một ô ngẫu nhiên chưa lật */
+    const rndCell = () => { const f = []; for (let i = 0; i < 25; i++) if (!M.set.has(i)) f.push(i); return f[Math.floor(Math.random() * f.length)]; };
+    c.hot = () => { const i = rndCell(); if (i == null) return; c.run(() => (c.active ? reveal(i) : start(i))); };
+    const surv = (m, k) => { let p = 1; for (let i = 0; i < k; i++) p *= (25 - m - i) / (25 - i); return p; };
+    const winChance = (m, a) => { if (!a) return null; for (let k = 1; k <= 25 - m; k++) { const p = surv(m, k); if (Math.min(100, 0.9 / p) >= a) return p; } return surv(m, 25 - m); };
 
     const cellLabel = (i, s) => 'Ô hàng ' + (Math.floor(i / 5) + 1) + ' cột ' + (i % 5 + 1) + ': ' + s;
     function reset() { cells.forEach((b, i) => { b.className = 'mn-cell'; b.textContent = ''; b.setAttribute('aria-label', cellLabel(i, 'chưa lật')); }); }
@@ -441,47 +480,60 @@
       const b = cells[i]; b.className = 'mn-cell ' + kind;
       b.textContent = kind === 'safe' ? '💎' : kind === 'hit' ? '💥' : '💣';
       b.setAttribute('aria-label', cellLabel(i, kind === 'safe' ? 'an toàn' : 'mìn'));
-      if (kind === 'safe') c.anim(b, [{ transform: 'scale(.6)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 260 });
+      if (kind === 'safe') c.anim(b, [{ transform: 'scale(.6)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 150 });
     }
     function showMines(list, hit) { (list || []).forEach(i => { if (cells[i] && !M.set.has(i)) mark(i, i === hit ? 'hit' : 'mine'); }); }
     function paint() {
       const live = c.active;
       go.disabled = live; minus.disabled = live || M.mines <= 1; plus.disabled = live || M.mines >= 10;
       cash.disabled = !live || M.steps < 1;
-      cells.forEach((b, i) => { b.disabled = !live || M.set.has(i); });
-      if (!live) { info.textContent = 'Chọn số mìn (càng nhiều mìn, hệ số càng cao) rồi bấm Bắt đầu.'; cash.textContent = 'Rút'; return; }
+      cells.forEach((b, i) => { b.disabled = live && M.set.has(i); });   // chưa có ván: bấm ô là mở ván + lật luôn ô đó
+      if (!live) {
+        const a = auto.get(), w = winChance(M.mines, a);
+        info.textContent = 'Bấm thẳng vào một ô để bắt đầu (hoặc phím Space).' + (a ? ' Tự rút ở ' + fx(a) + ' · tỷ lệ thắng ≈ ' + Math.round(w * 100) + '%.' : ' Càng nhiều mìn, hệ số càng cao.');
+        cash.textContent = 'Rút'; return;
+      }
       const pay = M.pay != null ? M.pay : Math.round(M.bet * (M.mult || 0)), left = 25 - M.mines - M.steps;
       cash.textContent = M.steps > 0 ? 'Rút ' + nf(pay) + ' điểm (' + fx(M.mult) + ')' : 'Rút (cần lật ít nhất 1 ô)';
       info.textContent = 'Cược ' + nf(M.bet) + ' · ' + M.mines + ' mìn · Hệ số ' + (M.mult == null ? '—' : fx(M.mult)) +
-        (M.next != null ? ' · Ô kế ' + fx(M.next) : '') + ' · Ô kế an toàn: ' + Math.round(100 * left / (25 - M.steps)) + '%';
+        (M.next != null ? ' · Ô kế ' + fx(M.next) : '') + ' · Ô kế an toàn: ' + Math.round(100 * left / (25 - M.steps)) + '%' + (M.auto ? ' · Tự rút ở ' + fx(M.auto) : '');
     }
-    function stepMines(d) { M.mines = Math.max(1, Math.min(10, M.mines + d)); out.textContent = String(M.mines); ls.set('sm_mines', String(M.mines)); G.sfx('click'); paint(); }
+    function stepMines(d) { M.mines = Math.max(1, Math.min(10, M.mines + d)); out.textContent = String(M.mines); ls.set('sm_mines2', String(M.mines)); G.sfx('click'); paint(); }
     function apply(r) {
       M.steps = Math.floor(+r.steps) || 0; M.mult = r.mult == null ? null : +r.mult; M.next = r.nextMult == null ? null : +r.nextMult;
-      M.pay = typeof r.payoutNow === 'number' ? r.payoutNow : null;
+      M.pay = typeof r.payoutNow === 'number' ? r.payoutNow : null; M.auto = +r.auto || 0;
     }
     function load(r) {
       M.mines = Math.floor(+r.mines) || M.mines; out.textContent = String(M.mines);
       M.set = new Set(r.revealed || []); apply(r); reset(); M.set.forEach(i => cells[i] && mark(i, 'safe')); paint();
     }
-    async function start() {
+    async function start(cell) {
       if (c.active) return;
-      const bet = c.pend ? c.pend.params.bet : c.bet(); if (!bet) return;
-      c.say(''); c.res.hidden = true;
-      const r = await c.send('minesStart', { bet, mines: M.mines });
-      M.bet = +r.bet || bet; c.begin(); G.sfx('click'); load(r);
+      const P = c.pend ? c.pend.params : { bet: c.bet(), mines: M.mines, auto: auto.get() }; if (!P.bet) return;
+      if (cell != null && !c.pend) P.cell = cell;
+      c.say(''); c.res.hidden = true; M.set = new Set(); reset();
+      const i = P.cell; if (i != null) cells[i].classList.add('wait');
+      const before = c.hold(P.bet);
+      let r; try { r = await c.send('minesStart', P); } catch (e) { c.unhold(before); throw e; } finally { if (i != null) cells[i].classList.remove('wait'); }
+      M.bet = +r.bet || P.bet; M.mines = Math.floor(+r.mines) || P.mines; out.textContent = String(M.mines); c.begin(); G.sfx('click');
+      if (i == null) { load(r); return; }
+      M.steps = 0; M.mult = null; M.auto = +r.auto || P.auto || 0;
+      return outcome(r, i);   // mở ván + lật ô đầu tiên trong một yêu cầu
     }
     async function reveal(i) {
       if (!c.active || M.set.has(i)) return;
       cells[i].classList.add('wait');
       let r; try { r = await c.send('minesReveal', { cell: i }); } finally { cells[i].classList.remove('wait'); }
+      return outcome(r, i);
+    }
+    function outcome(r, i) {
       if (r.result === 'lose') {
         const hit = r.hit != null ? r.hit : i; mark(hit, 'hit'); showMines(r.mines, hit);
-        c.anim(grid, [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 280 });
+        c.anim(grid, [{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 160 });
         c.finish(Object.assign({ bet: M.bet, payout: 0 }, r), 'Trúng mìn sau ' + M.steps + ' ô an toàn'); paint();
       } else if (r.result === 'cashout' || r.active === false) { // lật hết / đạt trần: máy chủ tự rút
         mark(i, 'safe'); M.set.add(i); showMines(r.mines);
-        c.finish(Object.assign({ bet: M.bet }, r), 'Tự rút ở ' + fx(r.mult)); paint();
+        c.finish(Object.assign({ bet: M.bet }, r), 'Tự rút ở ' + fx(r.mult) + ' sau ' + r.steps + ' ô'); paint();
       } else {
         M.set = new Set(r.revealed || Array.from(M.set).concat(i)); mark(i, 'safe'); apply(r); G.sfx('coin'); paint();
       }
@@ -501,7 +553,7 @@
   const STARS = Array.from({ length: 28 }, (_, i) => [(i * 97) % 720, (i * 53) % 360, (i % 3) + 1]);
 
   function buildCrash(c) {
-    const K = { bet: 0, startedAt: 0, offset: 0, rate: 0.1, minCash: 1.01, live: false, cashing: false, frozen: 1, frozenT: 0, polling: false, shown: null, lastM: 1, pt: 0, endT: 0 };
+    const K = { bet: 0, startedAt: 0, offset: 0, rate: 0.2, minCash: 1.01, auto: 0, live: false, cashing: false, frozen: 1, frozenT: 0, polling: false, shown: null, lastM: 1, pt: 0, endT: 0 };
     const wrap = el('div', 'cr-wrap'), cv = el('canvas', 'cr-cv', null, { width: 720, height: 360, 'aria-hidden': 'true' });
     const big = el('div', 'cr-mult', '×1,00', { 'aria-hidden': 'true' }), sub = el('div', 'cr-sub', 'Sẵn sàng');
     wrap.append(cv, big, sub);
@@ -509,9 +561,12 @@
     const cash = btn('big cr-cash', 'Rút', null); cash.hidden = true;
     cash.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse' || e.button === 0) cashClick(); }); // phản hồi ngay khi chạm
     cash.addEventListener('click', e => { if (e.detail === 0) cashClick(); });                                // bàn phím
-    const zone = el('div', 'gm-ctl'); zone.append(go, cash); c.zones.push(zone);
+    const auto = autoBox('crash', () => { if (!K.live) idleInfo(); });
+    const zone = el('div', 'gm-ctl'); zone.append(auto.box, go, cash); c.zones.push(zone);
     const info = el('p', 'gm-info');
     c.root.append(wrap, info, c.res, zone);
+    c.hot = () => { if (K.live) cashClick(); else c.run(start); };   // Space/Enter: phóng / rút
+    const idleInfo = () => { const a = auto.get(); info.textContent = a ? 'Tự rút ở ' + fx(a, true) + ' · tỷ lệ thắng ' + Math.round(90 / a) + '%. Bấm Phóng (hoặc Space).' : 'Hệ số tăng theo thời gian. Rút trước khi nổ để nhận cược × hệ số.'; };
 
     const mAt = t => Math.floor(100 * Math.exp(K.rate * t)) / 100;       // m(t) = floor(100·e^(0,1·t))/100
     const tNow = () => Math.max(0, (Date.now() + K.offset - K.startedAt) / 1000);
@@ -541,7 +596,7 @@
       }
       g.restore();
     }
-    function paintBtns() { go.hidden = K.live; cash.hidden = !K.live; }
+    function paintBtns() { go.hidden = K.live; cash.hidden = !K.live; auto.box.hidden = K.live; }
     function paintMult(m) {
       if (m === K.shown) return;
       K.shown = m; big.textContent = fx(m, true);
@@ -554,23 +609,24 @@
     }
     function frame() {
       if (!K.live) return;
-      const t = K.cashing ? K.frozenT : tNow();
-      paintMult(K.cashing ? K.frozen : mAt(t)); draw(t, 'fly');
+      const t = K.cashing ? K.frozenT : tNow(), m = K.cashing ? K.frozen : mAt(t);
+      paintMult(m); draw(t, 'fly');
+      if (K.auto && !K.cashing && t >= Math.log(K.auto) / K.rate + 0.25) cashClick(true);   // đã qua mức tự rút (+0,25s bù lệch đồng hồ): máy chủ trả đúng ×auto nếu chưa nổ
     }
     function stopFlight() { c.stopLoop(); if (K.pt) { c.clear(K.pt); K.pt = 0; } }
     function fly() {
       K.live = true; K.cashing = false; K.shown = null; K.lastM = 1; c.begin(); paintBtns();
       wrap.classList.remove('boom', 'ok'); sub.textContent = 'Đang bay…';
-      info.textContent = 'Cược ' + nf(K.bet) + ' · Bấm RÚT trước khi tên lửa nổ.';
-      c.say('Tên lửa đang bay. Bấm Rút để chốt điểm.', 'info');
-      c.loop(frame); K.pt = c.every(poll, 2000);
+      info.textContent = 'Cược ' + nf(K.bet) + (K.auto ? ' · Tự rút ở ' + fx(K.auto, true) : '') + ' · Bấm RÚT (hoặc Space) trước khi tên lửa nổ.';
+      c.say('');
+      c.loop(frame); K.pt = c.every(poll, 1000);
     }
     async function start() {
       if (K.live) return;
       const bet = c.pend ? c.pend.params.bet : c.bet(); if (!bet) return;
       c.res.hidden = true; c.say('');
-      const t0 = performance.now(), r = await c.send('crashStart', { bet }), rtt = performance.now() - t0;
-      K.bet = +r.bet || bet; c.bet0 = K.bet; K.rate = +r.rate || 0.1; K.minCash = +r.minCash || 1.01; setClock(r, rtt);
+      const t0 = performance.now(), r = await c.send('crashStart', c.pend ? c.pend.params : { bet, auto: auto.get() }), rtt = performance.now() - t0;
+      K.bet = +r.bet || bet; c.bet0 = K.bet; K.rate = +r.rate || 0.1; K.minCash = +r.minCash || 1.01; K.auto = +r.auto || 0; setClock(r, rtt);
       G.sfx('click'); fly();
     }
     function gone() { // ván biến mất mà không rõ kết quả (ví dụ đã rút ở thiết bị khác)
@@ -582,7 +638,7 @@
       K.live = false; stopFlight(); wrap.classList.add('boom'); paintBtns();
       K.endT = cp != null ? Math.log(Math.max(1, cp)) / K.rate : tNow();
       big.textContent = cp != null ? fx(cp, true) : '💥'; sub.textContent = 'Tên lửa đã nổ';
-      draw(K.endT, 'boom'); c.say('');
+      draw(K.endT, 'boom'); c.say(''); idleInfo();
       if (K.bet > 0 || typeof r.bet === 'number') c.finish(Object.assign({ bet: K.bet, payout: 0 }, r), cp != null ? 'Tên lửa nổ ở ' + fx(cp, true) : 'Tên lửa nổ trước khi lệnh rút tới nơi');
       else { // khôi phục sau khi đã nổ mà không biết mức cược
         c.active = false; c.res.hidden = false; c.res.className = 'gm-result lose';
@@ -595,8 +651,8 @@
       K.live = false; stopFlight(); wrap.classList.add('ok'); paintBtns();
       const m = +r.mult || K.frozen; K.endT = Math.log(Math.max(1, m)) / K.rate;
       big.textContent = fx(m, true); sub.textContent = 'Đã rút';
-      draw(K.endT, 'cash'); c.say('');
-      c.finish(Object.assign({ bet: K.bet }, r), 'Rút ở ' + fx(m, true) + (r.crashPoint != null ? ' · điểm nổ là ' + fx(r.crashPoint, true) : ''));
+      draw(K.endT, 'cash'); c.say(''); idleInfo();
+      c.finish(Object.assign({ bet: K.bet }, r), (r.auto ? 'Tự rút ở ' : 'Rút ở ') + fx(m, true) + (r.crashPoint != null ? ' · điểm nổ là ' + fx(r.crashPoint, true) : ''));
     }
     async function poll() {
       if (!K.live || K.polling || K.cashing || c.busy) return;
@@ -605,14 +661,15 @@
         const t0 = performance.now(), r = await c.api('getActiveGame', {}), rtt = performance.now() - t0;
         if (!K.live) return;
         if (r.result === 'crash') crashed(r);
+        else if (r.game === 'crash' && r.active === false && r.result === 'cashout') cashed(r);   // máy chủ đã tự rút
         else if (r.active && r.game === 'crash' && r.startedAt && r.serverNow) setClock(r, rtt); // chỉnh lại đồng hồ
         else if (!r.active) gone();
       } catch (_) { /* lỗi mạng khi thăm dò: bỏ qua, lần sau thử lại */ }
       finally { K.polling = false; }
     }
-    function cashClick() {
+    function cashClick(isAuto) {
       if (!K.live || K.cashing || c.busy || !c.alive) return;
-      const t = tNow(), m = mAt(t); if (m < K.minCash) return;
+      const t = tNow(), m = isAuto ? K.auto : mAt(t); if (m < K.minCash) return;
       K.cashing = true; K.frozenT = t; K.frozen = m; G.sfx('click');
       cash.disabled = true; cash.textContent = 'Đang rút ' + fx(m, true) + '…'; sub.textContent = 'Đang gửi lệnh rút…'; // phản hồi tức thì
       c.run(async () => {
@@ -629,24 +686,25 @@
     }
     c.onIdle = () => {
       K.live = false; K.cashing = false; stopFlight(); c.active = false; K.bet = 0; paintBtns();
-      wrap.classList.remove('boom', 'ok'); big.textContent = '×1,00'; sub.textContent = 'Sẵn sàng'; K.rate = 0.1; draw(0, 'idle');
-      info.textContent = 'Hệ số tăng theo thời gian. Rút trước khi nổ để nhận cược × hệ số.';
+      wrap.classList.remove('boom', 'ok'); big.textContent = '×1,00'; sub.textContent = 'Sẵn sàng'; K.rate = 0.2; K.auto = 0; draw(0, 'idle');
+      idleInfo();
     };
     c.onRestore = (kind, r) => {
       K.bet = +r.bet || 0; c.bet0 = K.bet;
       if (kind === 'crash') { K.rate = +r.rate || 0.1; crashed(r); return; }
-      K.rate = +r.rate || 0.1; K.minCash = +r.minCash || 1.01; setClock(r, c.rtt); fly();
+      if (kind === 'cashed') { cashed(r); return; }
+      K.rate = +r.rate || 0.1; K.minCash = +r.minCash || 1.01; K.auto = +r.auto || 0; setClock(r, c.rtt); fly();
       c.say('Đã khôi phục ván đang bay. Bấm Rút để chốt điểm.', 'ok');
     };
     c.onIdle();
   }
 
   /* ================= Luật chơi (hiện trong mục "Luật chơi") ================= */
-  G.setRules('slots', ['3 cuộn quay độc lập do máy chủ chọn. 3 giống nhau: 🍒×5, 🍋×8, 🔔×15, ⭐×30, 💎×80, 7️⃣×250.', 'Đúng 2 giống của 🍒, ⭐, 💎, 7️⃣ trả ×1,5. Các trường hợp khác ×0.', 'Hoàn trả lý thuyết ≈ 90,4%; khoảng 31,8% số ván có lãi. Chơi lâu dài thì điểm sẽ giảm.']);
-  G.setRules('wheel', ['40 ô đều xác suất: ×0 (21 ô), ×0,5 (4 ô), ×1,5 (12 ô), ×3 (2 ô), ×10 (1 ô).', 'Hoàn trả lý thuyết 90%; có lãi ở 15/40 ô (37,5%).']);
-  G.setRules('hilo', ['Máy chủ rút lá 1–13 (A–K) có hoàn lại. Đoán lá kế cao hơn hoặc thấp hơn; lá bằng nhau là thua.', 'Mỗi lần đúng, hệ số nhân thêm 13/số lá thắng. Rút bất cứ lúc nào sau lần đúng đầu tiên; trần ×100 tự rút.', 'Hoàn trả lý thuyết 90% với mọi cách chơi. Ván dở được khôi phục khi quay lại.']);
-  G.setRules('mines', ['Bảng 25 ô có 1–10 mìn (bạn chọn). Lật ô an toàn để tăng hệ số; trúng mìn là mất cược.', 'Rút sau ít nhất 1 ô. Lật hết ô an toàn hoặc đạt trần ×100 thì tự rút.', 'Hoàn trả lý thuyết 90% với mọi số ô đã lật. Ván dở được khôi phục khi quay lại.']);
-  G.setRules('crash', ['Tên lửa bay, hệ số tăng theo giờ máy chủ (khoảng ×2 sau 7 giây, ×10 sau 23 giây). Rút khi hệ số còn thấp hơn điểm nổ để nhận cược × hệ số.', 'Điểm nổ do máy chủ chọn ngẫu nhiên, 10% số ván nổ ngay ×1,00. Độ trễ mạng được tính vào lệnh rút nên hãy rút sớm hơn một chút.', 'Hoàn trả lý thuyết 90% với mọi mức rút. Rời trang khi ván đang bay: tên lửa vẫn tiếp tục theo giờ thật.']);
+  G.setRules('slots', ['3 cuộn quay độc lập do máy chủ chọn. 3 giống nhau: 🍒×4, 🍋×5, 🔔×6, ⭐×9, 💎×18, 7️⃣×45.', 'Đúng 2 giống: 🍒🍋 ×1,2 · 🔔 ×1,3 · ⭐ ×1,4 · 💎 ×1,6 · 7️⃣ ×2. Các trường hợp khác ×0.', 'Khoảng 45% số ván có lãi; hoàn trả lý thuyết ≈ 90%. Chơi lâu dài thì điểm sẽ giảm. Phím Space = quay tiếp.']);
+  G.setRules('wheel', ['40 ô đều xác suất: ×0 (14 ô), ×0,5 (8 ô), ×1,5 (14 ô), ×2 (3 ô), ×5 (1 ô).', 'Có lãi ở 18/40 ô (45%); hoàn trả lý thuyết 90%. Phím Space = quay tiếp.']);
+  G.setRules('hilo', ['Máy chủ rút lá 1–13 (A–K) có hoàn lại. Đoán lá kế cao hơn hoặc thấp hơn; lá bằng nhau là thua.', 'Mỗi lần đúng, hệ số nhân thêm 13/số lá thắng. “Tự rút ở ×X” (mặc định ×1,55): máy chủ tự chốt khi hệ số đạt X; đặt 0 để tự rút tay. Trần ×100.', 'Mặc định + luôn chọn phía nhiều lá thắng hơn (phím Space làm sẵn việc này): thắng ≈ 45% số ván. Hoàn trả lý thuyết 90% với mọi cách chơi.']);
+  G.setRules('mines', ['Bảng 25 ô có 1–10 mìn (mặc định 8). Bấm thẳng vào một ô để bắt đầu ván và lật luôn ô đó; trúng mìn là mất cược.', '“Tự rút ở ×X” (mặc định ×1,55): máy chủ tự chốt khi hệ số đạt X. 8 mìn + ×1,55 = tự rút sau 2 ô an toàn, thắng ≈ 45%. Tỷ lệ thắng với cài đặt hiện tại hiện ngay dưới bảng.', 'Hoàn trả lý thuyết 90% với mọi số ô đã lật. Ván dở được khôi phục khi quay lại.']);
+  G.setRules('crash', ['Tên lửa bay, hệ số tăng theo giờ máy chủ (khoảng ×2 sau 3,5 giây, ×10 sau 11,5 giây). Rút khi hệ số còn thấp hơn điểm nổ để nhận cược × hệ số.', '“Tự rút ở ×X” (mặc định ×2): máy chủ trả đúng cược × X nếu tên lửa chưa nổ trước X, kể cả khi mạng chậm. Tỷ lệ thắng = 90 ÷ X % (×2 → 45%).', 'Điểm nổ ngẫu nhiên, 10% số ván nổ ngay ×1,00. Hoàn trả lý thuyết 90% với mọi mức rút. Phím Space = phóng / rút.']);
 
   /* ================= Đăng ký & vòng đời ================= */
   const BUILD = { slots: buildSlots, wheel: buildWheel, hilo: buildHilo, mines: buildMines, crash: buildCrash };
@@ -680,5 +738,5 @@
     }).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
   }
 
-  window.SMGameKit = { makeCtx, mountGame, unmountGame, resumeGame, BUILD, ORDER, NAMES, INSTANT, el, btn, nf, sg, fx, ls, friendly, RETRY, FOREVER, MSG };
+  window.SMGameKit = { makeCtx, mountGame, unmountGame, resumeGame, BUILD, ORDER, NAMES, INSTANT, el, btn, nf, sg, fx, ls, autoBox, friendly, RETRY, FOREVER, MSG };
 })();

@@ -1,4 +1,6 @@
 # API_SPEC_GAMES (Games.gs, cần Code.gs v8)
+> **Bản 20261027e:** tỷ lệ thắng mỗi ván ≈ 45%, RTP ≈ 90% — bảng hệ số/xác suất hiện hành nằm ở đầu Games.gs và NOTES_GAMES.md (các bảng slots/wheel/hilo/mines/crash bên dưới là bản cũ, giữ để tham khảo công thức).
+> Tham số mới: `auto` (Tự rút ở ×X, 0 = tắt) cho hiloStart/minesStart/coinStart/crashStart; `minesStart {cell}` mở ván + lật ô; `coinStart {flip:true}` mở ván + tung; `diceRoll {dir}` tỷ lệ 45% cố định; keno 1–22, trả thêm `pool, drawCount`; plinko `path[16]`, `slot 0–16`. Phản hồi ván nhiều bước có `auto`; crash có `rate` theo ván (0,2) và có thể kết thúc `result:"cashout", auto:true`.
 POST JSON, mọi action kèm `code`. Ngẫu nhiên do server sinh. Rate limit 1 yêu cầu/giây/(mã, action) → chờ ≥1s giữa 2 lần gọi cùng loại.
 **Action ghi** cần `requestId` (`[\w-]{8,64}`, sinh mới cho MỖI thao tác). Gửi lại cùng `requestId` (mạng chập chờn) → nhận đúng phản hồi cũ + `replay:true`, không trừ/cộng lần 2.
 Chung: mọi phản hồi có `balance`; kết thúc ván có `bet, payout, net`. Một học sinh chỉ có 1 ván đang mở (kể cả slots/wheel). Tắt trò `game_<tên>_enabled=false` chỉ chặn ván MỚI (đang chơi vẫn rút được). `dailyLossLimit ≤ 0` = không giới hạn.
