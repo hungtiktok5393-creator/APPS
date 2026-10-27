@@ -521,10 +521,19 @@ function submitResult_(p) {
   const sid = String(p.submissionId || ''), refId = String(p.refId || '').replace(/[^\w-]/g, '').slice(0, 40);
   if (!kind) throw apiError_('bad_request', "kind phải là 'vocab' hoặc 'test'.");
   if (!/^[\w-]{8,64}$/.test(sid)) throw apiError_('bad_request', 'submissionId không hợp lệ.');
+  // CHỐNG GIẢ ĐIỂM: chỉ cộng điểm cho bài giao CÓ THẬT, còn hạn, và đã có bản nộp (submit / submitTest) cùng submissionId của CHÍNH mã này.
+  // Số từ đúng / điểm bị giới hạn theo bản nộp đã lưu → không thể tự gửi correct = 5000 lặp lại để lấy điểm, hay làm quá số lần / quá hạn mà vẫn được cộng.
+  const asg = refId ? findAssignment_(refId, false) : null;   // điểm riêng của bài lấy từ sheet Assignments, KHÔNG nhận từ client
+  if (!asg) throw apiError_('bad_request', 'Bài này chưa được đăng ký trên máy chủ nên không cộng điểm được.');
+  if (asg.due && Date.now() > asg.due + GRACE_MS) throw apiError_('expired', 'Bài đã hết hạn nộp.');
+  const sub = submissionOf_(kind, sid, refId, s.code);
+  if (!sub) {
+    if (asg.max > 0 && attemptsOf_(kind, refId, s.code) >= asg.max) throw apiError_('max_attempts', 'Đã hết số lần làm bài cho phép.');
+    throw apiError_('not_ready', 'Máy chủ chưa nhận bài làm – điểm sẽ được cộng khi bài làm được gửi xong.');   // client giữ trong hàng đợi, gửi lại sau
+  }
   let pts = 0; const detail = { sid: sid };
   if (kind === 'vocab') {
-    const c = clampInt_(p.correct, 0, 5000, 0), k = clampInt_(p.peeks, 0, 100000, 0);
-    const asg = refId ? findAssignment_(refId, false) : null;   // điểm riêng của bài lấy từ sheet Assignments, KHÔNG nhận từ client
+    const c = Math.min(clampInt_(p.correct, 0, 5000, 0), sub.correct, Array.isArray(asg.words) ? asg.words.length : 5000), k = Math.max(clampInt_(p.peeks, 0, 100000, 0), sub.peeks);
     const cpv = asg && asg.correctPts !== null && asg.correctPts !== undefined ? asg.correctPts : cfgNum_('vocabCorrectPoints', 5);
     const ppv = asg && asg.peekPenalty !== null && asg.peekPenalty !== undefined ? asg.peekPenalty : cfgNum_('vocabPeekPenalty', 1);
     pts = c * cpv - k * ppv; detail.cp = cpv; detail.pp = ppv; detail.correct = c; detail.peeks = k;
@@ -534,6 +543,7 @@ function submitResult_(p) {
       p.correctPoints.slice(0, 500).forEach(function (x) { const n = Number(x); pts += Math.max(0, Math.min(100, isFinite(n) ? n : dflt)); });
       detail.n = Math.min(500, p.correctPoints.length);
     } else { const c = clampInt_(p.correct, 0, 500, 0); pts = c * Math.max(0, Math.min(100, dflt)); detail.correct = c; }
+    pts = Math.min(pts, Math.ceil(sub.score));          // không vượt điểm của bài test đã nộp (máy chủ tính lại từ từng câu)
   }
   const cap = cfgNum_('maxSubmitPoints', 5000);
   pts = Math.max(-cap, Math.min(cap, Math.round(pts)));
@@ -544,6 +554,25 @@ function submitResult_(p) {
     csh.appendRow([sid, new Date().toISOString()]);
     return { ok: true, duplicate: false, delta: r.delta, requested: pts, balance: r.balance, totalEarned: r.totalEarned };
   });
+}
+/** Bản nộp (Results / TestResults) có submissionId = sid, đúng bài refId và đúng mã học sinh. Trả về null nếu chưa có.
+ *  vocab → {correct: số từ không bỏ qua, peeks: tổng số lần xem lại} tính từ chi tiết đã lưu · test → {score} */
+function submissionOf_(kind, sid, refId, code) {
+  const sh = kind === 'vocab' ? sheet_(SHEET_RESULTS, RESULT_HEADERS) : sheet_(SHEET_TRES, TRES_HEADERS), row = findRow_(sh, 1, sid);
+  if (!row) return null;
+  const r = sh.getRange(row, 1, 1, kind === 'vocab' ? RESULT_HEADERS.length : 8).getValues()[0];
+  if (String(r[1]) !== refId || normCode_(r[4]) !== code) return null;
+  if (kind !== 'vocab') return { score: Math.max(0, Number(r[6]) || 0) };
+  let d = []; try { d = JSON.parse(detailsOf_(r) || '[]'); } catch (e) {}
+  if (!Array.isArray(d)) d = [];
+  let correct = 0, peeks = 0;
+  d.forEach(function (w) { if (!w || w.skipped) return; correct++; peeks += Math.max(0, (Number(w.views) || 1) - 1); });
+  return { correct: correct, peeks: peeks };
+}
+/** Số lần đã nộp bài refId của mã học sinh (để báo hết lượt thay vì chờ mãi) */
+function attemptsOf_(kind, refId, code) {
+  const sh = kind === 'vocab' ? sheet_(SHEET_RESULTS, RESULT_HEADERS) : sheet_(SHEET_TRES, TRES_HEADERS);
+  return cols_(sh, 1, 5).filter(function (r) { return String(r[1]) === refId && normCode_(r[4]) === code; }).length;
 }
 /** Bài còn hạn cho học sinh chọn làm. KHÔNG trả link / kết quả / dữ liệu từ. Cache 30 giây (dùng chung mọi học sinh). Không quét sheet kết quả. */
 function listOpenAssignments_(p) {

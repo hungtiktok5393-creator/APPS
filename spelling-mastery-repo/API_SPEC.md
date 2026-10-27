@@ -9,7 +9,8 @@ Tất cả action: POST JSON `{action, code?, ...}` tới URL `/exec`. Lỗi: `{
 
 ## 2. Điểm bài từ vựng
 `submitResult {kind:'vocab', refId, correct, peeks, submissionId}`: pts = correct×(a.correctPts ?? cfg) − peeks×(a.peekPenalty ?? cfg),
-a = dòng Assignments theo refId (không có → mặc định). Client KHÔNG gửi điểm. Vẫn kẹp `maxSubmitPoints`, chống trùng submissionId, withLock_.
+a = dòng Assignments theo refId (bắt buộc phải có, quá hạn + GRACE_MS → `expired`). Client KHÔNG gửi điểm. Vẫn kẹp `maxSubmitPoints`, chống trùng submissionId, withLock_.
+Chỉ cộng khi đã có bản nộp (`submit` / `submitTest`) cùng submissionId, đúng refId và đúng mã học sinh; chưa có → `not_ready` (client giữ trong hàng đợi, gửi lại sau), hết lượt → `max_attempts`. `correct` ≤ số từ không bỏ qua trong bản nộp (và ≤ số từ của bài), `peeks` ≥ số lần xem lại trong bản nộp; điểm test ≤ điểm bài test đã nộp. Client gửi bản nộp TRƯỚC rồi mới gửi submitResult.
 
 ## 3. getAssignment (GET, công khai)
 `assignment` thêm `correctPts`, `peekPenalty` (số hoặc `null`). Link inline `#/assign?d=` có thêm khoá nén `cp`,`pp` (chỉ hiển thị).
