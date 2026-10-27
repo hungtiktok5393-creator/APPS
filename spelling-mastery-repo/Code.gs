@@ -1,5 +1,5 @@
 /**
- * Spelling Mastery – Backend Google Apps Script
+ * Nhà Thầy Hưng (Spelling Mastery) – Backend Google Apps Script
  * Gắn vào Google Sheet (Extensions → Apps Script) rồi Deploy dạng Web app.
  * Sheet "Results" và "Assignments" được tự tạo ở lần gọi đầu tiên.
  */
@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 10;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 11;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -127,6 +127,7 @@ function submit_(b) {
   if (!/^[\w-]{8,64}$/.test(id) || !/^[\w-]{3,40}$/.test(aid)) return { ok: false, error: 'bad_request', message: 'Thiếu mã bài hoặc mã nộp.' };
   const name = String(b.name || '').trim().slice(0, 60) || 'Ẩn danh';
   const cls = String(b.cls || '').trim().slice(0, 20);
+  const au = studentAuthErr_(name, b); if (au) return au;
   const details = (Array.isArray(b.details) ? b.details : []).slice(0, 2000).map(function (d) {
     return { word: String(d.word || '').slice(0, 100), views: +d.views || 0, wrongCount: +d.wrongCount || 0, score: +d.score || 0, timeMs: +d.timeMs || 0, skipped: !!d.skipped };
   });
@@ -168,6 +169,11 @@ function submit_(b) {
   return { ok: true };
 }
 
+/** Bài nộp đứng tên một mã học sinh có mật khẩu → phải kèm token đúng (chống nộp bài giả dưới mã của bạn khác). */
+function studentAuthErr_(name, b) {
+  const st = getStudent_(name); if (!st || !st.password) return null;
+  try { requireAuth_('S', st.code, st.password, { token: b.token }); return null; } catch (e) { return { ok: false, error: e.apiCode || 'auth_required', message: e.message }; }
+}
 function linkOf_(a) { const l = String(a && a.link || ''); return l.indexOf('https://') === 0 ? safe_(l.slice(0, 4000)) : ''; }
 function saveAssignment_(b) {
   if (!isTeacher_(b.teacherKey)) return { ok: false, error: 'unauthorized', message: 'Teacher Key không đúng.' };
@@ -234,6 +240,7 @@ function submitTest_(b) {
   if (!/^[\w-]{8,64}$/.test(id) || !/^[\w-]{3,40}$/.test(aid)) return { ok: false, error: 'bad_request', message: 'Thiếu mã bài hoặc mã nộp.' };
   const name = String(b.name || '').trim().slice(0, 60) || 'Ẩn danh';
   const cls = String(b.cls || '').trim().slice(0, 20);
+  const au = studentAuthErr_(name, b); if (au) return au;
   let items = (Array.isArray(b.items) ? b.items : []).slice(0, 500).map(function (d) {
     const m = Math.max(0, Math.min(100, +d.m || 0)), g = Math.max(0, Math.min(m, +d.g || 0));
     return { id: String(d.id || '').slice(0, 20), q: String(d.q || '').slice(0, 80), t: String(d.t || '').slice(0, 8), a: String(d.a || '').slice(0, 120), g: g, m: m, ok: String(d.ok || '').slice(0, 8) };
@@ -367,7 +374,7 @@ function legacyGet_(p, action) {
  * Games.gs: định nghĩa registerGameActions_(reg) rồi gán reg.<action> = function (params, student) {...}
  * ===================================================================== */
 const SHEET_STUDENTS = 'Students', SHEET_LEDGER = 'Ledger', SHEET_CONFIG = 'Config', SHEET_CLAIMS = 'Claims';
-const STUDENT_HEADERS = ['code', 'createdAt', 'note', 'active', 'balance', 'totalEarned', 'lastActive'];
+const STUDENT_HEADERS = ['code', 'createdAt', 'note', 'active', 'balance', 'totalEarned', 'lastActive', 'password'];   // password (cột 8): giáo viên tự đặt; ô trống = không cần mật khẩu
 const LEDGER_HEADERS = ['timestamp', 'code', 'delta', 'reason', 'refId', 'balanceAfter', 'detail'];
 const CONFIG_HEADERS = ['key', 'value'];
 const CLAIM_HEADERS = ['submissionId', 'timestamp'];
@@ -407,7 +414,7 @@ function foldCode_(v) {              // bỏ dấu tiếng Việt, đ→d, viế
 }
 function normCode_(v) { return foldCode_(v).slice(0, CODE_MAX); }
 function isActive_(v) { return !(v === false || String(v).toLowerCase() === 'false'); }
-function maskCode_(c) { return c.slice(0, Math.max(1, c.length - 2)) + '**'; }
+function maskCode_(c) { return String(c); }   // v11: không che mã nữa (giữ tên hàm cho Games.gs / Garden.gs)
 function rateLimit_(code, action) {   // ≤ 1 yêu cầu / giây / (mã, action)
   const c = CacheService.getScriptCache(), k = 'rl:' + action + ':' + code;
   if (c.get(k)) throw apiError_('rate_limited', 'Thao tác quá nhanh, thử lại sau 1 giây.');
@@ -466,8 +473,8 @@ function getStudent_(code) {
   code = normCode_(code); if (!code) return null;
   const sh = stSh_(), row = findRow_(sh, 1, code);
   if (!row) return null;
-  const r = sh.getRange(row, 1, 1, 7).getValues()[0];
-  return { row: row, code: String(r[0]), createdAt: iso_(r[1]), note: String(r[2]), active: isActive_(r[3]), balance: Number(r[4]) || 0, totalEarned: Number(r[5]) || 0, lastActive: iso_(r[6]) };
+  const r = sh.getRange(row, 1, 1, 8).getValues()[0];
+  return { row: row, code: String(r[0]), createdAt: iso_(r[1]), note: String(r[2]), active: isActive_(r[3]), balance: Number(r[4]) || 0, totalEarned: Number(r[5]) || 0, lastActive: iso_(r[6]), password: pwStr_(r[7]) };
 }
 function requireStudent_(code, rlAction) {
   code = normCode_(code);
@@ -476,7 +483,38 @@ function requireStudent_(code, rlAction) {
   const s = getStudent_(code);
   if (!s) throw apiError_('invalid_code', 'Mã không tồn tại.');
   if (!s.active) throw apiError_('code_disabled', 'Mã đã bị vô hiệu hoá.');
+  requireAuth_('S', s.code, s.password, _auth);
   return s;
+}
+
+/* ---------- v11: MẬT KHẨU (học sinh / phụ huynh) ----------
+ * Giáo viên đặt mật khẩu tự do (lưu trong sheet, chỉ giáo viên đọc được). Ô trống = không cần mật khẩu.
+ * Đăng nhập đúng → máy chủ trả token = HMAC(loại|mã|mật khẩu, khóa bí mật). Các lần gọi sau gửi token thay cho mật khẩu.
+ * Đổi mật khẩu → mọi token cũ tự hết hiệu lực. Sai mật khẩu 6 lần trong 10 phút → khóa 10 phút. */
+let _auth = {};
+const PW_MAX = 32;
+function pwStr_(v) { return String(v == null ? '' : v).trim().slice(0, PW_MAX); }
+function cleanPw_(v) { return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, PW_MAX); }
+function authSecret_() {
+  const pr = PropertiesService.getScriptProperties(); let k = pr.getProperty('AUTH_SECRET');
+  if (!k) { k = Utilities.getUuid() + Utilities.getUuid(); pr.setProperty('AUTH_SECRET', k); }
+  return k;
+}
+function tokOf_(kind, code, pw) {
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(kind + '|' + code + '|' + pw, authSecret_())).replace(/=+$/, '').slice(0, 32);
+}
+/** Kiểm tra mật khẩu / token của yêu cầu. kind: 'S' học sinh · 'P' phụ huynh. Không có mật khẩu → luôn qua. */
+function requireAuth_(kind, code, pw, a) {
+  if (!pw) return true;
+  a = a || {};
+  const fk = 'pf:' + kind + ':' + code, c = CacheService.getScriptCache(), fails = Number(c.get(fk)) || 0;
+  if (typeof a.token === 'string' && a.token && a.token === tokOf_(kind, code, pw)) return true;
+  const given = typeof a.password === 'string' || typeof a.password === 'number' ? String(a.password).trim() : '';
+  if (!given) throw apiError_('auth_required', 'Cần nhập mật khẩu.');
+  if (fails >= 6) throw apiError_('locked', 'Nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau 10 phút.');
+  if (given === pw) { if (fails) c.remove(fk); return true; }
+  c.put(fk, String(fails + 1), 600);
+  throw apiError_('wrong_password', 'Mật khẩu không đúng.');
 }
 /** Đổi số dư (luôn trong khoá). Số dư không xuống dưới 0 → delta ghi vào Ledger là delta thực áp dụng. totalEarned chỉ tăng với reason vocab|test. */
 function applyDelta_(code, delta, reason, refId, detail) {
@@ -527,7 +565,7 @@ function checkCode_(p) {
   const s = requireStudent_(p.code, 'checkCode');
   const ref = String(p.refId || '').replace(/[^\w-]/g, '').slice(0, 40);   // trang làm bài gửi kèm mã bài → báo sớm nếu bài không giao cho mã này
   if (ref) { const a = findAssignment_(ref, false); if (a && !assignedTo_(a, s.code)) throw apiError_('not_assigned', 'Bài này không được giao cho mã học sinh của bạn.'); }
-  return { ok: true, valid: true, code: s.code, balance: s.balance, totalEarned: s.totalEarned };
+  return { ok: true, valid: true, code: s.code, balance: s.balance, totalEarned: s.totalEarned, hasPassword: !!s.password, token: s.password ? tokOf_('S', s.code, s.password) : '' };
 }
 function submitResult_(p) {
   const s = requireStudent_(p.code, 'submitResult');
@@ -648,22 +686,26 @@ function getPublicConfig_() { return { ok: true, config: cfgMap_() }; }
 function createCustomCodes_(p) {
   const items = p.codes.slice(0, 200), note = safe_(String(p.note || '').trim().slice(0, 100));
   return withLock_(function () {
-    const sh = stSh_(), have = {}, rows = [], codes = [], existing = [], invalid = [], now = new Date().toISOString();
+    const sh = stSh_(), have = {}, rows = [], codes = [], existing = [], invalid = [], pws = {}, now = new Date().toISOString();
     cols_(sh, 1, 1).forEach(function (r) { have[String(r[0])] = 1; });
     items.forEach(function (it) {
       const obj = it && typeof it === 'object', raw = obj ? it.code : it, full = foldCode_(raw), c = full.slice(0, CODE_MAX);
       if (full.length < CODE_MIN || full.length > CODE_MAX) { invalid.push(String(raw == null ? '' : raw).slice(0, 30)); return; }
       if (have[c]) { if (existing.indexOf(c) < 0) existing.push(c); return; }
       have[c] = 1; codes.push(c);
-      rows.push([c, now, obj && it.note != null ? safe_(String(it.note).trim().slice(0, 100)) : note, true, 0, 0, '']);
+      let pw = obj && it.password != null ? cleanPw_(it.password) : '';
+      if (!pw && p.randomPw) pw = randPw_();
+      if (pw) pws[c] = pw;
+      rows.push([c, now, obj && it.note != null ? safe_(String(it.note).trim().slice(0, 100)) : note, true, 0, 0, '', pw]);
     });
     if (rows.length) {
       const start = sh.getLastRow() + 1, need = start + rows.length - 1;
       if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
       sh.getRange(start, 1, rows.length, 1).setNumberFormat('@');          // mã toàn số (vd 123456) không bị Sheets đổi thành số
+      sh.getRange(start, 8, rows.length, 1).setNumberFormat('@');          // mật khẩu "0123" giữ nguyên số 0 đầu
       sh.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
     }
-    return { ok: true, custom: true, codes: codes, created: codes.length, requested: items.length, existing: existing, invalid: invalid };
+    return { ok: true, custom: true, codes: codes, passwords: pws, created: codes.length, requested: items.length, existing: existing, invalid: invalid };
   });
 }
 function createCodes_(p) {
@@ -671,15 +713,17 @@ function createCodes_(p) {
   const count = clampInt_(p.count, 1, 200, 1), note = safe_(String(p.note || '').trim().slice(0, 100));
   const prefix = String(p.prefix || '').toUpperCase().split('').filter(function (ch) { return CODE_ALPHABET.indexOf(ch) >= 0; }).join('').slice(0, 3);
   return withLock_(function () {
-    const sh = stSh_(), have = {}, rows = [], codes = [], now = new Date().toISOString();
+    const sh = stSh_(), have = {}, rows = [], codes = [], pws = {}, now = new Date().toISOString();
     cols_(sh, 1, 1).forEach(function (r) { have[String(r[0])] = 1; });
     for (let tries = 0; codes.length < count && tries < count * 100; tries++) {
       let c = prefix; while (c.length < CODE_LEN) c += CODE_ALPHABET.charAt(Math.floor(Math.random() * CODE_ALPHABET.length));
       if (have[c]) continue;
-      have[c] = 1; codes.push(c); rows.push([c, now, note, true, 0, 0, '']);
+      const pw = p.randomPw ? randPw_() : '';
+      if (pw) pws[c] = pw;
+      have[c] = 1; codes.push(c); rows.push([c, now, note, true, 0, 0, '', pw]);
     }
-    appendRows_(sh, rows);
-    return { ok: true, codes: codes, created: codes.length, requested: count };
+    if (rows.length) { const st = sh.getLastRow() + 1; appendRows_(sh, rows); sh.getRange(st, 8, rows.length, 1).setNumberFormat('@'); sh.getRange(st, 8, rows.length, 1).setValues(rows.map(function (r) { return [r[7]]; })); }
+    return { ok: true, codes: codes, passwords: pws, created: codes.length, requested: count };
   });
 }
 function setActive_(code, flag) {
@@ -701,10 +745,29 @@ function adjustPoints_(p) {
   return { ok: true, code: code, balance: r.balance, delta: r.delta, clamped: r.clamped, totalEarned: r.totalEarned };
 }
 function listStudents_() {
-  const list = cols_(stSh_(), 1, 7).filter(function (r) { return String(r[0]); }).map(function (r) {
-    return { code: String(r[0]), createdAt: iso_(r[1]), note: String(r[2]), active: isActive_(r[3]), balance: Number(r[4]) || 0, totalEarned: Number(r[5]) || 0, lastActive: iso_(r[6]) };
+  const list = cols_(stSh_(), 1, 8).filter(function (r) { return String(r[0]); }).map(function (r) {
+    return { code: String(r[0]), createdAt: iso_(r[1]), note: String(r[2]), active: isActive_(r[3]), balance: Number(r[4]) || 0, totalEarned: Number(r[5]) || 0, lastActive: iso_(r[6]), password: pwStr_(r[7]) };
   });
   return { ok: true, students: list };
+}
+function randPw_() { let s = ''; for (let i = 0; i < 4; i++) s += Math.floor(Math.random() * 10); return s; }   // 4 chữ số, dễ nhớ với học sinh nhỏ
+/** Đặt / đổi / xoá mật khẩu nhiều mã: p.items = [{code, password}] (password '' = bỏ mật khẩu) · p.randomMissing = true → tự tạo cho các mã trong items chưa có mật khẩu. */
+function setPasswords_(p) {
+  const items = Array.isArray(p.items) ? p.items.slice(0, 2000) : [];
+  if (!items.length) throw apiError_('bad_request', 'Chưa có mã nào.');
+  return withLock_(function () {
+    const sh = stSh_(), v = cols_(sh, 1, 8), idx = {}, done = {}, missing = [];
+    v.forEach(function (r, i) { idx[String(r[0])] = i; });
+    items.forEach(function (it) {
+      const c = normCode_(it && it.code); if (!c) return;
+      if (!(c in idx)) { if (missing.indexOf(c) < 0) missing.push(c); return; }
+      let pw = cleanPw_(it.password);
+      if (!pw && it.random) pw = pwStr_(v[idx[c]][7]) || randPw_();
+      v[idx[c]][7] = pw; done[c] = pw;
+    });
+    if (v.length) { const rg = sh.getRange(2, 8, v.length, 1); rg.setNumberFormat('@'); rg.setValues(v.map(function (r) { return [pwStr_(r[7])]; })); }
+    return { ok: true, updated: Object.keys(done).length, passwords: done, missing: missing };
+  });
 }
 function getConfig_() { return { ok: true, config: cfgMap_(), defaults: CONFIG_DEFAULTS }; }
 function setConfig_(p) {
@@ -723,11 +786,198 @@ function setConfig_(p) {
 }
 function getLedger_(p) { return { ok: true, ledger: ledgerFor_(normCode_(p.code), clampInt_(p.limit, 1, 1000, 200)) }; }
 
+/* =====================================================================
+ * v11 – PHỤ HUYNH: sheet Parents (mã phụ huynh + mật khẩu do giáo viên đặt, danh sách mã con)
+ * parentLogin {code, password} → token · parentReport {code, token} → báo cáo học tập của MỌI con (một lần đăng nhập xem hết)
+ * ===================================================================== */
+const SHEET_PARENTS = 'Parents';
+const PARENT_HEADERS = ['code', 'password', 'name', 'children', 'note', 'active', 'createdAt', 'lastActive'];
+const P_TZ = 'Asia/Ho_Chi_Minh', P_DAYS = 30, DAY_MS = 86400000;
+function paSh_() { return sheetT_(SHEET_PARENTS, PARENT_HEADERS, [1, 2, 4]); }
+function parentRow_(r) { return { code: String(r[0]), password: pwStr_(r[1]), name: String(r[2]), children: codesList_(r[3]), note: String(r[4]), active: isActive_(r[5]), createdAt: iso_(r[6]), lastActive: iso_(r[7]) }; }
+function getParent_(code) {
+  code = normCode_(code); if (!code) return null;
+  const sh = paSh_(), row = findRow_(sh, 1, code);
+  if (!row) return null;
+  const p = parentRow_(sh.getRange(row, 1, 1, PARENT_HEADERS.length).getValues()[0]); p.row = row; return p;
+}
+function requireParent_(p, rl) {
+  const code = normCode_(p.code);
+  if (code.length < CODE_MIN) throw apiError_('invalid_code', 'Mã phụ huynh không hợp lệ.');
+  if (rl) rateLimit_('P' + code, rl);
+  const par = getParent_(code);
+  if (!par) throw apiError_('invalid_code', 'Mã phụ huynh không tồn tại.');
+  if (!par.active) throw apiError_('code_disabled', 'Mã phụ huynh đã bị khóa.');
+  if (!par.password) throw apiError_('auth_required', 'Mã phụ huynh chưa có mật khẩu. Hãy liên hệ giáo viên.');
+  requireAuth_('P', par.code, par.password, { token: p.token, password: p.password });
+  return par;
+}
+function childInfo_(codes) {
+  const m = {}; cols_(stSh_(), 1, 3).forEach(function (r) { m[String(r[0])] = String(r[2]); });
+  return codes.map(function (c) { return { code: c, note: m[c] || '', exists: c in m }; });
+}
+function parentLogin_(p) {
+  const par = requireParent_(p, 'parentLogin');
+  try { paSh_().getRange(par.row, 8).setValue(new Date().toISOString()); } catch (e) {}
+  return { ok: true, code: par.code, name: par.name, token: tokOf_('P', par.code, par.password), children: childInfo_(par.children) };
+}
+function parentReport_(p) {
+  const par = requireParent_(p);
+  const ck = 'prep:' + par.code + ':' + par.children.join(','), hit = cget_(ck);
+  if (hit && !p.fresh) return hit;
+  const out = { ok: true, code: par.code, name: par.name, serverTime: Date.now(), days: P_DAYS, children: familyReport_(par.children) };
+  cput_(ck, out, 120);
+  return out;
+}
+/* ---------- Giáo viên quản lý phụ huynh ---------- */
+function listParents_() {
+  return { ok: true, parents: cols_(paSh_(), 1, PARENT_HEADERS.length).filter(function (r) { return String(r[0]); }).map(parentRow_) };
+}
+/** p: {code, password, name, children (mảng / chuỗi), note, active, create:true|false} */
+function saveParent_(p) {
+  const code = normCode_(p.code), full = foldCode_(p.code);
+  if (full.length < CODE_MIN || full.length > CODE_MAX) throw apiError_('bad_request', 'Mã phụ huynh gồm 3–16 chữ hoặc số.');
+  const pw = cleanPw_(p.password);
+  if (!pw) throw apiError_('bad_request', 'Hãy đặt mật khẩu cho phụ huynh.');
+  const kids = codesList_(p.children).slice(0, 20);
+  const row = [code, pw, safe_(String(p.name || '').trim().slice(0, 80)), kids.join(','), safe_(String(p.note || '').trim().slice(0, 150)), p.active === false ? false : true];
+  return withLock_(function () {
+    const sh = paSh_(), r = findRow_(sh, 1, code), now = new Date().toISOString();
+    if (p.create && r) throw apiError_('exists', 'Mã phụ huynh ' + code + ' đã tồn tại.');
+    if (!p.create && !r) throw apiError_('not_found', 'Không tìm thấy mã phụ huynh ' + code + '.');
+    if (r) { const rg = sh.getRange(r, 1, 1, 6); rg.setNumberFormat('@'); sh.getRange(r, 6).setNumberFormat('General'); rg.setValues([row]); }
+    else { const st = sh.getLastRow() + 1; appendRows_(sh, [row.concat([now, ''])]); sh.getRange(st, 1, 1, 4).setNumberFormat('@'); sh.getRange(st, 1, 1, 4).setValues([row.slice(0, 4)]); }
+    return { ok: true, parent: parentRow_(row.concat([r ? '' : now, ''])) };
+  });
+}
+function deleteParent_(p) {
+  const code = normCode_(p.code);
+  return withLock_(function () {
+    const sh = paSh_(), r = findRow_(sh, 1, code);
+    if (!r) throw apiError_('not_found', 'Không tìm thấy mã phụ huynh.');
+    sh.deleteRow(r); return { ok: true, code: code };
+  });
+}
+
+/* ---------- Báo cáo cho phụ huynh ----------
+ * Một lượt quét mỗi sheet cho TẤT CẢ các con (không quét lại theo từng con). Cửa sổ 30 ngày (giờ Việt Nam).
+ * Chỉ trả số liệu thô đã gộp; trang phụ huynh tự đánh giá "chăm / lười", "đúng nhiều / ít". */
+function dayOf_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, P_TZ, 'yyyy-MM-dd');
+  const s = String(v || ''); if (/^\d{4}-\d\d-\d\d \d/.test(s)) return s.slice(0, 10);   // GameLog: 'yyyy-MM-dd HH:mm:ss' giờ VN
+  const d = new Date(s); return isNaN(d) ? '' : Utilities.formatDate(d, P_TZ, 'yyyy-MM-dd');
+}
+function msOf_(v) {
+  if (v instanceof Date) return v.getTime();
+  const s = String(v || ''); if (/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(s)) return new Date(s.replace(' ', 'T') + '+07:00').getTime();
+  const t = Date.parse(s); return isFinite(t) ? t : 0;
+}
+/** Đọc các dòng (số dòng 1-based) theo khối liên tiếp – chỉ dòng cần, không đọc cả sheet nặng. */
+function rowsAt_(sh, nums, ncol) {
+  const res = {}; if (!nums.length) return res;
+  nums = nums.slice().sort(function (a, b) { return a - b; });
+  const blocks = []; nums.forEach(function (r) { const b = blocks[blocks.length - 1]; if (b && r <= b[1] + 3) b[1] = r; else blocks.push([r, r]); });
+  blocks.forEach(function (b) { sh.getRange(b[0], 1, b[1] - b[0] + 1, ncol).getValues().forEach(function (v, i) { res[b[0] + i] = v; }); });
+  return res;
+}
+function familyReport_(codes) {
+  const now = Date.now(), from = now - P_DAYS * DAY_MS, set = {}, R = {};
+  codes.forEach(function (c) { set[c] = 1; R[c] = { code: c, exists: false, note: '', active: false, balance: 0, totalEarned: 0, rank: null, totalStudents: 0, createdAt: '', lastActive: '',
+    days: {}, vocab: [], tests: [], words: {}, asg: [], ledger: { study: 0, game: 0, garden: 0, teacher: 0 }, games7: 0, gamesNet7: 0, allAttempts: 0 }; });
+  const day = function (c, d) { const o = R[c].days; return o[d] || (o[d] = { v: 0, t: 0, ms: 0, g: 0 }); };
+  // 1) Hồ sơ + hạng
+  cols_(stSh_(), 1, 7).forEach(function (r) { const c = String(r[0]); if (!set[c]) return; const x = R[c];
+    x.exists = true; x.createdAt = iso_(r[1]); x.note = String(r[2]); x.active = isActive_(r[3]); x.balance = Number(r[4]) || 0; x.totalEarned = Number(r[5]) || 0; x.lastActive = iso_(r[6]); });
+  const rk = ranked_(); rk.forEach(function (e) { if (set[e[0]]) R[e[0]].rank = e[2]; }); codes.forEach(function (c) { R[c].totalStudents = rk.length; });
+  // 2) Bài từ vựng (Results): cột nhẹ cho cả sheet, chi tiết từng từ chỉ đọc cho tối đa 40 lần gần nhất / con
+  const done = {};   // done[code][assignmentId] = [số lần, % tốt nhất]
+  const rsh = sheet_(SHEET_RESULTS, RESULT_HEADERS), light = cols_(rsh, 1, 9), stc = cols_(rsh, 12, 2), want = {};
+  light.forEach(function (r, i) {
+    const c = normCode_(r[4]); if (!set[c]) return;
+    const aid = String(r[1]); (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1; R[c].allAttempts++;
+    const t = msOf_(r[3]); if (t < from) return;
+    const d = dayOf_(r[3]), o = day(c, d); o.v++; o.ms += Number(r[7]) || 0;
+    R[c].vocab.push({ row: i + 2, t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, ms: Number(r[7]) || 0, late: String(r[8]) === 'yes', status: String(stc[i] && stc[i][0] || 'done'), total: Number(stc[i] && stc[i][1]) || 0 });
+  });
+  codes.forEach(function (c) { R[c].vocab.sort(function (a, b) { return b.t - a.t; }); R[c].vocab.slice(0, 40).forEach(function (v) { want[v.row] = 1; }); });
+  const full = rowsAt_(rsh, Object.keys(want).map(Number), RESULT_HEADERS.length);
+  codes.forEach(function (c) {
+    const W = R[c].words;
+    R[c].vocab = R[c].vocab.slice(0, 40).map(function (v) {
+      let d = []; try { d = JSON.parse(detailsOf_(full[v.row] || []) || '[]'); } catch (e) {}
+      if (!Array.isArray(d)) d = [];
+      let first = 0, skip = 0, peeks = 0, wrong = 0;
+      d.forEach(function (w) {
+        if (!w) return; const k = String(w.word || '').slice(0, 60), vw = Number(w.views) || 1, wc = Number(w.wrongCount) || 0;
+        if (w.skipped) skip++; else if (vw <= 1 && wc === 0) first++;
+        peeks += Math.max(0, vw - 1); if (wc > 0) wrong++;
+        if (k) { const s = W[k] || (W[k] = [0, 0, 0]); s[0]++; if (w.skipped || wc > 0 || vw >= 3) s[1]++; if (v.t > s[2]) s[2] = v.t; }
+      });
+      return { t: v.t, aid: v.aid, name: v.name, score: v.score, n: d.length, first: first, skip: skip, peeks: peeks, wrong: wrong, ms: v.ms, late: v.late, status: v.status, total: v.total };
+    });
+    const hard = Object.keys(W).filter(function (k) { return W[k][1] > 0; }).map(function (k) { return [k, W[k][0], W[k][1]]; })
+      .sort(function (a, b) { return (b[2] - a[2]) || (b[2] / b[1] - a[2] / a[1]); }).slice(0, 20);
+    R[c].words = hard;   // [từ, số lần gặp, số lần sai/bỏ qua/xem ≥3]
+  });
+  // 3) Bài test (TestResults) – cột nhẹ (không đọc cột items)
+  cols_(sheet_(SHEET_TRES, TRES_HEADERS), 1, 10).forEach(function (r) {
+    const c = normCode_(r[4]); if (!set[c]) return;
+    const aid = String(r[1]); (done[c] || (done[c] = {}))[aid] = (done[c][aid] || 0) + 1; R[c].allAttempts++;
+    const t = msOf_(r[3]); if (t < from) return;
+    const o = day(c, dayOf_(r[3])); o.t++; o.ms += Number(r[8]) || 0;
+    R[c].tests.push({ t: t, aid: aid, name: String(r[2]), score: Number(r[6]) || 0, max: Number(r[7]) || 0, ms: Number(r[8]) || 0, late: String(r[9]) === 'yes' });
+  });
+  codes.forEach(function (c) { R[c].tests.sort(function (a, b) { return b.t - a.t; }); R[c].tests = R[c].tests.slice(0, 40); });
+  // 4) Bài được giao: còn hạn, hoặc hết hạn trong 30 ngày qua
+  rows_(sheet_(SHEET_ASSIGN, ASSIGN_HEADERS)).forEach(function (r) {
+    const id = String(r[0]), due = Number(r[2]) || 0; if (!id || !due || due < from) return;
+    const L = codesList_(r[13]), created = msOf_(r[5]);
+    codes.forEach(function (c) {
+      if (L.length && L.indexOf(c) < 0) return;
+      const x = R[c], born = msOf_(x.createdAt); if (born && due < born) return;   // bài hết hạn trước khi con có mã → bỏ
+      x.asg.push({ id: id, name: String(r[1]), kind: String(r[9]) === 'test' ? 'test' : 'vocab', due: due, created: created, personal: L.length > 0, max: Number(r[3]) || 0, done: (done[c] && done[c][id]) || 0 });
+    });
+  });
+  codes.forEach(function (c) { R[c].asg.sort(function (a, b) { return b.due - a.due; }); R[c].asg = R[c].asg.slice(0, 80); });
+  // 5) Sổ điểm 30 ngày (quét ngược, dừng khi quá 30 ngày)
+  const lsh = ldSh_(); let end = lsh.getLastRow(), scanned = 0, stop = false;
+  while (end >= 2 && !stop && scanned < 60000) {
+    const st = Math.max(2, end - 999), v = lsh.getRange(st, 1, end - st + 1, 4).getValues();
+    for (let i = v.length - 1; i >= 0; i--) {
+      const t = msOf_(v[i][0]); if (t && t < from) { stop = true; break; }
+      const c = String(v[i][1]); if (!set[c]) continue;
+      const dl = Number(v[i][2]) || 0, rs = String(v[i][3]), L = R[c].ledger;
+      if (rs === 'vocab' || rs === 'test') L.study += dl; else if (rs === 'game') L.game += dl; else if (rs === 'garden') L.garden += dl; else if (rs === 'teacher_adjust') L.teacher += dl;
+    }
+    scanned += end - st + 1; end = st - 1;
+  }
+  // 6) Trò chơi: số ván theo ngày (GameLog, quét ngược)
+  try {
+    const gsh = ss_().getSheetByName('GameLog');
+    if (gsh) {
+      let e = gsh.getLastRow(), sc = 0, stp = false; const w7 = now - 7 * DAY_MS;
+      while (e >= 2 && !stp && sc < 100000) {
+        const st = Math.max(2, e - 1999), v = gsh.getRange(st, 1, e - st + 1, 6).getValues();
+        for (let i = v.length - 1; i >= 0; i--) {
+          const t = msOf_(v[i][0]); if (t && t < from) { stp = true; break; }
+          const c = String(v[i][1]); if (!set[c]) continue;
+          day(c, dayOf_(v[i][0])).g++;
+          if (t >= w7) { R[c].games7++; R[c].gamesNet7 += Number(v[i][5]) || 0; }
+        }
+        sc += e - st + 1; e = st - 1;
+      }
+    }
+  } catch (err) {}
+  return codes.map(function (c) { return R[c]; });
+}
+
 /* ---------- ROUTER: điểm vào duy nhất ---------- */
 const PUBLIC_ACTIONS = { getPublicConfig: getPublicConfig_, getLeaderboard: getLeaderboard_ };                       // GET + POST
 const STUDENT_ACTIONS = { checkCode: checkCode_, submitResult: submitResult_, getProfile: getProfile_, listOpenAssignments: listOpenAssignments_ };              // POST
 const TEACHER_ACTIONS = { createCodes: createCodes_, deleteCode: deleteCode_, restoreCode: restoreCode_, adjustPoints: adjustPoints_,
-  listStudents: listStudents_, getConfig: getConfig_, setConfig: setConfig_, getLedger: getLedger_ };                 // POST (teacherKey trong body)
+  listStudents: listStudents_, getConfig: getConfig_, setConfig: setConfig_, getLedger: getLedger_,
+  setPasswords: setPasswords_, listParents: listParents_, saveParent: saveParent_, deleteParent: deleteParent_ };    // POST (teacherKey trong body)
+const PARENT_ACTIONS = { parentLogin: parentLogin_, parentReport: parentReport_ };                                   // POST (mã phụ huynh + mật khẩu / token)
 function okWrap_(r) { return (r && typeof r === 'object') ? (r.ok === undefined ? Object.assign({ ok: true }, r) : r) : { ok: true, result: r }; }
 
 function route(action, params, method) {
@@ -736,9 +986,11 @@ function route(action, params, method) {
     if (!_gamesReg) { _gamesReg = true; if (typeof registerGameActions_ === 'function') registerGameActions_(GAME_ACTIONS); }
     if (!_gardenReg) { _gardenReg = true; if (typeof registerGardenActions_ === 'function') registerGardenActions_(GARDEN_ACTIONS); }   // Garden.gs: reg.<action> = function (params, student) {...}
     const post = method === 'POST', own = Object.prototype.hasOwnProperty;
+    _auth = post ? { token: params.token, password: params.password } : {};   // mật khẩu / token của học sinh cho requireStudent_ (GET không nhận mật khẩu)
     if (own.call(PUBLIC_ACTIONS, action)) return PUBLIC_ACTIONS[action](params);
     if (post) {
       if (own.call(STUDENT_ACTIONS, action)) return STUDENT_ACTIONS[action](params);
+      if (own.call(PARENT_ACTIONS, action)) return PARENT_ACTIONS[action](params);
       if (own.call(TEACHER_ACTIONS, action)) { requireTeacher_(params.teacherKey); return TEACHER_ACTIONS[action](params); }
       if (own.call(GAME_ACTIONS, action)) {
         const g = GAME_ACTIONS[action];

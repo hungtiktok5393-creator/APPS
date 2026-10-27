@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3b4cca">
+  <meta name="color-scheme" content="light dark">
+  <title>Góc phụ huynh – Nhà Thầy Hưng</title>
+  <meta name="description" content="Phụ huynh theo dõi việc học tiếng Anh của con: chăm chỉ, độ chính xác, bài chưa làm, từ hay sai.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%91%AA%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=20261027g">
+  <link rel="stylesheet" href="parent.css?v=20261027g">
+  <script src="theme.js?v=20261027g"></script>
+</head>
+<body>
+  <a class="skip" href="#app">Bỏ qua điều hướng</a>
+  <header class="topbar">
+    <a class="brand" href="phu-huynh.html" aria-label="Nhà Thầy Hưng – góc phụ huynh">🏠 Nhà Thầy Hưng</a>
+    <div class="topbar-tools">
+      <button class="btn small ghost" id="btn-logout" type="button" hidden>Đăng xuất</button>
+    </div>
+  </header>
+  <main id="app" tabindex="-1">
+    <section id="view-login" class="card pa-login" hidden>
+      <h1>👪 Góc phụ huynh</h1>
+      <p class="muted">Đăng nhập một lần để xem việc học của <b>tất cả các con</b>.</p>
+      <form id="login-form" autocomplete="on" novalidate>
+        <label for="code-in">Mã phụ huynh</label>
+        <input type="text" id="code-in" name="username" maxlength="16" autocapitalize="characters" spellcheck="false" autocomplete="username" aria-describedby="login-err" placeholder="Mã thầy Hưng đã gửi">
+        <label for="pw-in">Mật khẩu</label>
+        <div class="pw-row">
+          <input type="password" id="pw-in" name="password" maxlength="32" autocomplete="current-password" autocapitalize="off" spellcheck="false" aria-describedby="login-err">
+          <button class="btn" type="button" id="pw-eye" aria-label="Hiện mật khẩu" aria-pressed="false">👁</button>
+        </div>
+        <label class="check" for="rem"><input type="checkbox" id="rem" checked> Ghi nhớ trên thiết bị này</label>
+        <div id="url-box" hidden>
+          <label for="url-in">Địa chỉ máy chủ (Apps Script)</label>
+          <input type="url" id="url-in" placeholder="https://script.google.com/macros/s/…/exec">
+        </div>
+        <p id="login-err" class="err" role="alert"></p>
+        <button class="btn primary big" type="submit" id="login-btn">Xem việc học của con</button>
+      </form>
+      <p class="hint">Chưa có mã? Hãy liên hệ thầy Hưng. Trên máy dùng chung, hãy bỏ tích “Ghi nhớ”.</p>
+    </section>
+
+    <div id="view-main" hidden>
+      <div class="pa-head">
+        <div>
+          <h1 id="hello">Xin chào</h1>
+          <p class="muted small-text" id="updated" aria-live="polite"></p>
+        </div>
+        <button class="btn small" id="btn-refresh" type="button">↻ Cập nhật</button>
+      </div>
+      <nav id="kids" class="pa-kids" aria-label="Chọn con"></nav>
+      <div id="report" aria-live="polite"></div>
+      <details class="card pa-guide">
+        <summary>Cách đọc báo cáo</summary>
+        <ul>
+          <li><b>Chăm chỉ</b> dựa trên số ngày con có làm bài trong 7 ngày gần nhất và số bài được giao đã làm trước hạn.</li>
+          <li><b>Độ chính xác</b>: bài từ vựng tính theo điểm từng từ (gõ đúng ngay, không xem lại = điểm tối đa); bài test tính theo điểm trên tổng điểm.</li>
+          <li><b>“Đúng ngay lần đầu”</b> là số từ con gõ đúng mà không phải xem lại – con thật sự nhớ từ.</li>
+          <li><b>Từ con hay sai</b>: những từ con gõ sai, bỏ qua hoặc phải xem lại nhiều lần – phụ huynh có thể đọc cùng con ở nhà.</li>
+          <li><b>Điểm tích lũy</b> là điểm ảo để khích lệ, không đổi ra tiền. Con có thể dùng điểm để chơi trò chơi nhỏ – nếu thấy con chơi nhiều hơn học, hãy nhắc con.</li>
+          <li>Số liệu tính theo giờ Việt Nam, trong 30 ngày gần nhất.</li>
+        </ul>
+      </details>
+    </div>
+  </main>
+  <div id="toasts" aria-live="polite"></div>
+  <noscript><p class="center">Cần bật JavaScript.</p></noscript>
+  <script src="parent.js?v=20261027g" defer></script>
+</body>
+</html>

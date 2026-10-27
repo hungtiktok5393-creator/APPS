@@ -412,7 +412,7 @@ const stats = guarded((body, g) => {
     if (!SG().api) { bd.replaceChildren(el('p', 'gd-muted', 'Chưa kết nối máy chủ.')); return; }
     SG().api('gardenBoard', {}).then(r => { loaded = true; bd.replaceChildren(); const rows = (r && r.board) || []; if (!rows.length) { bd.append(empty('Chưa có ai trên bảng vườn.')); return; }
       const ol = el('ol', 'gdu-ol'); rows.forEach(x => { const li = el('li', x.me ? 'me' : ''), md = ['🥇', '🥈', '🥉'][x.rank - 1]; li.append(el('span', 'rk', md || x.rank), el('span', 'cd', String(x.who) + (x.me ? ' (bạn)' : '')), el('span', 'gdu-sub', 'Cấp ' + F(x.lv) + ' · mùa ' + ((+x.sn || 0) + 1) + (x.rep != null ? ' · Danh vọng ' + F(x.rep) + (x.rt ? ' (' + x.rt + ')' : '') : '')), el('b', '', F(x.aes) + ' ✨')); ol.append(li); }); bd.append(ol);
-      if (r.me && !rows.some(x => x.me)) bd.append(el('p', 'gd-muted', 'Bạn đứng hạng ' + F(r.me.rank) + (r.total ? ' / ' + F(r.total) : '') + (r.me.rep != null ? ' · Danh vọng ' + F(r.me.rep) + (r.me.rt ? ' (' + r.me.rt + ')' : '') : '') + '.')); bd.append(el('p', 'gd-muted', 'Thứ tự do máy chủ tính. Mã đã được che.')); },
+      if (r.me && !rows.some(x => x.me)) bd.append(el('p', 'gd-muted', 'Bạn đứng hạng ' + F(r.me.rank) + (r.total ? ' / ' + F(r.total) : '') + (r.me.rep != null ? ' · Danh vọng ' + F(r.me.rep) + (r.me.rt ? ' (' + r.me.rt + ')' : '') : '') + '.')); bd.append(el('p', 'gd-muted', 'Thứ tự do máy chủ tính.')); },
       e => { bd.replaceChildren(el('p', 'gdu-note bad', friendly(e && e.code, e && e.message))); }); }
   function draw() {
     const st = g.getState(); if (!st) return; const top = body.parentElement ? body.parentElement.scrollTop : 0; box.replaceChildren(); const s = st.s || {};

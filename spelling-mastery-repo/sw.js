@@ -1,4 +1,4 @@
-/* Spelling Mastery – service worker (chạy offline)
+/* Nhà Thầy Hưng (Spelling Mastery) – service worker (chạy offline)
  *  Lưu sẵn: index.html, hoc-sinh.html, style.css, app.js, student.js/css, games.js/css, games2.js/css, garden.js/css, garden-ui.js, vendor/*.js → mở được khi không có mạng.
  *  KHÔNG đụng vào: index.json, data/*, data.json, Apps Script (API trò chơi/điểm), YouTube/Drive… (luôn đi thẳng ra mạng).
  *  Tệp lõi thiếu → hủy cài; tệp tùy chọn (trang học sinh, games*, garden*) thiếu → bỏ qua, không hỏng lần cài.
@@ -8,16 +8,16 @@ const V = new URL(self.location.href).searchParams.get('v') || 'dev';
 const CACHE = 'sm-shell-' + V;
 const SCOPE = self.registration.scope;
 const abs = p => new URL(p, SCOPE).href;
-const CORE = ['style.css?v=' + V, 'app.js?v=' + V, 'vendor/lz-string.min.js', 'vendor/papaparse.min.js', 'vendor/xlsx.full.min.js', 'vendor/jspdf.umd.min.js', 'vendor/qrcode.min.js'];
-const OPT = ['student.js?v=' + V, 'student.css?v=' + V, 'games.js?v=' + V, 'games.css?v=' + V, 'games2.css?v=' + V, 'garden.css?v=' + V, 'games2.js?v=' + V, 'garden.js?v=' + V, 'garden-ui.js?v=' + V];
-const PAGE = abs('index.html'), STUDENT = abs('hoc-sinh.html');
+const CORE = ['style.css?v=' + V, 'app.js?v=' + V, 'theme.js?v=' + V, 'vendor/lz-string.min.js', 'vendor/papaparse.min.js', 'vendor/xlsx.full.min.js', 'vendor/jspdf.umd.min.js', 'vendor/qrcode.min.js'];
+const OPT = ['student.js?v=' + V, 'student.css?v=' + V, 'games.js?v=' + V, 'games.css?v=' + V, 'games2.css?v=' + V, 'garden.css?v=' + V, 'games2.js?v=' + V, 'garden.js?v=' + V, 'garden-ui.js?v=' + V, 'parent.js?v=' + V, 'parent.css?v=' + V];
+const PAGE = abs('index.html'), STUDENT = abs('hoc-sinh.html'), PARENT = abs('phu-huynh.html');
 const KEEP = new Set(CORE.concat(OPT).map(abs));
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE), rq = u => new Request(abs(u), { cache: 'reload' });
     await c.addAll([new Request(PAGE, { cache: 'reload' })].concat(CORE.map(rq)));            // lõi: thiếu một tệp là hủy cả lần cài
-    await Promise.all([new Request(STUDENT, { cache: 'reload' })].concat(OPT.map(rq)).map(r => c.add(r).catch(() => {})));   // tùy chọn: thiếu thì bỏ qua
+    await Promise.all([new Request(STUDENT, { cache: 'reload' }), new Request(PARENT, { cache: 'reload' })].concat(OPT.map(rq)).map(r => c.add(r).catch(() => {})));   // tùy chọn: thiếu thì bỏ qua
     self.skipWaiting();
   })());
 });
@@ -30,7 +30,7 @@ self.addEventListener('activate', e => {
 
 /* Trang: ưu tiên mạng, quá 4 giây hoặc mất mạng thì dùng bản đã lưu (mỗi trang một khóa riêng, bỏ ?code=…) */
 async function page(req) {
-  const key = new URL(req.url).pathname.endsWith('/hoc-sinh.html') ? STUDENT : PAGE;
+  const pn = new URL(req.url).pathname, key = pn.endsWith('/hoc-sinh.html') ? STUDENT : pn.endsWith('/phu-huynh.html') ? PARENT : PAGE;
   const c = await caches.open(CACHE), ac = new AbortController(), t = setTimeout(() => ac.abort(), 4000);
   try {
     const res = await fetch(req, { signal: ac.signal });
