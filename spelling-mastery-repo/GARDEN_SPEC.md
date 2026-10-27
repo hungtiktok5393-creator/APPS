@@ -1,43 +1,45 @@
-# GARDEN_SPEC – Khu vườn (Garden.gs, catVer 1, state ver 1)
-Tất cả action: POST `{action, code, ...}`. Route kiểm mã + `gardenEnabled` (tắt → `garden_disabled` "Khu vườn đang tắt."). Điểm CHỈ để chi; Xu 🪙 / Tinh hoa 🌸 không đổi được thành điểm.
-## 3 action chính (+1 phụ)
-| Action | Tham số | Phản hồi |
-|---|---|---|
-| gardenInfo | `{catVer?}` | `{catVer, crops, buildings, perms, themes, decos[[id,tên,emoji,chủđề,giáGốc,thẩmMỹ]], tiers, ach, consts, formulas}`; nếu catVer khớp → `{catVer, same:true}` |
-| gardenGet | `{}` | `{state, derived, serverTime, v, balance, catVer}` (tạo vườn mới nếu chưa có) |
-| gardenAct | `{ops[≤40], requestId, baseV?}` | OK: `{ok, state, derived, results[], achievements, levelUps, spent, balance, v, serverTime, stale}`. Lỗi: `{ok:false, error, message, opIndex, op, applied:false, state(gốc), derived, balance, v}` |
-| gardenBoard | `{}` | `{board[top20:{rank,who(đã che),lv,aes,sn,me}], me, total}` xếp theo Điểm thẩm mỹ rồi cấp |
-**Nguyên tử TOÀN LÔ**: một op sai → không áp dụng gì (cả Xu lẫn điểm), trả state gốc để client đồng bộ. `requestId` `[\w-]{8,64}`: gửi lại cùng id → `{replay:true}` kết quả cũ, không trừ lần hai (cache `gdq:` 6h + `lastReqId/lastResp` trong sheet). `baseV` chỉ để báo `stale:true`, op vẫn được kiểm trên dữ liệu server. Ledger: 1 dòng `garden` mỗi lô có chi điểm, detail = "buyPlot 1,0; build gieng…".
-## Op (mỗi phần tử `{op:'...', ...}`; ô = toạ độ nguyên toàn cục x,y; `cells:[[x,y],…≤64]` thay cho x,y; ≤400 ô/lô)
-| op | trường | chi phí / điều kiện |
-|---|---|---|
-| plant | k (id cây), x,y hoặc cells | Xu = round(giáHạt×hệsốHạt); ô phải là đất canh tác trống; đủ cấp/công trình/mùa |
-| harvest | x,y hoặc cells | ô phải chín (`readyAt` ≤ giờ server) |
-| harvestAll | – | thu mọi ô đã chín (0 ô vẫn ok) |
-| till | x,y/cells | cuốc ô thành đất: round(15×1.05^số ô đất) Xu |
-| buyPlot | cx,cy (toạ độ mảnh 8×8, liền kề) | ĐIỂM round(40×1.3^(n-1)), n = số mảnh đang có |
-| build | id, x,y | ĐIỂM giá công trình (bảng), cần cấp vườn; mỗi loại 1 cái |
-| upgrade | what:'bld'\|'perm', id | bld: Xu round(ux×1.32^L); perm: ĐIỂM round(base×rate^L); cấp không trần |
-| decorate | act:'place' (id,x,y) / 'move' (x,y,nx,ny) / 'remove' (x,y) | place: lấy từ kho (miễn phí) hoặc mua bằng ĐIỂM; remove → kho, không hoàn |
-| collect | id hoặc all:true | sản vật = Xu tích luỹ, tối đa 24 giờ |
-| boost | x,y | ĐIỂM max(1, ceil(giâyCòn/300 × hệsốThợ)); cây chín ngay |
-| claimQuest | id 'q0'..'q2' | đủ tiến độ, nhận 1 lần/ngày |
-| claimDaily | – | 1 lần/ngày (giờ VN); Xu, + Tinh hoa mỗi chuỗi 7 ngày; KHÔNG điểm |
-| prestige | confirm:true | cấp vườn ≥10 và Tinh hoa nhận ≥1 |
-Giá điểm thực = ceil(giá gốc × gardenCostPct/100). Trần chi ngày: Config `gardenDailySpendCap` (0 = không giới hạn; giáo viên sửa trực tiếp trên Sheet). `derived.costPct` cho client biết hệ số.
-## State (JSON gọn, sheet `Garden`: code,state,v,updatedAt,lastReqId,lastResp,+lvl,aes,sn,state2-4)
-`ver, sn` (Mùa−1), `xu, es` (Tinh hoa), `xp`, `ch` ["cx,cy"…], `f` {"x,y": 0 (đất trống) | [idCây, readyAt ms]}, `b` {idCT:{x,y,l,ct}}, `d` {"x,y": idTrangTrí}, `iv` {id: số lượng trong kho}, `up` {idNângCấp: cấp}, `q` {d,l,p,c} nhiệm vụ ngày, `dl` {d,s} quà ngày/chuỗi, `ac` thành tựu, `ds` {d,s} chi điểm trong ngày, `lg` nhật ký (50), `s` thống kê trọn đời, `xs` Xu kiếm trong mùa, `cr`. >40.000 ký tự → gzip+base64 "Z:…" chia ≤4 ô (45.000/ô). Trần: 1.500 ô đất, 1.500 trang trí, 400 mảnh, 3.000 vật trong kho → không bao giờ tràn ô.
-## Công thức chính
-- Cấp vườn: cần(l)=round(60×1.2^(l-1)) XP; lên cấp thưởng 30×l Xu. Cây: g giây (60s…4h), 25 loại; 8 cây cần cấp, 5 cần mùa khí hậu (đổi mỗi 7 ngày; Nhà kính bỏ qua), 6 cần Giếng/Nhà kính, 3 cần Mùa mới≥1/2.
-- Thời gian lớn = g×(1−0.35·G/(G+15))×(1−0.5·L/(L+25)) (G cấp Giếng, L cấp "Phân bón"); tối thiểu 5 giây.
-- Sản lượng = y×(1+1.5·Ly/(Ly+30))×(1+0.4·N/(N+15))×(1+thưởngThẩmMỹ)×(1+0.03×Tinh hoa). Thưởng thẩm mỹ = (0.10+0.20·La/(La+30))×A/(A+400).
-- Sản vật/giờ = r×(1+0.7×(L−1))×hệsố; công trình: gieng 30, chuongga 50, kho 60, nhakinh 120, tongong 90, chuongbo 150, coixay 220, aoca 350, lobanh 600 điểm.
-- Trang trí: 156 mục cơ bản (12 chủ đề×13); bậc t: id `"hoa1~t"`, giá×2.6^t, thẩm mỹ×2.2^t, tên + vật liệu (+ tính từ khi t>10); mở đến bậc = (Mùa−1) + floor(cấp/20), tối đa 60.
-- Prestige "Sang mùa mới": Tinh hoa = floor(√(Xu kiếm trong mùa/1500)); hệ số = 1+0.03×Tinh hoa. Reset đất/công trình/Xu (Xu khởi đầu 60+40×mùa); GIỮ: nâng cấp vĩnh viễn, XP, thống kê, thành tựu, và 8+4×mùa trang trí có thẩm mỹ cao nhất (vào kho, phải đặt lại); phần còn lại mất.
-- Nhiệm vụ/ngày: 3 nhiệm vụ sinh theo (ngày, cấp/5) bằng PRNG có seed, thưởng Xu/XP tăng 1.09^cấp. Thành tựu: bậc k cần round(base×mul^k), thưởng 100×1.8^k Xu, mỗi 5 bậc +1 Tinh hoa.
-## Mã lỗi (apiCode → ý nghĩa; message tiếng Việt kèm "Thao tác #n (op): …")
-garden_disabled · garden_bad_request (tham số/toạ độ/requestId sai, JSON quá sâu) · garden_too_many_ops (>40) · garden_too_many_cells · garden_unknown_op · garden_bad_cell (ô chưa mở/không hợp lệ) · garden_cell_busy · garden_no_crop · garden_not_ready · garden_locked (thiếu cấp/công trình/mùa/bậc) · garden_not_enough_xu · garden_not_enough_points · garden_daily_cap · garden_already · garden_nothing · garden_not_done · garden_limit · garden_full (state quá lớn) · garden_corrupt · busy (từ withLock_).
-## Client cache danh mục
-Lưu `gardenInfo` vào localStorage kèm `catVer`; mỗi lần mở vườn gọi `gardenGet` (có `catVer` trong phản hồi); nếu khác bản đã lưu → gọi `gardenInfo` rồi thay cache; có thể gọi `gardenInfo {catVer}` và nhận `same:true`. Thêm cây/công trình/chủ đề mới chỉ được THÊM VÀO CUỐI mảng (chỉ số cây lưu trong state), tăng `GD_CATVER`, và thêm bước nâng cấp trong `gdMigrate_` theo `st.ver`.
-## Con số quan trọng
-Trần số 9e15 · ≤40 op/lô · ≤30.000 ký tự ops · sản vật ≤24h · nhật ký 50 mục · mảnh 8×8 · vườn khởi đầu: 1 mảnh, 6 ô đất, 60 Xu.
+# GARDEN_SPEC – Danh vọng, Kỳ quan, Nền đất (GD_STATE_VER=2, GD_CATVER=2)
+Tệp backend: `Garden.gs` (không đổi Code.gs). Mọi chi điểm đi qua `gdSpend_` → tôn trọng `gardenCostPct`, `gardenDailySpendCap`, atomic cả lô, idempotent theo `requestId`.
+
+## Op mới / đổi (trong `gardenAct.ops`)
+- `{op:'build', id:'wd_…', x, y}` – xây kỳ quan giai đoạn 1 (x,y = ô TRÊN-TRÁI, chiếm w×h ô). Nếu kỳ quan đang nằm trong kho (`st.wi`, sau Mùa mới) → đặt lại MIỄN PHÍ, giữ giai đoạn.
+- `{op:'upgrade', what:'wonder', id}` – lên giai đoạn kế (tối đa 5). Giá giai đoạn s = round(p×1.8^(s-1)).
+- `{op:'wonder', act:'place'|'up'|'move'|'store', id, x?, y?}` – dạng gộp; `move` miễn phí, `store` cất vào kho.
+- `{op:'ground', id}` – mua nền đất (id `gr_…`), đã mua thì đổi lại miễn phí; `id:'default'` = nền mặc định.
+- `upgrade what:'perm'` nay trả `garden_maxed` khi hiệu ứng ≥99% (không trừ điểm). `prestige` result thêm `keptWonders`.
+
+## State mới (st)
+- `st.gr` (string) nền đang dùng ('' = mặc định); `st.go` (mảng id) nền đã mua; `st.wi` {id: giai đoạn} kỳ quan trong kho.
+- Kỳ quan đã đặt nằm trong `st.b[id] = {x,y,l,ct}` (l = giai đoạn 1..5) – cùng cấu trúc công trình thường; `ctx.bpos` chiếm đủ w×h ô.
+- Sheet Garden thêm cột 13 `rep` (Danh vọng, dùng cho bảng xếp hạng). Vườn cũ tự migrate khi đọc (`gdMigrate_`).
+- Prestige: kỳ quan, nền đất, Danh vọng (st.s.ps) được GIỮ; công trình thường/đất/trang trí đặt ra vẫn reset như cũ.
+
+## Derived mới (gardenGet/gardenAct → derived)
+- `rep {lv, cur, base, next, title}` (next=null khi tối đa 60); `maxTier` nay = Mùa + floor(cấp/20) + rep.lv.
+- `wd[12] {id,l,placed,stored,x,y,locked,needRep,aes,next,maxed}` (next = giá điểm đã nhân gardenCostPct, null nếu maxed).
+- `gr {cur, owned[], cost{id:giá}}` (cost chỉ nền chưa mua); `wi` kho kỳ quan.
+- `perms[id] {l, lmax, maxed, cost|null, eff}`; `spend {today, cap, remaining}` (remaining=null nếu không có trần).
+
+## Catalog (gardenInfo; < 100KB)
+- `wonders[] {id,name,e,w,h,rep,d,cost[5],aes[5]}` (cost/aes giá GỐC, chưa nhân costPct); w,h ∈ 2..4.
+- `grounds[] {id,name,e,p,c1,c2}` (c1/c2 = màu gợi ý); `perms[]` thêm `lmax`.
+- `repCurve {max:60, k:156.25, thresholds[0..60], titles[[lv,tên]], stages:5, stageGrow:1.8, note}`.
+- `consts.chunkBase=40, chunkGrow=1.18`; gardenBoard: mỗi dòng thêm `rep`, `rt` (danh hiệu); `me` cũng có.
+
+## Công thức
+- Danh vọng l = bậc lớn nhất sao cho tổng điểm đã chi `st.s.ps` ≥ ceil(156.25×l²) (≈0.08×√điểm). 1.000→2, 10.000→8, ~100.000→25.
+- Bậc trang trí mở = min(60, Mùa + floor(cấp vườn/20) + Danh vọng). Điểm đang chi trong cùng lô được tính.
+- Kỳ quan mở bằng Danh vọng (không bằng XP): rep cần 2,3,4,6,8,10,13,16,20,25,30,38; giá gđ1: 300…60.000.
+- Thẩm mỹ kỳ quan = round(1.6 × (tổng giá gốc các giai đoạn đã lên)^0.68), cộng vào `gdAes_`.
+- Mảnh đất thứ n+1 = round(40×1.18^(n-1)). Nâng cấp vĩnh viễn: giá round(base×1.2^L), tối đa lmax=25, hiệu ứng = max×[L/(L+k)]/[lmax/(lmax+k)].
+
+## Mã lỗi mới / dùng thêm
+`garden_maxed` (nâng cấp/kỳ quan đã tối đa). Dùng lại: `garden_locked` (thiếu Danh vọng), `garden_bad_cell` (ngoài đất), `garden_cell_busy`, `garden_already`, `garden_not_enough_points`, `garden_daily_cap`, `garden_bad_request`, `garden_limit`.
+
+## An toàn trẻ em
+Mọi mua bằng điểm đều xác định: KHÔNG ngẫu nhiên/hộp quà, KHÔNG hàng giới hạn thời gian, KHÔNG đếm ngược hay nhắc mua. Giá hiển thị trước, kỳ quan khoá chỉ nêu mức Danh vọng cần. Trần chi ngày do giáo viên đặt (`gardenDailySpendCap`).
+
+## Tên hàm/tệp cho frontend (Garden.gs)
+`GD_WONDERS, GD_GROUNDS, GD_REP_TITLES, gdRep_, gdRepThr_, gdWonderCost_, gdWonderAes_, gdBpos_, gdPf_, gdPermMaxed_, gdOpWonder_, gdWonderPlace_, gdWonderUp_, gdOpGround_`.
+Vẽ kỳ quan: lấy `st.b[id]` + `wonders[].w/h` từ catalog (như bldFoot), `l` = giai đoạn để đổi hình/viền. Nền đất: tô theo `grounds[].c1/c2` của `st.gr`.
+Kiểm thử: `node scenarios.js` (132 kiểm tra), `node sim_economy.js [-v]` (cần harness.js cùng thư mục).

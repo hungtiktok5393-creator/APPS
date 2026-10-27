@@ -1,9 +1,9 @@
-/* Spelling Mastery – Khu vườn: ENGINE hiển thị + thao tác (garden.js) v1.0.0
+/* Spelling Mastery – Khu vườn: ENGINE hiển thị + thao tác (garden.js) v1.1.0 (Danh vọng, Kỳ quan, Nền đất)
  * Đồ họa: đẳng cự 2:1 vẽ bằng canvas. Máy chủ quyết mọi giá/điểm/thời gian (GARDEN_SPEC.md); client dự đoán lạc quan rồi đối chiếu.
  * API: window.SMGarden – xem GARDEN_UI_NOTES.md. */
 (function (root) {
 'use strict';
-const VERSION = '1.0.1';
+const VERSION = '1.1.0';
 const TW = 64, TH = 32, HW = TW / 2, HH = TH / 2, CH = 8;               // ô đẳng cự 2:1; mảnh 8×8 ô
 const PERF = { dprMax: 2, zoomMin: .4, zoomMax: 2.6, maxFlushOps: 40, maxCellsOp: 64, maxCellsBatch: 400, debounceMs: 400,
   chunkCache: 48, spriteCache: 400, chunkBuildPerFrame: 3, lowFps: 24, retryMs: [2000, 4000, 8000, 15000], reduceFps: .5 };
@@ -58,17 +58,60 @@ function normBld(b, i, k) {
   b = b || {}; const id = k != null ? k : pk(b, ['id'], i);
   return { id, name: pk(b, ['name', 'n', 'ten'], BLD_NAME[id] || id), emoji: pk(b, ['emoji', 'e'], BLD_EMOJI[id] || '🏠'), price: +pk(b, ['price', 'cost', 'gia'], 0), w: +pk(b, ['w', 'width'], 1) || 1, h: +pk(b, ['h', 'height'], 1) || 1, lvl: +pk(b, ['lvl', 'lv', 'level'], 1) };
 }
+const colOk = c => typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c);
+function normWonder(w) {
+  w = w || {}; const cost = Array.isArray(w.cost) ? w.cost.map(Number) : [], aes = Array.isArray(w.aes) ? w.aes.map(Number) : [];
+  return { id: w.id, name: String(w.name || w.id), emoji: w.e || w.emoji || '🏛️', w: clamp(Math.round(+w.w) || 2, 1, 4), h: clamp(Math.round(+w.h) || 2, 1, 4), rep: +w.rep || 0, desc: String(w.d || w.desc || ''), cost, aes, price: cost[0] || 0, lvl: 1, wonder: true };
+}
+function normGround(g) { g = g || {}; return { id: g.id, name: String(g.name || g.id), emoji: g.e || g.emoji || '🟩', p: +g.p || 0, c1: colOk(g.c1) ? g.c1 : '#6fae52', c2: colOk(g.c2) ? g.c2 : '#74b457' }; }
 let CAT = null;
 function setCatalog(info) {
   if (!info) return;
   const crops = normList(info.crops, normCrop), blds = normList(info.buildings, normBld);
   const decos = (info.decos || []).map(d => Array.isArray(d) ? { id: d[0], name: d[1], emoji: d[2], theme: d[3], price: +d[4] || 0, aes: +d[5] || 0 } : { id: d.id, name: d.name, emoji: d.emoji, theme: d.theme, price: +d.price || 0, aes: +d.aes || 0 });
   const cropById = {}, bldById = {}, decoById = {}; crops.forEach(c => cropById[c.id] = c); blds.forEach(b => bldById[b.id] = b); decos.forEach(d => decoById[d.id] = d);
-  CAT = { raw: info, catVer: info.catVer, crops, blds, decos, cropById, bldById, decoById };
+  const wonders = (Array.isArray(info.wonders) ? info.wonders : []).filter(w => w && w.id).map(normWonder), grounds = (Array.isArray(info.grounds) ? info.grounds : []).filter(g => g && g.id).map(normGround), wonderById = {}, groundById = {};
+  wonders.forEach(w => { wonderById[w.id] = w; bldById[w.id] = w; }); grounds.forEach(g => groundById[g.id] = g);   // Kỳ quan dùng chung cách đặt/vẽ với công trình (bldOf trả về cả Kỳ quan)
+  CAT = { raw: info, catVer: info.catVer, crops, blds, decos, cropById, bldById, decoById, wonders, grounds, wonderById, groundById };
 }
 const cropOf = k => CAT ? (CAT.cropById[k] || CAT.crops[+k]) : null;
 const bldOf = id => CAT ? CAT.bldById[id] : null;
 function decoOf(id) { if (!CAT || id == null) return null; const s = String(id), p = s.split('~'), b = CAT.decoById[p[0]]; return b ? Object.assign({}, b, { tier: +p[1] || 0, fullId: s }) : null; }
+
+/* ---- Danh vọng, Kỳ quan, Nền đất: đọc derived/catalog phòng thủ (vườn cũ thiếu trường thì trả giá trị rỗng) ---- */
+function repState() {
+  const d = S.derived && S.derived.rep, o = { has: false, lv: 0, cur: 0, base: 0, next: null, title: '', frac: 0 };
+  if (!d || d.lv == null) return o;
+  const rc = CAT && CAT.raw && CAT.raw.repCurve, th = rc && Array.isArray(rc.thresholds) ? rc.thresholds : null, max = rc && +rc.max || 60;
+  o.has = true; o.lv = +d.lv || 0; o.cur = +d.cur != null && !isNaN(+d.cur) ? +d.cur : (S.view && S.view.s && +S.view.s.ps) || 0;
+  if (th && th[o.lv] != null) { o.base = +th[o.lv]; o.next = o.lv >= max || th[o.lv + 1] == null ? null : +th[o.lv + 1]; }
+  else { o.base = +d.base || 0; o.next = d.next == null ? null : +d.next; }
+  o.title = String(d.title || '');
+  if (!o.title && rc && Array.isArray(rc.titles)) for (const t of rc.titles) if (t && +t[0] <= o.lv) o.title = String(t[1] || '');
+  o.frac = o.next == null ? 1 : clamp((o.cur - o.base) / Math.max(1, o.next - o.base), 0, 1);
+  return o;
+}
+function wdEntry(id) { const d = S.derived; if (!d || !Array.isArray(d.wd)) return null; for (const e of d.wd) if (e && e.id === id) return e; return null; }
+function wonderLock(id) {                                              // '' nếu mở; ngược lại lời nói rõ cần Danh vọng bao nhiêu
+  const w = bldOf(id); if (!w || !w.wonder) return ''; const e = wdEntry(id), need = e && e.needRep != null ? +e.needRep : w.rep;
+  const locked = e && e.locked != null ? !!e.locked : need > repState().lv; return locked ? 'Cần Danh vọng ' + need + '.' : '';
+}
+function wonderCost(id, stage) {                                       // giá điểm giai đoạn `stage` (đã nhân costPct); ưu tiên số do máy chủ tính
+  const w = bldOf(id); if (!w || !w.wonder) return 0; const e = wdEntry(id), cur = S.view && S.view.b[id] ? (+S.view.b[id].l || 1) : 0;
+  if (e && e.next != null && stage === cur + 1 && (+e.l || 0) === cur && isFinite(+e.next)) return +e.next;
+  const base = w.cost[stage - 1]; return base != null && isFinite(base) ? Math.ceil(base * costMul()) : 0;
+}
+function groundCost(id) { const g = CAT && CAT.groundById && CAT.groundById[id]; if (!g) return 0; const c = S.derived && S.derived.gr && S.derived.gr.cost; if (c && c[id] != null && isFinite(+c[id])) return +c[id]; return Math.ceil(g.p * costMul()); }
+function plotCost(n) { const c = (CAT && CAT.raw && CAT.raw.consts) || {}, base = +c.chunkBase || 40, grow = +c.chunkGrow || 1.3; return Math.ceil(Math.round(base * Math.pow(grow, Math.max(0, n - 1))) * costMul()); }
+function placeCost(id) {                                               // điểm sẽ bị trừ khi bấm ✔ Đặt (0 nếu lấy từ kho / dời)
+  const b = bldOf(id), st = S.view; if (b) { if (b.wonder) return st && st.wi && +st.wi[id] > 0 ? 0 : wonderCost(id, 1); return Math.ceil(b.price * costMul()); }
+  const d = decoOf(id); if (!d || (st && st.iv && st.iv[id] > 0)) return 0; return Math.ceil(d.price * Math.pow(2.6, d.tier) * costMul());
+}
+let spendGuard = null;                                                 // garden-ui.js đăng ký hộp xác nhận chi lớn
+function guardSpend(cost, title, msg) {
+  if (!(cost > 0) || typeof spendGuard !== 'function') return Promise.resolve(true);
+  try { return Promise.resolve(spendGuard(cost, title, msg)).then(v => v !== false, () => true); } catch (_) { return Promise.resolve(true); }
+}
 
 /* ---- Trạng thái & thao tác lạc quan ---- */
 let ctx = null, alive = false, errMap = null, forceCalm = false;
@@ -78,7 +121,7 @@ function ownedSet(st) { let s = chCache.get(st); if (!s) { s = new Set(st.ch || 
 const isOwned = (st, x, y) => ownedSet(st).has(cdiv(x) + ',' + cdiv(y));
 const nowMs = () => Date.now() + S.offset;
 const costMul = () => { const c = S.derived && +S.derived.costPct; return c ? (c > 5 ? c / 100 : c) : 1; };
-function norm(st) { for (const k of ['f', 'b', 'd', 'iv', 'up']) if (!st[k] || typeof st[k] !== 'object') st[k] = {}; if (!Array.isArray(st.ch)) st.ch = []; st.xu = +st.xu || 0; st.es = +st.es || 0; st.xp = +st.xp || 0; return st; }
+function norm(st) { for (const k of ['f', 'b', 'd', 'iv', 'up', 'wi']) if (!st[k] || typeof st[k] !== 'object') st[k] = {}; if (!Array.isArray(st.ch)) st.ch = []; if (!Array.isArray(st.go)) st.go = []; if (typeof st.gr !== 'string') st.gr = ''; st.xu = +st.xu || 0; st.es = +st.es || 0; st.xp = +st.xp || 0; return st; }
 function growMs(c, st) {
   const G = (st.b && st.b.gieng && +st.b.gieng.l) || 0; let L = 0; for (const k in st.up) if (/phan|bon|fert/i.test(k)) L = +st.up[k] || 0;
   return Math.max(5000, c.g * 1000 * (1 - .35 * G / (G + 15)) * (1 - .5 * L / (L + 25)));
@@ -123,7 +166,33 @@ function applyOp(st, op) {                                       // trả null n
     return null;
   }
   if (t === 'buyPlot') { const k = key(op.cx, op.cy); if (st.ch.indexOf(k) < 0) { st.ch.push(k); chCache.delete(st); } return null; }
-  if (t === 'build') { if (st.b[op.id]) return 'Đã có công trình này.'; if (!isOwned(st, op.x, op.y) || occupied(st, op.x, op.y)) return 'Không thể xây ở ô đó.'; st.b[op.id] = { x: op.x, y: op.y, l: 1, ct: now }; return null; }
+  if (t === 'build') {
+    const bi = bldOf(op.id); if (st.b[op.id]) return 'Đã có công trình này.';
+    if (bi && bi.wonder) {                                          // Kỳ quan: ô trên-trái (x,y), chiếm w×h; nằm trong kho (st.wi) thì đặt lại miễn phí, giữ giai đoạn
+      const stored = +(st.wi && st.wi[op.id]) || 0;
+      if (!footprintOk(st, op.x, op.y, bi.w, bi.h)) return 'Không đủ chỗ cho Kỳ quan này (cần ' + bi.w + '×' + bi.h + ' ô trống trong vườn).';
+      if (!stored) { const lk = wonderLock(op.id); if (lk) return lk; if (ctx && ctx.getBalance() < wonderCost(op.id, 1)) return 'Không đủ điểm để xây Kỳ quan này.'; }
+      st.b[op.id] = { x: op.x, y: op.y, l: stored || 1, ct: now }; if (stored) delete st.wi[op.id]; return null;
+    }
+    if (!isOwned(st, op.x, op.y) || occupied(st, op.x, op.y)) return 'Không thể xây ở ô đó.'; st.b[op.id] = { x: op.x, y: op.y, l: 1, ct: now }; return null;
+  }
+  if (t === 'upgrade' && op.what === 'wonder') {
+    const b = st.b[op.id], l = b ? (+b.l || 1) : 0; if (!b) return 'Hãy đặt Kỳ quan ra vườn trước khi nâng giai đoạn.'; if (l >= 5) return 'Kỳ quan này đã đạt giai đoạn tối đa.';
+    if (ctx && ctx.getBalance() < wonderCost(op.id, l + 1)) return 'Không đủ điểm để nâng giai đoạn.'; b.l = l + 1; return null;
+  }
+  if (t === 'wonder') {
+    const b = st.b[op.id], w = bldOf(op.id);
+    if (op.act === 'place') return applyOp(st, { op: 'build', id: op.id, x: op.x, y: op.y }); if (op.act === 'up') return applyOp(st, { op: 'upgrade', what: 'wonder', id: op.id });
+    if (!b || !w) return 'Kỳ quan này chưa được đặt ra vườn.';
+    if (op.act === 'move') { if (!footprintOk(st, op.x, op.y, w.w, w.h, null, op.id)) return 'Không dời được đến chỗ đó.'; b.x = op.x; b.y = op.y; return null; }
+    if (op.act === 'store') { st.wi[op.id] = +b.l || 1; delete st.b[op.id]; return null; }
+    return null;
+  }
+  if (t === 'ground') {
+    if (op.id === 'default' || op.id === '' || op.id == null) { st.gr = ''; return null; } const g = CAT && CAT.groundById && CAT.groundById[op.id]; if (!g) return 'Chưa có dữ liệu nền đất này.';
+    if (st.go.indexOf(op.id) < 0) { if (ctx && ctx.getBalance() < groundCost(op.id)) return 'Không đủ điểm để mua nền đất này.'; st.go.push(op.id); }
+    st.gr = op.id; return null;
+  }
   if (t === 'boost') { const f = st.f[key(op.x, op.y)]; if (!Array.isArray(f)) return 'Ô này chưa có cây.'; f[1] = now; return null; }
   if (t === 'collect') { if (op.all) for (const id in st.b) st.b[id].ct = now; else if (st.b[op.id]) st.b[op.id].ct = now; return null; }
   return null;                                                    // op khác: máy chủ quyết, chờ phản hồi
@@ -315,20 +384,21 @@ function createRenderer(host) {
     const st = S.view, own = ownedSet(st); let s = own.has(cx + ',' + cy) ? 'O' : 'u';
     s += (own.has((cx + 1) + ',' + cy) ? 1 : 0) + '' + (own.has(cx + ',' + (cy + 1)) ? 1 : 0) + (own.has((cx - 1) + ',' + cy) ? 1 : 0) + (own.has(cx + ',' + (cy - 1)) ? 1 : 0);
     if (s[0] === 'O') for (let j = 0; j < CH; j++) for (let i = 0; i < CH; i++) s += st.f[key(cx * CH + i, cy * CH + j)] !== undefined ? 1 : 0;
-    return s;
+    return s + '|' + (st.gr || '');
   };
   r.buildChunk = (cx, cy, sig, ch) => {
     const sc = r.q().chunkScale, w = CH * TW, h = CH * TH + 10; let cvs = ch && ch.cv && ch.sc === sc ? ch.cv : mkCanvas(w * sc, h * sc), x = cvs.getContext('2d');
     x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, cvs.width, cvs.height); x.scale(sc, sc);
-    const st = S.view, own = ownedSet(st), mine = own.has(cx + ',' + cy), ox = w / 2;
+    const st = S.view, own = ownedSet(st), mine = own.has(cx + ',' + cy), ox = w / 2, gd = st.gr && CAT && CAT.groundById ? CAT.groundById[st.gr] || null : null;
     for (let s = 0; s < CH * 2 - 1; s++) for (let j = 0; j < CH; j++) { const i = s - j; if (i < 0 || i >= CH) continue;
       const wx = cx * CH + i, wy = cy * CH + j, tx = (i - j) * HW + ox, ty = (i + j) * HH, hh = hash(wx, wy, 3); let col, kind = 'g';
-      if (mine) { if (st.f[key(wx, wy)] !== undefined) { kind = 's'; col = hh > .5 ? '#7a5230' : '#85593a'; } else col = hh < .33 ? '#6fae52' : hh < .66 ? '#68a74d' : '#74b457'; }
+      if (mine) { if (st.f[key(wx, wy)] !== undefined) { kind = 's'; col = hh > .5 ? '#7a5230' : '#85593a'; } else col = gd ? (hh < .5 ? gd.c1 : gd.c2) : hh < .33 ? '#6fae52' : hh < .66 ? '#68a74d' : '#74b457'; }
       else if (isWater(wx, wy)) { kind = 'w'; col = hh > .5 ? '#5aaed4' : '#4d9fc7'; } else if (isPath(wx, wy)) { kind = 'p'; col = hh > .5 ? '#c9b182' : '#bfa675'; } else col = hh < .5 ? '#7d9a6b' : '#789565';
       x.fillStyle = col; x.beginPath(); x.moveTo(tx, ty); x.lineTo(tx + HW, ty + HH); x.lineTo(tx, ty + TH); x.lineTo(tx - HW, ty + HH); x.closePath(); x.fill();
       x.strokeStyle = 'rgba(0,0,0,.07)'; x.lineWidth = 1; x.stroke();
-      if (kind === 'g' && hh > .55) { x.strokeStyle = 'rgba(40,90,30,.35)'; x.lineWidth = 1.2; for (let k = 0; k < 3; k++) { const px = tx + (hash(wx, wy, 10 + k) - .5) * 30, py = ty + HH + (hash(wx, wy, 20 + k) - .5) * 12; x.beginPath(); x.moveTo(px, py); x.lineTo(px - 1, py - 4); x.moveTo(px, py); x.lineTo(px + 2, py - 3); x.stroke(); } }
-      if (kind === 'g' && mine && hh > .93) { x.fillStyle = ['#ffd6e7', '#fff3a8', '#fff'][(hh * 100 | 0) % 3]; x.beginPath(); x.arc(tx + (hh - .96) * 300, ty + HH, 1.8, 0, 7); x.fill(); }
+      if (kind === 'g' && hh > .55 && !(gd && mine)) { x.strokeStyle = 'rgba(40,90,30,.35)'; x.lineWidth = 1.2; for (let k = 0; k < 3; k++) { const px = tx + (hash(wx, wy, 10 + k) - .5) * 30, py = ty + HH + (hash(wx, wy, 20 + k) - .5) * 12; x.beginPath(); x.moveTo(px, py); x.lineTo(px - 1, py - 4); x.moveTo(px, py); x.lineTo(px + 2, py - 3); x.stroke(); } }
+      if (kind === 'g' && mine && gd && hh > .6 && hh < .72) { x.fillStyle = 'rgba(255,255,255,.16)'; x.beginPath(); x.arc(tx + (hh - .66) * 200, ty + HH, 1.6, 0, 7); x.fill(); }
+      if (kind === 'g' && mine && hh > .93 && !gd) { x.fillStyle = ['#ffd6e7', '#fff3a8', '#fff'][(hh * 100 | 0) % 3]; x.beginPath(); x.arc(tx + (hh - .96) * 300, ty + HH, 1.8, 0, 7); x.fill(); }
       if (kind === 's') { x.strokeStyle = 'rgba(60,35,15,.5)'; x.lineWidth = 1.4; for (let k = -1; k <= 1; k++) { x.beginPath(); x.moveTo(tx - 16 + k * 6, ty + HH + 5 + k * 3 - 2); x.lineTo(tx + 6 + k * 6, ty + HH - 6 + k * 3 + 1); x.stroke(); } }
       if (kind === 'w') { x.strokeStyle = 'rgba(255,255,255,.4)'; x.lineWidth = 1.2; x.beginPath(); x.moveTo(tx - 8, ty + HH); x.quadraticCurveTo(tx - 3, ty + HH - 3, tx + 2, ty + HH); x.stroke(); }
       if (kind === 'p') { x.fillStyle = 'rgba(120,100,70,.5)'; x.beginPath(); x.arc(tx + (hh - .5) * 30, ty + HH, 1.5, 0, 7); x.fill(); }
@@ -407,7 +477,7 @@ function installLoop(r) {
     if (r.entsRev !== S.rev) { r.buildEnts(); r.lockCh = null; }
     for (const [cx, cy, p] of list) { const ch = r.getChunk(cx, cy, budget); if (ch) g.drawImage(ch.cv, p[0] - CH * HW, p[1], CH * TW, CH * TH + 10); else { dia(cx * CH, cy * CH, CH, CH, '#6d8a62'); r.need = true; } }
     /* mảnh khóa kề vườn */
-    if (!r.lockCh) { const own = ownedSet(st), seen = new Set(), out = [], n = st.ch.length; for (const k of st.ch) { const p = k.split(',').map(Number); for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nk = (p[0] + d[0]) + ',' + (p[1] + d[1]); if (!own.has(nk) && !seen.has(nk)) { seen.add(nk); out.push({ cx: p[0] + d[0], cy: p[1] + d[1] }); } } } r.lockCh = out; r.lockCost = Math.ceil(Math.round(40 * Math.pow(1.3, Math.max(0, n - 1))) * costMul()); }
+    if (!r.lockCh) { const own = ownedSet(st), seen = new Set(), out = [], n = st.ch.length; for (const k of st.ch) { const p = k.split(',').map(Number); for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nk = (p[0] + d[0]) + ',' + (p[1] + d[1]); if (!own.has(nk) && !seen.has(nk)) { seen.add(nk); out.push({ cx: p[0] + d[0], cy: p[1] + d[1] }); } } } r.lockCh = out; r.lockCost = plotCost(n); }
     for (const L of r.lockCh) {
       const p = iso(L.cx * CH + CH / 2, L.cy * CH + CH / 2); if (p[0] < vx0 - 200 || p[0] > vx1 + 200 || p[1] < vy0 - 100 || p[1] > vy1 + 100) continue;
       dia(L.cx * CH, L.cy * CH, CH, CH, 'rgba(20,30,20,.18)', 'rgba(255,255,255,.55)', 2);
@@ -445,11 +515,12 @@ function installLoop(r) {
         if (d && d.tier > 0) { g.strokeStyle = 'hsl(' + ((d.tier * 47) % 360) + ' 85% 62%)'; g.lineWidth = 2; g.beginPath(); g.ellipse(p[0], p[1] + 2, 15, 7.5, 0, 0, 7); g.stroke(); }
         r.drawEmoji(d ? d.emoji : '🎀', p[0], p[1] + 4, 38, {});
       } else if (e.t === 'b') {
-        const info = bldOf(e.id), w = e.w, h = e.h, cp = iso(e.x + w / 2, e.y + h / 2); dia(e.x + .06, e.y + .06, w - .12, h - .12, '#c8b48c', 'rgba(90,70,40,.6)', 1.5);
+        const info = bldOf(e.id), w = e.w, h = e.h, cp = iso(e.x + w / 2, e.y + h / 2); const wdn = !!(info && info.wonder), sl = +e.b.l || 1, hue = (sl * 47) % 360; dia(e.x + .06, e.y + .06, w - .12, h - .12, wdn ? 'hsl(' + hue + ' 40% 80%)' : '#c8b48c', wdn ? 'hsl(' + hue + ' 70% 45%)' : 'rgba(90,70,40,.6)', wdn ? 1.5 + sl * .6 : 1.5);
         if (shadow) { g.fillStyle = 'rgba(0,0,0,.2)'; g.beginPath(); g.ellipse(cp[0], cp[1] + 4, 22 * Math.max(w, h), 10 * Math.max(w, h), 0, 0, 7); g.fill(); }
-        r.drawEmoji(info ? info.emoji : '🏠', cp[0], cp[1] + 10, 56 + 14 * Math.max(w, h), {});
-        g.font = 'bold 11px ' + FONT; g.textAlign = 'center'; g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; const lt = 'Cấp ' + (e.b.l || 1); g.strokeText(lt, cp[0], cp[1] + 22); g.fillText(lt, cp[0], cp[1] + 22);
-        if (e.b.ct && now - e.b.ct > 3600000) r.drawEmoji('🪙', cp[0], cp[1] - 52 - (anim ? Math.abs(Math.sin(t / 400)) * 4 : 0), 22, {});
+        const bsz = 56 + 14 * Math.max(w, h) + (wdn ? 4 * sl : 0); r.drawEmoji(info ? (info.emoji || (wdn ? '🏛️' : '🏠')) : '🏠', cp[0], cp[1] + 10, bsz, {});
+        if (wdn) { g.font = 'bold 13px ' + FONT; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.6)'; g.fillStyle = '#ffd23f'; const sr = '★'.repeat(sl); g.strokeText(sr, cp[0], cp[1] - bsz * .9); g.fillText(sr, cp[0], cp[1] - bsz * .9); }
+        g.font = 'bold 11px ' + FONT; g.textAlign = 'center'; g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; const lt = (wdn ? 'Giai đoạn ' : 'Cấp ') + (e.b.l || 1); g.strokeText(lt, cp[0], cp[1] + 22); g.fillText(lt, cp[0], cp[1] + 22);
+        if (!wdn && e.b.ct && now - e.b.ct > 3600000) r.drawEmoji('🪙', cp[0], cp[1] - 52 - (anim ? Math.abs(Math.sin(t / 400)) * 4 : 0), 22, {});
       } else if (e.t === 'a') {
         const hop = anim ? Math.abs(Math.sin(t / 220 + e.a.i)) * 3 : 0; if (shadow) { g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.ellipse(p[0], p[1] + 2, 8, 4, 0, 0, 7); g.fill(); } r.drawEmoji(e.a.e, p[0], p[1] + 4 - hop, e.a.e === '🐄' ? 34 : 24, {});
       }
@@ -502,7 +573,7 @@ function describeCell(x, y) {
   if (!isOwned(st, x, y)) return p + 'chưa mở khóa.';
   const f = st.f[k]; if (Array.isArray(f)) { const c = cropOf(f[0]), rem = f[1] - nowMs(); return p + (c ? c.name : 'cây') + (rem <= 0 ? ', đã chín.' : ', còn ' + fmtTime(rem) + '.'); }
   if (f === 0) return p + 'đất trống.'; if (st.d[k] != null) { const d = decoOf(st.d[k]); return p + (d ? d.name : 'trang trí') + '.'; }
-  for (const id in st.b) { const b = st.b[id], fp = bldFoot(b, bldOf(id)); if (x >= b.x && x < b.x + fp[0] && y >= b.y && y < b.y + fp[1]) { const i = bldOf(id); return p + (i ? i.name : id) + ' cấp ' + (b.l || 1) + '.'; } }
+  for (const id in st.b) { const b = st.b[id], fp = bldFoot(b, bldOf(id)); if (x >= b.x && x < b.x + fp[0] && y >= b.y && y < b.y + fp[1]) { const i = bldOf(id); return p + (i ? i.name : id) + (i && i.wonder ? ' giai đoạn ' : ' cấp ') + (b.l || 1) + '.'; } }
   return p + 'cỏ, có thể cuốc đất.';
 }
 function cellItem(x, y) {
@@ -516,19 +587,35 @@ function selectCell(x, y) {
   R.sel = { x, y }; R.kc = { x, y }; const item = cellItem(x, y), owned = isOwned(S.view, x, y);
   emit('select', { x, y, item, cell: { owned, soil: S.view.f[key(x, y)] !== undefined } }); announce(describeCell(x, y)); hudCard(); R.wake();
 }
-function footprintOk(st, x, y, w, h, ignore) { for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) { if (!isOwned(st, x + i, y + j)) return false; const k = key(x + i, y + j); if (st.f[k] !== undefined || (st.d[k] !== undefined && k !== ignore)) return false; } if (w === 1 && h === 1) return !occupied(st, x, y) || key(x, y) === ignore; for (const id in st.b) { const b = st.b[id], fp = bldFoot(b, bldOf(id)); if (x < b.x + fp[0] && x + w > b.x && y < b.y + fp[1] && y + h > b.y) return false; } return true; }
-function setGhost(x, y) {
-  const arg = T.carry ? T.carry.id : T.arg, bi = !T.carry && bldOf(arg), di = bi ? null : decoOf(arg); if (!arg) return;
-  const w = bi ? bi.w : 1, h = bi ? bi.h : 1, ok = footprintOk(S.view, x, y, w, h, T.carry ? key(T.carry.x, T.carry.y) : null);
-  R.ghost = { x, y, w, h, ok, emoji: bi ? bi.emoji : di ? di.emoji : '🎀' }; hudConfirm(); R.wake();
+function footprintOk(st, x, y, w, h, ignore, ignoreB) { for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) { if (!isOwned(st, x + i, y + j)) return false; const k = key(x + i, y + j); if (st.f[k] !== undefined || (st.d[k] !== undefined && k !== ignore)) return false; } if (w === 1 && h === 1) return !occupied(st, x, y) || key(x, y) === ignore; for (const id in st.b) { if (id === ignoreB) continue; const b = st.b[id], fp = bldFoot(b, bldOf(id)); if (x < b.x + fp[0] && x + w > b.x && y < b.y + fp[1] && y + h > b.y) return false; } return true; }
+function setGhost(x, y, exact) {
+  const car = T.carry, arg = car ? car.id : T.arg; if (!arg) return;
+  const isB = car ? car.kind === 'b' : !!bldOf(arg), bi = isB ? bldOf(arg) : null, di = isB ? null : decoOf(arg);
+  const w = bi ? bi.w : 1, h = bi ? bi.h : 1, ax = x, ay = y;
+  if (bi && bi.wonder && !exact) { x -= Math.floor((w - 1) / 2); y -= Math.floor((h - 1) / 2); }   // Kỳ quan lớn: ngón tay chạm giữa vật, vẫn gửi ô trên-trái cho máy chủ
+  const ok = footprintOk(S.view, x, y, w, h, car && !isB ? key(car.x, car.y) : null, car && isB ? arg : null);
+  R.ghost = { x, y, ax, ay, w, h, ok, emoji: bi ? (bi.emoji || '🏛️') : di ? di.emoji : '🎀' }; hudConfirm(); R.wake();
 }
+let placing = false;
 function confirmPlace() {
-  const gh = R.ghost; if (!gh) return; if (!gh.ok) { toast('Không đặt được ở ô này.', true); sfx('error'); return; }
-  let p;
-  if (T.carry) { p = queueOp({ op: 'decorate', act: 'move', x: T.carry.x, y: T.carry.y, nx: gh.x, ny: gh.y }); T.carry = null; R.ghost = null; setTool('move'); }
-  else if (bldOf(T.arg)) { p = queueOp({ op: 'build', id: T.arg, x: gh.x, y: gh.y }, { immediate: true }); R.ghost = null; setTool('select'); toast('Đang xây…'); }
-  else { p = queueOp({ op: 'decorate', act: 'place', id: T.arg, x: gh.x, y: gh.y }); R.ghost = null; }
-  p.then(() => { sfx('coin'); R.burst(gh.x, gh.y, '#9be37a'); }, noop); hudConfirm(); R.wake(); announce('Đã đặt.');
+  const gh = R.ghost; if (!gh || placing) return; if (!gh.ok) { toast('Không đặt được ở ô này.', true); sfx('error'); return; }
+  if (T.carry) {
+    const c = T.carry, p = queueOp(c.kind === 'b' ? { op: 'wonder', act: 'move', id: c.id, x: gh.x, y: gh.y } : { op: 'decorate', act: 'move', x: c.x, y: c.y, nx: gh.x, ny: gh.y }); T.carry = null; R.ghost = null; setTool('move');
+    p.then(() => { sfx('coin'); R.burst(gh.x, gh.y, '#9be37a'); }, noop); hudConfirm(); R.wake(); announce('Đã đặt.'); return;
+  }
+  const arg = T.arg, bi = bldOf(arg), cost = placeCost(arg), nm = bi ? bi.name : (decoOf(arg) || {}).name || 'vật phẩm';
+  const go = () => {
+    if (!R || !alive) return; let p;
+    if (bi) { p = queueOp({ op: 'build', id: arg, x: gh.x, y: gh.y }, { immediate: true }); R.ghost = null; setTool('select'); toast('Đang xây…'); }
+    else { p = queueOp({ op: 'decorate', act: 'place', id: arg, x: gh.x, y: gh.y }); R.ghost = null; }
+    p.then(() => { sfx('coin'); R.burst(gh.x, gh.y, '#9be37a'); }, noop); hudConfirm(); R.wake(); announce('Đã đặt.');
+  };
+  if (cost > 0) { placing = true; guardSpend(cost, 'Đặt ' + nm, 'Bạn đang đặt ' + nm + '.').then(ok => { placing = false; if (ok) go(); }); }   // chi lớn thì hỏi lại; số cuối cùng do máy chủ quyết
+  else go();
+}
+function carryBuilding(id) {
+  if (!S.view || !S.view.b[id] || !R) return; const b = S.view.b[id]; setTool('move'); T.carry = { kind: 'b', x: b.x, y: b.y, id };
+  closePanel(); setGhost(b.x, b.y, true); R.goTo(b.x, b.y); toast('Dời miễn phí: chạm ô mới rồi bấm ✔ Đặt.');
 }
 function cancelPlace() { R.ghost = null; T.carry = null; hudConfirm(); R.wake(); }
 function setTool(tool, arg) {
@@ -573,7 +660,7 @@ function tapCell(x, y, ptype) {
     case 'till': queueOp({ op: 'till', x, y }).catch(noop); R.burst(x, y, '#d9a066'); sfx('click'); break;
     case 'remove': { const id = st.d[key(x, y)]; if (id == null) { toast('Chạm vào vật trang trí để gỡ.'); break; } queueOp({ op: 'decorate', act: 'remove', x, y }).then(() => toast('Đã cất vào kho.'), noop); sfx('click'); break; }
     case 'move': {
-      if (!T.carry) { const id = st.d[key(x, y)]; if (id == null) { toast('Chạm vào vật trang trí để dời.'); break; } T.carry = { x, y, id }; setGhost(x, y); toast('Chạm ô mới để đặt.'); break; }
+      if (!T.carry) { const wi = cellItem(x, y); if (wi && wi.type === 'building' && wi.info && wi.info.wonder) { carryBuilding(wi.id); break; } const id = st.d[key(x, y)]; if (id == null) { toast('Chạm vào vật trang trí hoặc Kỳ quan để dời.'); break; } T.carry = { x, y, id }; setGhost(x, y); toast('Chạm ô mới để đặt.'); break; }
       setGhost(x, y); if (ptype === 'mouse') confirmPlace(); break; }
     case 'place': setGhost(x, y); if (ptype === 'mouse') confirmPlace(); break;
   }
@@ -620,7 +707,7 @@ function bindInput(r) {
     const D = { ArrowUp: [-1, -1], ArrowDown: [1, 1], ArrowLeft: [-1, 1], ArrowRight: [1, -1] };
     if (D[k]) { e.preventDefault(); if (e.shiftKey) { r.cam.x += D[k][0] === D[k][1] ? 0 : (D[k][0] > 0 ? 90 : -90) / r.cam.z; r.cam.y += D[k][0] === D[k][1] ? (D[k][0] > 0 ? 90 : -90) / r.cam.z : 0; r.clampCam(r.cam); r.wake(); return; }
       r.kc = { x: st.x + D[k][0], y: st.y + D[k][1] }; const s = r.toScreen(r.kc.x, r.kc.y); if (s[0] < 30 || s[0] > r.W - 30 || s[1] < 30 || s[1] > r.H - 30) r.goTo(r.kc.x, r.kc.y); if (r.ghost) setGhost(r.kc.x, r.kc.y); announce(describeCell(r.kc.x, r.kc.y)); r.wake(); }
-    else if (k === 'Enter' || k === ' ') { e.preventDefault(); if (r.ghost && r.kc && r.ghost.x === r.kc.x && r.ghost.y === r.kc.y) confirmPlace(); else tapCell(st.x, st.y, 'key'); }
+    else if (k === 'Enter' || k === ' ') { e.preventDefault(); if (r.ghost && r.kc && (r.ghost.ax != null ? r.ghost.ax : r.ghost.x) === r.kc.x && (r.ghost.ay != null ? r.ghost.ay : r.ghost.y) === r.kc.y) confirmPlace(); else tapCell(st.x, st.y, 'key'); }
     else if (k === '+' || k === '=') r.zoomAt(r.cam.z * 1.25, r.W / 2, r.H / 2); else if (k === '-' || k === '_') r.zoomAt(r.cam.z / 1.25, r.W / 2, r.H / 2);
     else if (k === '0') r.center();
     else if (k === 'Escape') { if (r.ghost || T.carry) cancelPlace(); else { r.sel = null; r.brush.clear(); hudCard(); } r.wake(); }
@@ -644,7 +731,8 @@ function buildHud(stage) {
   H.bal = pill('💰', 'Số dư điểm'); H.xu = pill('🪙', 'Xu vườn'); H.es = pill('🌸', 'Tinh hoa');
   H.dot = el('span', 'gd-sync', null, { role: 'status' }); H.dot.append(el('i', 'gd-dot'), H.dotT = el('span', '', '')); pills.append(H.dot);
   const lv = el('div', 'gd-lv'); H.lvT = el('span', 'gd-lvt', 'Cấp 1'); const bar = el('div', 'gd-bar', null, { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Kinh nghiệm vườn' }); H.bar = el('i'); bar.append(H.bar); H.barEl = bar; lv.append(H.lvT, bar);
-  top.append(pills, lv);
+  const rp = el('div', 'gd-lv gd-rep'); rp.hidden = true; H.repT = el('span', 'gd-lvt', '🏅 Danh vọng 0'); const rb = el('div', 'gd-bar', null, { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Tiến độ lên hạng Danh vọng kế tiếp' }); H.repBar = el('i'); rb.append(H.repBar); H.repBarEl = rb; rp.append(H.repT, rb); H.repEl = rp;
+  top.append(pills, lv, rp);
   const zoom = el('div', 'gd-zoom'); zoom.append(btn('', '+', 'Phóng to', () => R.zoomAt(R.cam.z * 1.3, R.W / 2, R.H / 2)), btn('', '−', 'Thu nhỏ', () => R.zoomAt(R.cam.z / 1.3, R.W / 2, R.H / 2)), btn('', '◎', 'Căn giữa vườn', () => R.center()));
   H.card = el('div', 'gd-card', null, { role: 'group', 'aria-label': 'Thông tin ô' }); H.card.hidden = true;
   H.confirm = el('div', 'gd-confirm'); H.confirm.hidden = true; H.confT = el('span', 'gd-conft', ''); H.confirm.append(H.confT, btn('ok', '✔ Đặt', 'Đặt vật phẩm', confirmPlace), btn('no', '✖', 'Hủy', cancelPlace));
@@ -670,6 +758,8 @@ function hudUpdate() {
   if (!H || !S.view) return; const st = S.view, lv = gardenLevel(st);
   H.bal.textContent = fmt(ctx && ctx.getBalance ? ctx.getBalance() : 0); H.xu.textContent = fmt(st.xu); H.es.textContent = fmt(st.es);
   H.lvT.textContent = 'Cấp ' + lv.lv; H.bar.style.width = Math.round(lv.frac * 100) + '%'; H.barEl.setAttribute('aria-valuenow', Math.round(lv.frac * 100)); H.barEl.title = lv.need ? fmt(lv.into) + ' / ' + fmt(lv.need) + ' XP' : '';
+  const rs = repState(); H.repEl.hidden = !rs.has;
+  if (rs.has) { const pc = Math.round(rs.frac * 100); H.repT.textContent = '🏅 Danh vọng ' + rs.lv; H.repBar.style.width = pc + '%'; H.repBarEl.setAttribute('aria-valuenow', pc); H.repBarEl.title = (rs.title ? rs.title + ' · ' : '') + (rs.next == null ? 'Hạng cao nhất' : fmt(rs.cur) + ' / ' + fmt(rs.next) + ' điểm đã dùng cho vườn'); }
   for (const id in H.tools) { const on = T.tool === id; H.tools[id].setAttribute('aria-pressed', on); H.tools[id].classList.toggle('on', on); }
   const c = T.seed != null ? cropOf(T.seed) : null; H.seed.classList.toggle('on', T.tool === 'plant'); H.seed.setAttribute('aria-pressed', T.tool === 'plant');
   H.seed.firstChild.textContent = c ? c.emoji : '🌱'; H.seedT.textContent = c ? c.name : 'Hạt';
@@ -679,8 +769,8 @@ function hudUpdate() {
 function hudTick() { if (!alive || !S.view) return; const n = ripeCount(); if (n !== H.ripeN) { H.ripeN = n; H.allN.textContent = n; H.allN.hidden = !n; H.all.classList.toggle('ready', !!n); if (R) R.wake(); } hudCard(true); }
 function hudConfirm() {
   if (!H) return; const gh = R && R.ghost, show = !!gh && !!(T.carry || T.tool === 'place'); H.confirm.hidden = !show; if (!show) return;
-  const id = T.carry ? T.carry.id : T.arg, d = decoOf(id), b = bldOf(id), inv = S.view && S.view.iv[id] > 0;
-  H.confT.textContent = (b ? b.name : d ? d.name : 'Vật phẩm') + (T.carry ? ' · Dời' : inv ? ' · Từ kho' : d ? ' · ~' + fmt(Math.ceil(d.price * Math.pow(2.6, d.tier) * costMul())) + ' 💰' : b ? ' · ' + fmt(Math.ceil(b.price * costMul())) + ' 💰' : '') + (gh.ok ? '' : ' · ô không hợp lệ');
+  const id = T.carry ? T.carry.id : T.arg, d = decoOf(id), b = bldOf(id), cost = T.carry ? 0 : placeCost(id), stored = b && b.wonder && S.view && S.view.wi && +S.view.wi[id] > 0, inv = !b && S.view && S.view.iv[id] > 0;
+  H.confT.textContent = (b ? b.name : d ? d.name : 'Vật phẩm') + (b && b.wonder ? ' · ' + b.w + '×' + b.h + ' ô' : '') + (T.carry ? ' · Dời (miễn phí)' : stored ? ' · Từ kho (miễn phí)' : inv ? ' · Từ kho' : cost > 0 ? ' · ~' + fmt(cost) + ' 💰' : '') + (gh.ok ? '' : ' · ô không hợp lệ');
 }
 function hudCard(soft) {
   if (!H) return; const c = H.card, sel = R && R.sel; if (!sel || !S.view) { c.hidden = true; c.dataset.k = ''; return; }
@@ -694,7 +784,12 @@ function hudCard(soft) {
   if (it && it.type === 'plant') {
     tt.textContent = line;
     if (it.ripe) acts.append(btn('ok', '🧺 Thu hoạch', 'Thu hoạch', () => { queueOp({ op: 'harvest', x: sel.x, y: sel.y }).catch(noop); R.burst(sel.x, sel.y); sfx('click'); }));
-    else { const rem = (it.readyAt - now) / 1000, cost = Math.max(1, Math.ceil(rem / 300 * (+(S.derived && S.derived.boostMul) || 1))), pts = Math.ceil(cost * costMul()); acts.append(btn('', '⚡ Tăng tốc ~' + fmt(pts) + ' 💰', 'Tăng tốc cây, khoảng ' + pts + ' điểm', () => { queueOp({ op: 'boost', x: sel.x, y: sel.y }, { immediate: true }).catch(noop); sfx('click'); })); }
+    else { const rem = (it.readyAt - now) / 1000, cost = Math.max(1, Math.ceil(rem / 300 * (+(S.derived && S.derived.boostMul) || 1))), pts = Math.ceil(cost * costMul()); acts.append(btn('', '⚡ Tăng tốc ~' + fmt(pts) + ' 💰', 'Tăng tốc cây, khoảng ' + pts + ' điểm', () => { guardSpend(pts, 'Tăng tốc cây', 'Bạn đang tăng tốc cho một cây.').then(ok => { if (ok && R) { queueOp({ op: 'boost', x: sel.x, y: sel.y }, { immediate: true }).catch(noop); sfx('click'); } }); })); }
+  } else if (it && it.type === 'building' && it.info && it.info.wonder) {
+    const wl = +it.b.l || 1; tt.textContent = it.info.emoji + ' ' + it.info.name + ' · Giai đoạn ' + wl + '/5';
+    acts.append(wl >= 5 ? btn('', '✔ Đã đạt tối đa', 'Kỳ quan đã đạt giai đoạn tối đa') : btn('ok', '⬆️ Nâng giai đoạn', 'Xem giá và nâng giai đoạn Kỳ quan', () => { emit('openpanel', { panel: 'upgrades', id: it.id }); openPanel('upgrades', { id: it.id }, true); }),
+      btn('', '✥ Dời', 'Dời Kỳ quan, miễn phí', () => carryBuilding(it.id)),
+      btn('no', '📦 Cất', 'Cất Kỳ quan vào kho, đặt lại miễn phí', () => { queueOp({ op: 'wonder', act: 'store', id: it.id }).then(() => toast('Đã cất vào kho. Đặt lại miễn phí trong Cửa hàng › Kỳ quan.'), noop); R.sel = null; hudCard(); }));
   } else if (it && it.type === 'building') {
     tt.textContent = (it.info ? it.info.emoji + ' ' + it.info.name : it.id) + ' · Cấp ' + (it.b.l || 1);
     acts.append(btn('ok', '🪙 Thu sản vật', 'Thu sản vật', () => { queueOp({ op: 'collect', id: it.id }, { immediate: true }).catch(noop); }), btn('', '⬆️ Nâng cấp', 'Nâng cấp công trình', () => { emit('openpanel', { panel: 'upgrades', id: it.id }); openPanel('upgrades', { id: it.id }, true); }));
@@ -780,6 +875,8 @@ const API = {
   getState: () => S.view ? cloneJ(S.view) : null, getDerived: () => S.derived ? cloneJ(S.derived) : null,
   getTool: () => ({ tool: T.tool, arg: T.tool === 'plant' ? T.seed : T.arg }), getCatalog: () => CAT ? CAT.raw : null,
   getStatus: () => S.status, serverNow: nowMs, level: () => S.view ? gardenLevel(S.view) : null, cropInfo: cropOf, buildingInfo: bldOf, decoInfo: decoOf,
+  wonderInfo: id => CAT && CAT.wonderById ? CAT.wonderById[id] || null : null, wonders: () => CAT ? CAT.wonders.slice() : [], grounds: () => CAT ? CAT.grounds.slice() : [], groundInfo: id => CAT && CAT.groundById ? CAT.groundById[id] || null : null,
+  rep: repState, wonderCost, wonderLock, groundCost, placeCost, plotCost: n => plotCost(n != null ? n : (S.view ? S.view.ch.length : 0)), carryBuilding, setSpendGuard(f) { spendGuard = typeof f === 'function' ? f : null; },
   registerPanel(name, factory) { PAN[name] = factory; }, setErrorMapper(f) { errMap = typeof f === 'function' ? f : null; }, setCalm(b) { forceCalm = !!b; R && R.wake(); }, openPanel, closePanel, setQuality(q) { R && R.setQuality(q); }, flush: () => settle(),
   constants: PERF, _t: { fmt, iso, grid, cellAt, chunkRange, hash, applyOp, normCrop, buildBatch, setCatalog, S, TW, TH, CH, key }
 };

@@ -1,5 +1,5 @@
 /* Khu vườn – HUD & khung canvas. Dùng biến màu của style.css (sáng/tối theo hệ thống). Tiền tố gd-. */
-.gd-root{--gd-tap:44px;--gd-tb:7.4rem;--gd-gap:.4rem;--gd-glass:color-mix(in srgb,var(--surface,#fff) 90%,transparent);--gd-r:var(--radius,14px);width:100%}
+.gd-root{--gd-tap:48px;--gd-tb:7.8rem;--gd-gap:.4rem;--gd-glass:color-mix(in srgb,var(--surface,#fff) 90%,transparent);--gd-r:var(--radius,14px);width:100%}
 .gd-stage{position:relative;overflow:hidden;height:clamp(440px,calc(100dvh - 12rem),780px);border-radius:var(--gd-r);background:#4b7a45;border:1px solid var(--border,#ccd);isolation:isolate;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 .gd-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;outline:none}
 .gd-canvas:active{cursor:grabbing}
@@ -26,6 +26,8 @@
 .gd-lvt{font-weight:800;font-size:.85rem;white-space:nowrap}
 .gd-bar{flex:1;min-width:5rem;height:8px;border-radius:99px;background:var(--border,#ccd);overflow:hidden}
 .gd-bar i{display:block;height:100%;width:0;background:var(--primary,#3b4cca);transition:width .3s}
+.gd-rep[hidden]{display:none}
+.gd-rep .gd-lvt{font-size:.8rem}
 .gd-zoom{position:absolute;z-index:5;top:.5rem;right:.5rem;display:grid;gap:.3rem}
 .gd-zoom .gd-btn{padding:0;font-size:1.3rem;background:var(--gd-glass)}
 /* thanh công cụ */
@@ -65,7 +67,7 @@
 .gd-ov{position:absolute;z-index:30;inset:0;display:grid;place-content:center;justify-items:center;gap:.6rem;padding:1.5rem;text-align:center;font-weight:700;background:color-mix(in srgb,var(--bg,#f4f5fb) 90%,transparent);color:var(--text,#112)}
 .gd-ov p{margin:0}
 @keyframes gd-pulse{50%{opacity:.35}}
-@media(max-width:380px){.gd-pill{font-size:.85rem}.gd-row small{display:none}.gd-row .tool,.gd-row .seed{font-size:1.15rem}:root .gd-root{--gd-tb:6.2rem}}
+@media(max-width:380px){.gd-row .tool,.gd-row .seed{min-width:0}.gd-pill{font-size:.85rem}.gd-row small{display:none}.gd-row .tool,.gd-row .seed{font-size:1.15rem}:root .gd-root{--gd-tb:6.2rem}}
 @media(min-width:700px){.gd-card,.gd-confirm,.gd-pop{left:50%;right:auto;width:30rem;transform:translateX(-50%)}.gd-menu{left:auto;right:.5rem;transform:none}.gd-sheet{left:50%;right:auto;width:36rem;transform:translateX(-50%)}}
 @media(prefers-reduced-motion:reduce){.gd-sync[data-s=sync] .gd-dot{animation:none}.gd-bar i,.gd-btn{transition:none}.gd-btn:active{transform:none}}
 
@@ -165,3 +167,12 @@
 @media(max-width:380px){.gdu-tools{grid-template-columns:1fr}.gdu-prev{width:2.9rem;height:2.9rem}.gdu-act .gd-btn{flex-basis:100%}}
 .gd-calm *,.gd-calm .gdu-bar i{animation:none!important;transition:none!important}
 @media(prefers-reduced-motion:reduce){.gdu-skr,.gdu-conf span{animation:none}.gdu-bar i,.gd-sheet{transition:none}}
+
+/* ===== Danh vọng, Kỳ quan, Nền đất, hạn mức chi ngày (v1.1) ===== */
+.gdu-head{display:grid;gap:.45rem}
+.gdu-head:empty{display:none}
+.gdu-rep{display:grid;gap:.3rem;padding:.55rem .7rem;border:1px solid var(--border,#ccd);border-radius:12px;background:var(--surface,#fff)}
+.gdu-rephd{font-weight:800}
+.gdu-capline{margin:0;padding:.4rem .7rem;border-radius:10px;border:1px dashed var(--border,#ccd);font-size:.88rem;font-weight:700;font-variant-numeric:tabular-nums}
+.gdu-prev{overflow:hidden}
+.gdu-ov .gdu-note{margin:.3rem 0 0}

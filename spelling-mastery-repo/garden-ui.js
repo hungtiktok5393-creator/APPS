@@ -1,7 +1,7 @@
-/* Spelling Mastery – Khu vườn: GIAO DIỆN (garden-ui.js) v1.0.0
+/* Spelling Mastery – Khu vườn: GIAO DIỆN (garden-ui.js) v1.1.0
  * Gắn vào engine garden.js qua SMGarden.registerPanel / on('openpanel'…). Nạp SAU garden.js.
  * Máy chủ quyết giá, thưởng, điều kiện (GARDEN_SPEC.md); file này chỉ hiển thị, tính trước để xem, và xin xác nhận.
- * Điểm (💰) chỉ để chi; Xu 🪙 / Tinh hoa 🌸 không đổi ngược thành điểm. Chi ≥ 30% số dư hoặc ≥ 500 điểm luôn hỏi xác nhận.
+ * Điểm (💰) chỉ để chi; Xu 🪙 / Tinh hoa 🌸 không đổi ngược thành điểm. Chi ≥ 25% số dư hoặc ≥ 200 điểm luôn hỏi xác nhận (chỉ là tiện ích, máy chủ mới quyết định).
  * Các tên trường catalog mà SPEC không nêu (perms, ach, themes, tiers, quest) được đọc phòng thủ – xem pk()/norm* bên dưới. */
 (function (root) {
 'use strict';
@@ -25,7 +25,18 @@ const sfx = n => { try { SG().sfx && SG().sfx(n); } catch (_) {} };
 const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 const cm = () => { const d = G.getDerived(), c = d && +d.costPct; return c ? (c > 5 ? c / 100 : c) : 1; };    // hệ số giá điểm (100 hoặc 1.0 đều hiểu)
 const lvl = () => (G.level() || { lv: 1 }).lv;
-const big = c => c > 0 && (c >= 500 || c >= .3 * bal());                                                    // ngưỡng hộp xác nhận chi điểm
+const big = c => c > 0 && (c >= 200 || c >= .25 * bal());                                                    // ngưỡng hộp xác nhận chi điểm
+const FX = n => Math.round(Number(n) || 0).toLocaleString('vi-VN');                                          // số đầy đủ cho hộp xác nhận
+function capInfo() { const d = G.getDerived(), sp = d && d.spend; if (!sp || !(+sp.cap > 0)) return null; const today = +sp.today || 0; return { today, cap: +sp.cap, remaining: sp.remaining == null ? Math.max(0, +sp.cap - today) : +sp.remaining }; }
+const wdE = id => { const d = G.getDerived(); if (!d || !Array.isArray(d.wd)) return null; for (const e of d.wd) if (e && e.id === id) return e; return null; };
+function capLine() { const c = capInfo(); return c ? el('p', 'gdu-capline', 'Hôm nay đã dùng ' + FX(c.today) + '/' + FX(c.cap) + ' điểm cho vườn', { role: 'status' }) : null; }
+function repBox() {
+  const r = G.rep(); if (!r.has) return null; const s = el('section', 'gdu-rep'), pc = Math.round(r.frac * 100);
+  const bar = el('div', 'gdu-bar', null, { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': pc, 'aria-label': 'Tiến độ lên hạng Danh vọng kế tiếp' }), i = el('i'); i.style.width = pc + '%'; bar.append(i);
+  s.append(el('b', 'gdu-rephd', '🏅 Danh vọng ' + r.lv + (r.title ? ' · ' + r.title : '')), bar,
+    el('span', 'gdu-sub', (r.next == null ? 'Bạn đã đạt hạng Danh vọng cao nhất. ' : 'Còn ' + FX(Math.max(0, r.next - r.cur)) + ' điểm dùng cho vườn nữa để lên hạng ' + (r.lv + 1) + '. ') + 'Danh vọng mở Kỳ quan và trang trí bậc cao. Cứ thong thả, không cần vội.'));
+  return s;
+}
 const IC = { pt: '💰', xu: '🪙', es: '🌸' }, NM = { pt: 'điểm', xu: 'Xu', es: 'Tinh hoa' };
 const money = (kind, n) => { const s = el('span', 'gdu-cost', null, { 'aria-label': F(n) + ' ' + NM[kind] }); s.append(el('span', '', IC[kind], { 'aria-hidden': 'true' }), document.createTextNode(' ' + F(n))); return s; };
 function sprite(ch, size) {                                       // cùng cách vẽ emoji như engine (font + canvas), để thẻ trông giống trên bản đồ
@@ -42,8 +53,9 @@ const FRIENDLY = {
   garden_disabled: 'Giáo viên đang tắt Khu vườn. Hãy quay lại sau nhé.',
   garden_not_enough_points: 'Bạn chưa đủ điểm. Làm thêm bài từ vựng để kiếm điểm rồi quay lại.',
   garden_not_enough_xu: 'Chưa đủ Xu 🪙. Thu hoạch thêm rồi thử lại.',
-  garden_daily_cap: 'Hôm nay bạn đã chi hết hạn mức giáo viên đặt. Mai chơi tiếp nhé.',
-  garden_locked: 'Chưa mở khóa: cần thêm cấp vườn, công trình hoặc mùa phù hợp.',
+  garden_daily_cap: 'Hôm nay bạn đã dùng hết số điểm giáo viên cho phép chi cho vườn. Điểm của bạn không bị trừ. Mai chơi tiếp nhé.',
+  garden_maxed: 'Mục này đã đạt mức tối đa rồi nên không nâng thêm được. Điểm của bạn không bị trừ.',
+  garden_locked: 'Chưa mở khóa: cần thêm Danh vọng, cấp vườn hoặc mùa phù hợp.',
   garden_cell_busy: 'Ô này đang có vật khác.', garden_bad_cell: 'Ô này chưa mở hoặc không hợp lệ.',
   garden_not_ready: 'Cây chưa chín.', garden_no_crop: 'Ô này chưa có cây.',
   garden_already: 'Bạn đã nhận phần này rồi.', garden_nothing: 'Chưa có gì để nhận lúc này.', garden_not_done: 'Chưa đủ tiến độ để nhận thưởng.',
@@ -81,8 +93,11 @@ function ask(title, msg, okText, extra) {
   });
 }
 async function spend(cost, title, msg, okText) {                  // true = được phép chi điểm
-  const b = bal(); if (cost > b) { say('Bạn chưa đủ điểm: cần khoảng ' + F(cost) + ', đang có ' + F(b) + '. Làm thêm bài từ vựng để kiếm điểm nhé.', true); return false; }
-  if (!big(cost)) return true; return ask(title, msg + ' (≈ ' + F(cost) + ' điểm, bạn đang có ' + F(b) + ').', okText);
+  const b = bal(); if (cost > b) { say('Bạn chưa đủ điểm: cần khoảng ' + FX(cost) + ', đang có ' + FX(b) + '. Làm thêm bài từ vựng để kiếm điểm nhé.', true); return false; }
+  const ci = capInfo(), over = !!ci && cost > ci.remaining;
+  if (!big(cost) && !over) return true;
+  const ex = over ? el('p', 'gdu-note bad', 'Hôm nay giáo viên cho phép dùng tối đa ' + FX(ci.cap) + ' điểm cho vườn, bạn còn ' + FX(ci.remaining) + ' điểm. Lần này có thể bị từ chối.') : null;
+  return ask(title, (msg ? msg + ' ' : '') + 'Bạn sẽ dùng ' + FX(cost) + ' điểm, còn lại ' + FX(b - cost) + ' điểm.', okText || 'Đồng ý', ex);
 }
 function run(ops, opt) {                                          // gửi thao tác; lỗi → báo ngay trong bảng
   return G.act(ops, Object.assign({ immediate: true, silent: true }, opt)).catch(e => { say(friendly(e && e.code, e && e.message), true); throw e; });
@@ -96,7 +111,7 @@ const blds = () => listOf(cat().buildings).map(e => { const i = G.buildingInfo(e
 function perms() {
   return listOf(cat().perms).map(e => { const r = e.raw;
     if (Array.isArray(r)) return { id: r[0], name: String(r[1] != null ? r[1] : r[0]), emoji: r[2] || '⬆️', base: +r[3], rate: +r[4], desc: String(r[5] || '') };
-    return { id: e.id, name: String(pk(r, ['name', 'n', 'ten'], e.id)), emoji: pk(r, ['emoji', 'e'], '⬆️'), base: +pk(r, ['base', 'b', 'price'], NaN), rate: +pk(r, ['rate', 'r', 'mul'], NaN), desc: String(pk(r, ['desc', 'd', 'mota', 'eff'], '')) }; });
+    return { id: e.id, name: String(pk(r, ['name', 'n', 'ten'], e.id)), emoji: pk(r, ['emoji', 'e'], '⬆️'), base: +pk(r, ['base', 'b', 'price'], NaN), rate: +pk(r, ['rate', 'r', 'mul'], NaN), desc: String(pk(r, ['desc', 'd', 'mota', 'eff'], '')), lmax: +pk(r, ['lmax', 'max'], 0) || 0 }; });
 }
 function achs() {
   return listOf(cat().ach).map(e => { const r = e.raw;
@@ -111,7 +126,7 @@ function themeLabel(v) {
   return String(v);
 }
 function tierMat(t) { if (!t) return ''; const e = listOf(cat().tiers)[t]; if (!e) return ''; const r = e.raw; return String(typeof r === 'string' ? r : Array.isArray(r) ? (r[1] != null ? r[1] : r[0]) : pk(r, ['name', 'n', 'mat', 'material'], '')); }
-const tierCap = st => Math.min(60, Math.max(0, (st.sn | 0) + Math.floor(lvl() / 20)));
+const tierCap = st => { const d = G.getDerived() || {}; if (d.maxTier != null && isFinite(+d.maxTier)) return Math.min(60, Math.max(0, Math.floor(+d.maxTier))); return Math.min(60, Math.max(0, (st.sn | 0) + Math.floor(lvl() / 20) + G.rep().lv)); };   // máy chủ: Mùa + cấp/20 + Danh vọng
 const decoId = (b, t) => t ? b.id + '~' + t : b.id;
 const decoPrice = (b, t) => Math.ceil(b.price * Math.pow(2.6, t) * cm());
 const decoAes = (b, t) => b.aes * Math.pow(2.2, t);
@@ -136,7 +151,7 @@ function selectBox(label, opts, cur, fn) {
 }
 function card(o) {
   const c = el('div', 'gdu-item' + (o.lock ? ' locked' : '') + (o.on ? ' on' : ''), null, { role: 'listitem' });
-  const pv = el('span', 'gdu-prev'); if (o.tier) pv.style.setProperty('--t', o.tier); pv.append(sprite(o.emoji, 30)); c.append(pv);
+  const pv = el('span', 'gdu-prev'); if (o.tier) pv.style.setProperty('--t', o.tier); if (o.swatch) pv.style.background = 'linear-gradient(135deg,' + o.swatch[0] + ' 0 50%,' + o.swatch[1] + ' 50% 100%)'; pv.append(sprite(o.emoji, 30)); c.append(pv);
   const inf = el('div', 'gdu-info'); inf.append(el('b', 'gdu-nm', o.name)); if (o.desc) inf.append(el('span', 'gdu-sub', o.desc));
   const row = el('div', 'gdu-meta'); if (o.cost) row.append(money(o.cost.kind, o.cost.n)); if (o.lock) row.append(el('span', 'gdu-lock', '🔒 ' + o.lock)); if (o.badge) row.append(el('span', 'gdu-tag', o.badge)); inf.append(row); c.append(inf);
   const ac = el('div', 'gdu-act'); (o.actions || []).forEach(a => { const b = btn(a.cls || '', a.label, a.aria || a.label, a.fn); if (a.off) b.disabled = true; ac.append(b); }); c.append(ac);
@@ -144,22 +159,30 @@ function card(o) {
 }
 
 /* ===== CỬA HÀNG ===== */
-const SHOP_TABS = [['seed', '🌱 Hạt giống'], ['land', '🟫 Đất & mở rộng'], ['bld', '🏠 Công trình'], ['deco', '🎀 Trang trí'], ['pet', '🐔 Vật nuôi']];
+const SHOP_TABS = [['seed', '🌱 Hạt giống'], ['land', '🟫 Đất & mở rộng'], ['bld', '🏠 Công trình'], ['wonder', '🏛️ Kỳ quan'], ['ground', '🌄 Nền đất'], ['deco', '🎀 Trang trí'], ['pet', '🐔 Vật nuôi']];
 const PAGE = 24;
 async function startPlace(id, cost, name) {
-  if (cost > 0 && !(await spend(cost, 'Đặt ' + name, 'Khi bạn chạm ✔ Đặt trên bản đồ, ' + name + ' sẽ trừ điểm.', 'Tiếp tục'))) return;
-  G.setTool('place', id); G.closePanel(); toastG('Chạm vào bản đồ để chọn chỗ, rồi bấm ✔ Đặt.');
+  if (cost > 0 && cost > bal()) { say('Bạn chưa đủ điểm: cần khoảng ' + FX(cost) + ', đang có ' + FX(bal()) + '. Làm thêm bài từ vựng để kiếm điểm nhé.', true); return; }
+  G.setTool('place', id); G.closePanel(); toastG('Chạm vào bản đồ để chọn chỗ, rồi bấm ✔ Đặt.' + (cost > 0 ? ' Điểm chỉ bị trừ khi bạn bấm ✔ Đặt.' : ''));
 }
 function expandCandidates(st) {
   const own = new Set(st.ch || []), c = {}, out = [];
   for (const k of st.ch || []) { const p = k.split(',').map(Number); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = (p[0] + dx) + ',' + (p[1] + dy); if (!own.has(q) && !c[q]) { c[q] = 1; out.push([p[0] + dx, p[1] + dy]); } } }
   return out.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1])).slice(0, 12);
 }
-const plotCost = st => Math.ceil(Math.round(40 * Math.pow(1.3, Math.max(0, (st.ch || []).length - 1))) * cm());
+const plotCost = st => G.plotCost((st.ch || []).length);
 async function expand(cx, cy, cost) {
-  if (!(await spend(cost, 'Mở rộng vườn', 'Mở mảnh đất (' + cx + ', ' + cy + ') sẽ trừ điểm.', 'Mở rộng'))) return;
+  if (!(await spend(cost, 'Mở rộng vườn', 'Mở mảnh đất (' + cx + ', ' + cy + ').', 'Mở rộng'))) return;
   try { await run({ op: 'buyPlot', cx, cy }); say('Đã mở thêm một mảnh đất. Điểm được trừ theo máy chủ.'); sfx('coin'); } catch (_) {}
 }
+const wonderState = (st, w) => { const pl = st.b[w.id], stored = +(st.wi && st.wi[w.id]) || 0; return { placed: pl || null, stored, l: pl ? (+pl.l || 1) : stored }; };
+function wdRows(st) {                                              // Kỳ quan đã đặt, dùng cho bảng Nâng cấp (mỗi lần 1 giai đoạn)
+  const out = []; for (const w of G.wonders()) { const ws = wonderState(st, w); if (!ws.placed) continue; const l = ws.l, e = wdE(w.id);
+    out.push({ what: 'wonder', id: w.id, emoji: w.emoji, name: w.name, L: l, lmax: 5, unit: 'Giai đoạn', maxed: l >= 5 || !!(e && e.maxed), kind: 'pt', know: true, have: bal,
+      desc: w.w + '×' + w.h + ' ô' + (w.desc ? ' · ' + w.desc : '') + ' · Mỗi lần nâng 1 giai đoạn (tối đa 5).', cost: n => G.wonderCost(w.id, l + 1 + n) }); }
+  return out;
+}
+function upWonderFrom(w, st) { const r = wdRows(st).filter(x => x.id === w.id)[0]; if (r) buyUp(r, 1); }
 function shopItems(tab, st, S) {
   const out = [], xu = st.xu, b = bal(), L = lvl();
   if (tab === 'seed') {
@@ -173,6 +196,30 @@ function shopItems(tab, st, S) {
     if (n >= 400) out.push({ key: 'full', emoji: '🗺️', name: 'Đã mở tối đa 400 mảnh', desc: '', lock: '', afford: true, price: 0, actions: [] });
     else for (const [cx, cy] of expandCandidates(st)) out.push({ key: 'p' + cx + ',' + cy, emoji: '🟩', name: 'Mảnh đất (' + cx + ', ' + cy + ')', desc: 'Mở thêm 8×8 ô, liền kề vườn hiện có.', cost: { kind: 'pt', n: cost }, lock: '', afford: b >= cost, price: cost,
       actions: [{ label: '🧭 Xem', aria: 'Xem mảnh đất trên bản đồ', fn: () => { G.closePanel(); G.scene.goTo(cx * 8 + 4, cy * 8 + 4); } }, { label: 'Mở rộng', cls: 'ok', aria: 'Mở rộng mảnh (' + cx + ',' + cy + ')', fn: () => expand(cx, cy, cost) }] });
+  } else if (tab === 'wonder') {
+    const rp = G.rep();
+    for (const w of G.wonders()) { const ws = wonderState(st, w), e = wdE(w.id), l = ws.l, maxed = l >= 5 || !!(e && e.maxed), needRep = e && e.needRep != null ? +e.needRep : w.rep;
+      const locked = !ws.placed && !ws.stored && (e && e.locked != null ? !!e.locked : needRep > rp.lv), nextCost = maxed ? 0 : G.wonderCost(w.id, ws.placed ? l + 1 : 1);
+      const aesNow = l > 0 ? (e && e.aes != null ? +e.aes : w.aes[l - 1]) : 0, aesNext = !maxed ? w.aes[l] : null;
+      const desc = w.w + '×' + w.h + ' ô' + (w.desc ? ' · ' + w.desc : '') + (isFinite(aesNow) || isFinite(aesNext) ? ' · Thẩm mỹ ' + F(aesNow || 0) + (aesNext != null && isFinite(aesNext) ? ' → ' + F(aesNext) : '') : '');
+      let badge = ''; if (ws.placed) badge = (maxed ? 'Đã đạt tối đa' : 'Đã đặt') + ' · giai đoạn ' + l + '/5'; else if (ws.stored) badge = 'Trong kho · giai đoạn ' + l + '/5';
+      const acts = [];
+      if (!ws.placed) acts.push({ label: ws.stored ? '📍 Đặt lại (miễn phí)' : '📍 Đặt', cls: 'ok', off: locked, aria: (ws.stored ? 'Đặt lại miễn phí ' : 'Đặt ') + w.name, fn: () => startPlace(w.id, ws.stored ? 0 : nextCost, w.name) });
+      else acts.push({ label: '🧭 Xem', aria: 'Xem ' + w.name + ' trên bản đồ', fn: () => { G.closePanel(); G.scene.goTo(ws.placed.x + w.w / 2, ws.placed.y + w.h / 2); } }, { label: '✥ Dời', aria: 'Dời ' + w.name + ', miễn phí', fn: () => G.carryBuilding(w.id) },
+        { label: '📦 Cất', aria: 'Cất ' + w.name + ' vào kho, đặt lại miễn phí', fn: () => run({ op: 'wonder', act: 'store', id: w.id }).then(() => say(w.name + ' đã vào kho. Đặt lại miễn phí bất cứ lúc nào.')).catch(() => {}) },
+        { label: maxed ? '✔ Đã đạt tối đa' : '⬆️ Nâng giai đoạn', cls: maxed ? '' : 'ok', off: maxed, aria: maxed ? w.name + ' đã đạt tối đa' : 'Nâng ' + w.name + ' lên giai đoạn ' + (l + 1), fn: () => upWonderFrom(w, st) });
+      out.push({ key: 'w' + w.id, emoji: w.emoji, name: w.name, desc, cost: (!ws.stored && !maxed) ? { kind: 'pt', n: nextCost } : null, lock: locked ? 'Cần Danh vọng ' + needRep : '', afford: !locked && (ws.stored || maxed || b >= nextCost), price: nextCost, badge, actions: acts,
+        tier: l || 0 });
+    }
+    if (!out.length) out.push({ key: 'wnone', emoji: '🏛️', name: 'Chưa có Kỳ quan', desc: 'Danh sách Kỳ quan chưa tải được hoặc máy chủ chưa hỗ trợ. Bấm Làm mới trong Cài đặt.', cost: null, lock: '', afford: true, price: 0, actions: [] });
+  } else if (tab === 'ground') {
+    const cur = st.gr || '', owned = new Set(st.go || []), gl = G.grounds();
+    const apply = (id, nm, cost) => async () => { if (cost > 0 && !(await spend(cost, 'Mua nền đất ' + nm, 'Bạn đang mua nền đất “' + nm + '”.', 'Mua & dùng'))) return; try { await run({ op: 'ground', id }); say(id === 'default' ? 'Đã dùng lại nền đất mặc định.' : 'Đã dùng nền đất ' + nm + '.'); sfx('click'); } catch (_) {} };
+    out.push({ key: 'g-default', emoji: '🟩', name: 'Nền mặc định', desc: 'Cỏ xanh quen thuộc. Đổi lại lúc nào cũng miễn phí.', cost: null, lock: '', afford: true, price: 0, on: cur === '', badge: cur === '' ? 'Đang dùng' : '', actions: [{ label: cur === '' ? '✔ Đang dùng' : 'Dùng lại', cls: cur === '' ? '' : 'ok', off: cur === '', fn: apply('default', 'mặc định', 0) }] });
+    for (const gd of gl) { const have = owned.has(gd.id) || cur === gd.id, cost = have ? 0 : G.groundCost(gd.id), on = cur === gd.id;
+      out.push({ key: 'g' + gd.id, emoji: gd.emoji, swatch: [gd.c1, gd.c2], name: gd.name, desc: have ? 'Bạn đã sở hữu. Đổi qua lại miễn phí.' : 'Nền đất mới, mua một lần dùng mãi.', cost: have ? null : { kind: 'pt', n: cost }, lock: '', afford: have || b >= cost, price: cost, on, badge: on ? 'Đang dùng' : have ? 'Đã sở hữu' : '',
+        actions: [{ label: on ? '✔ Đang dùng' : have ? 'Áp dụng' : 'Mua & dùng', cls: on ? '' : 'ok', off: on, aria: (on ? 'Đang dùng ' : have ? 'Áp dụng ' : 'Mua và dùng ') + 'nền đất ' + gd.name, fn: apply(gd.id, gd.name, cost) }] }); }
+    if (!gl.length) out.push({ key: 'gnone', emoji: '🌄', name: 'Chưa có nền đất để mua', desc: 'Danh sách nền đất chưa tải được hoặc máy chủ chưa hỗ trợ.', cost: null, lock: '', afford: true, price: 0, actions: [] });
   } else {
     const pet = tab === 'pet';
     for (const bi of blds()) { if (PETS.includes(bi.id) !== pet) continue; const owned = !!st.b[bi.id], cost = Math.ceil(bi.price * cm()), lock = !owned && bi.lvl > L ? 'Cần vườn cấp ' + bi.lvl : '';
@@ -192,7 +239,7 @@ function decoQuery(st, S) {                                     // danh sách (m
 }
 const shop = guarded((body, g, data) => {
   const S = { tab: (data && data.tab) || 'seed', q: '', theme: 'all', stat: 'all', sort: 'def', n: PAGE };
-  const nt = mkNote(), tabs = el('div', 'gdu-tabs', null, { role: 'tablist', 'aria-label': 'Nhóm cửa hàng' }), tools = el('div', 'gdu-tools'), list = el('div', 'gdu-list', null, { role: 'list' }), foot = el('div', 'gdu-foot');
+  const nt = mkNote(), head = el('div', 'gdu-head'), tabs = el('div', 'gdu-tabs', null, { role: 'tablist', 'aria-label': 'Nhóm cửa hàng' }), tools = el('div', 'gdu-tools'), list = el('div', 'gdu-list', null, { role: 'list' }), foot = el('div', 'gdu-foot');
   const q = el('input', 'gdu-in gdu-q', null, { type: 'search', placeholder: 'Tìm theo tên…', 'aria-label': 'Tìm trong cửa hàng', autocomplete: 'off' });
   const more = btn('', 'Hiện thêm', 'Hiện thêm vật phẩm', () => { S.n += PAGE; draw(); }), cnt = el('span', 'gd-muted', '');
   let bar = null; foot.append(cnt, more);
@@ -201,19 +248,21 @@ const shop = guarded((body, g, data) => {
   function buildTools() {
     tools.replaceChildren(q); const t = S.tab;
     if (t === 'deco') { const th = [['all', 'Tất cả chủ đề']]; const seen = new Set(); decoBase().forEach(d => { const k = String(d.theme); if (!seen.has(k)) { seen.add(k); th.push([k, themeLabel(d.theme)]); } }); tools.append(selectBox('Chủ đề', th, S.theme, v => { S.theme = v; S.n = PAGE; draw(); })); }
-    tools.append(selectBox('Trạng thái', t === 'deco' ? [['all', 'Tất cả'], ['buy', 'Mua được']] : [['all', 'Tất cả'], ['open', 'Đã mở khóa'], ['locked', 'Đang khóa'], ['buy', 'Mua được']], S.stat, v => { S.stat = v; S.n = PAGE; draw(); }));
+    tools.append(selectBox('Trạng thái', t === 'deco' ? [['all', 'Tất cả'], ['buy', 'Mua được']] : t === 'ground' ? [['all', 'Tất cả'], ['buy', 'Mua được']] : [['all', 'Tất cả'], ['open', 'Đã mở khóa'], ['locked', 'Đang khóa'], ['buy', 'Mua được']], S.stat, v => { S.stat = v; S.n = PAGE; draw(); }));
     tools.append(selectBox('Sắp xếp', t === 'deco' ? [['def', 'Theo bậc (cao → thấp)'], ['p1', 'Giá tăng dần'], ['p2', 'Giá giảm dần'], ['a2', 'Điểm đẹp cao']] : [['def', 'Mặc định'], ['p1', 'Giá tăng dần'], ['p2', 'Giá giảm dần']], S.sort, v => { S.sort = v; S.n = PAGE; draw(); }));
   }
   function draw() {
     const st = g.getState(); if (!st) return; const keepTop = body.parentElement ? body.parentElement.scrollTop : 0;
     for (const k in tb) { tb[k].setAttribute('aria-selected', k === S.tab); tb[k].tabIndex = k === S.tab ? 0 : -1; tb[k].classList.toggle('on', k === S.tab); }
-    list.setAttribute('aria-labelledby', 'gdu-t-' + S.tab); list.replaceChildren(); let total = 0, shown = 0;
+    head.replaceChildren(...[repBox(), capLine()].filter(Boolean)); list.setAttribute('aria-labelledby', 'gdu-t-' + S.tab); list.replaceChildren(); let total = 0, shown = 0;
     if (S.tab === 'deco') {
       const { rows, cap } = decoQuery(st, S); total = rows.length; let lastT = -1;
       rows.slice(0, S.n).forEach(r => { if (S.sort === 'def' && r.t !== lastT) { lastT = r.t; list.append(el('h3', 'gdu-gh', 'Bậc ' + r.t + (tierMat(r.t) ? ' · ' + tierMat(r.t) : ''))); }
         const pl = () => startPlace(r.id, r.inv > 0 ? 0 : r.p, r.d.name);
         list.append(card({ emoji: r.d.emoji, tier: r.t, name: r.d.name + (r.t ? ' · bậc ' + r.t : ''), desc: themeLabel(r.d.theme) + ' · đẹp +' + F(r.a), cost: r.inv > 0 ? null : { kind: 'pt', n: r.p }, badge: r.inv > 0 ? 'Trong kho: ' + r.inv + ' (miễn phí)' : '', actions: [{ label: r.inv > 0 ? '📍 Đặt từ kho' : '📍 Mua & đặt', cls: 'ok', aria: (r.inv > 0 ? 'Đặt từ kho ' : 'Mua và đặt ') + r.d.name, fn: pl }] })); shown++; });
-      if (cap < 60) list.append(el('p', 'gd-muted', 'Bậc ' + (cap + 1) + ' sẽ mở khi vườn lên cấp ' + Math.max(1, (cap + 1 - (st.sn | 0)) * 20) + ' hoặc khi bạn Sang mùa mới.'));
+      if (cap < 60) { const rp = G.rep();
+        if (rp.has) list.append(card({ emoji: '🔒', name: 'Bậc ' + (cap + 1) + (tierMat(cap + 1) ? ' · ' + tierMat(cap + 1) : ''), desc: 'Mở khi Danh vọng lên hạng ' + (rp.lv + 1) + ', hoặc vườn lên cấp ' + (Math.floor(lvl() / 20) + 1) * 20 + ', hoặc khi Sang mùa mới.', lock: 'Cần Danh vọng ' + (rp.lv + 1), actions: [] }));
+        else list.append(el('p', 'gd-muted', 'Bậc ' + (cap + 1) + ' sẽ mở khi vườn lên cấp ' + Math.max(1, (cap + 1 - (st.sn | 0)) * 20) + ' hoặc khi bạn Sang mùa mới.')); }
     } else {
       let items = shopItems(S.tab, st, S); const qq = fold(S.q);
       if (qq) items = items.filter(i => fold(i.name).indexOf(qq) >= 0);
@@ -225,7 +274,7 @@ const shop = guarded((body, g, data) => {
     cnt.textContent = total ? 'Hiển thị ' + shown + ' / ' + total : ''; more.hidden = shown >= total;
     if (body.parentElement) body.parentElement.scrollTop = keepTop;
   }
-  body.append(nt, tabs, tools, list, foot); buildTools(); draw();
+  body.append(nt, head, tabs, tools, list, foot); buildTools(); draw();
   if (root.IntersectionObserver) { const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting) && !more.hidden) { S.n += PAGE; draw(); } }, { root: body.parentElement || null, rootMargin: '120px' }); io.observe(more); bar = io; }
   let raf = 0;
   return { update() { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }, destroy() { cancelAnimationFrame(raf); bar && bar.disconnect(); } };
@@ -234,32 +283,43 @@ const shop = guarded((body, g, data) => {
 /* ===== NÂNG CẤP (vô hạn cấp) ===== */
 const MAXBUY = 25;
 function upRows(st) {
-  const rows = [], d = cm();
+  const rows = [], d = cm(), dpm = (G.getDerived() || {}).perms || {};
   for (const bi of blds()) { const o = st.b[bi.id]; if (!o) continue; const L = +o.l || 1, cost = n => Math.round(bi.ux * Math.pow(1.32, L - 1 + n));
-    rows.push({ what: 'bld', id: bi.id, emoji: bi.emoji, name: bi.name, L, desc: (bi.desc ? bi.desc + ' · ' : '') + 'Tăng sản vật/giờ ×(1 + 0,7 × (cấp − 1)) (máy chủ tính chính xác).', kind: 'xu', know: bi.ux > 0, cost, have: () => st.xu }); }
-  for (const p of perms()) { const L = +st.up[p.id] || 0, know = isFinite(p.base) && isFinite(p.rate) && p.base > 0, cost = n => Math.ceil(Math.round(p.base * Math.pow(p.rate, L + n)) * d);
-    rows.push({ what: 'perm', id: p.id, emoji: p.emoji, name: p.name, L, desc: p.desc || 'Nâng cấp vĩnh viễn, giữ nguyên khi Sang mùa mới.', kind: 'pt', know, cost, have: bal }); }
+    rows.push({ what: 'bld', id: bi.id, emoji: bi.emoji, name: bi.name, L, unit: 'Cấp', desc: (bi.desc ? bi.desc + ' · ' : '') + 'Tăng sản vật/giờ ×(1 + 0,7 × (cấp − 1)) (máy chủ tính chính xác).', kind: 'xu', know: bi.ux > 0, cost, have: () => st.xu }); }
+  rows.push(...wdRows(st));
+  for (const p of perms()) {
+    const dp = dpm && typeof dpm === 'object' ? dpm[p.id] || null : null, L = dp && dp.l != null ? +dp.l || 0 : +st.up[p.id] || 0, lmax = dp && +dp.lmax > 0 ? +dp.lmax : (+p.lmax > 0 ? +p.lmax : 0);
+    const maxed = dp && dp.maxed != null ? !!dp.maxed : (lmax > 0 && L >= lmax), dpc = dp && dp.cost != null && isFinite(+dp.cost) ? +dp.cost : null, rate = isFinite(p.rate) && p.rate > 0 ? p.rate : 1.2;
+    const know = dpc != null || (isFinite(p.base) && isFinite(p.rate) && p.base > 0), cost = n => dpc != null ? Math.round(dpc * Math.pow(rate, n)) : Math.ceil(Math.round(p.base * Math.pow(p.rate, L + n)) * d);
+    rows.push({ what: 'perm', id: p.id, emoji: p.emoji, name: p.name, L, lmax, unit: 'Cấp', maxed, room: lmax > 0 ? Math.max(0, lmax - L) : Infinity, desc: p.desc || 'Nâng cấp vĩnh viễn, giữ nguyên khi Sang mùa mới.', kind: 'pt', know, cost, have: bal });
+  }
   return rows;
 }
-function maxAffordable(r) { if (!r.know) return 0; let have = r.have(), n = 0, sum = 0; while (n < MAXBUY) { const c = r.cost(n); if (sum + c > have) break; sum += c; n++; } return n; }
+function maxAffordable(r) { if (r.maxed || !r.know) return 0; let have = r.have(), n = 0, sum = 0; const lim = Math.min(MAXBUY, r.room != null ? r.room : MAXBUY); while (n < lim) { const c = r.cost(n); if (sum + c > have) break; sum += c; n++; } return n; }
 const sumCost = (r, n) => { let s = 0; for (let i = 0; i < n; i++) s += r.cost(i); return s; };
 async function buyUp(r, n) {
+  if (r.maxed) { say(friendly('garden_maxed'), true); return; }
+  if (r.room != null && n > r.room) n = r.room; if (n < 1) return;
   const ops = []; for (let i = 0; i < n; i++) ops.push({ op: 'upgrade', what: r.what, id: r.id });
-  if (r.kind === 'pt') { const c = r.know ? sumCost(r, n) : 0; if (r.know && c > bal()) { say('Bạn chưa đủ điểm: cần khoảng ' + F(c) + ', đang có ' + F(bal()) + '.', true); return; }
-    if (!r.know || big(c)) { if (!(await ask('Nâng cấp ' + r.name, 'Nâng ' + n + ' cấp ' + (r.know ? 'sẽ trừ khoảng ' + F(c) + ' điểm' : '(giá do máy chủ tính, có thể trừ điểm)') + '. Bạn đang có ' + F(bal()) + ' điểm.', 'Nâng cấp'))) return; } }
+  if (r.kind === 'pt') {
+    if (r.know) { const c = sumCost(r, n); if (!(await spend(c, 'Nâng cấp ' + r.name, 'Nâng ' + r.name + ' thêm ' + n + (r.unit === 'Giai đoạn' ? ' giai đoạn.' : ' cấp.'), 'Nâng cấp'))) return; }
+    else if (!(await ask('Nâng cấp ' + r.name, 'Nâng ' + n + ' cấp (giá do máy chủ tính, có thể trừ điểm). Bạn đang có ' + FX(bal()) + ' điểm.', 'Nâng cấp'))) return; }
   else if (r.know && sumCost(r, n) > r.have()) { say('Chưa đủ Xu 🪙: cần khoảng ' + F(sumCost(r, n)) + '. Thu hoạch thêm rồi quay lại.', true); return; }
-  try { await run(ops); const st = G.getState(), L = r.what === 'bld' ? (st.b[r.id] && st.b[r.id].l) : st.up[r.id]; say('Đã nâng ' + r.name + ' lên cấp ' + L + '.'); sfx('win'); } catch (_) {}
+  try { await run(ops); const st = G.getState(), L = r.what === 'bld' || r.what === 'wonder' ? (st.b[r.id] && st.b[r.id].l) : st.up[r.id]; say('Đã nâng ' + r.name + ' lên ' + (r.unit === 'Giai đoạn' ? 'giai đoạn ' : 'cấp ') + L + '.'); sfx('win'); } catch (_) {}
 }
 const upgrades = guarded((body, g, data) => {
   const nt = mkNote(), list = el('div', 'gdu-list', null, { role: 'list' }), want = data && data.id; body.append(nt, list); let pend = false;
   function draw() {
     const st = g.getState(); if (!st) return; const top = body.parentElement ? body.parentElement.scrollTop : 0; list.replaceChildren(); const rows = upRows(st);
     if (!rows.length) list.append(empty('Chưa có nâng cấp nào. Hãy xây một công trình trong Cửa hàng trước.', btn('ok', '🛒 Mở cửa hàng', 'Mở cửa hàng', () => g.openPanel('shop', { tab: 'bld' }))));
-    ['bld', 'perm'].forEach(w => { const rs = rows.filter(r => r.what === w); if (!rs.length) return; list.append(el('h3', 'gdu-gh', w === 'bld' ? 'Công trình (trả bằng Xu 🪙)' : 'Nâng cấp vĩnh viễn (trả bằng điểm 💰)'));
-      rs.forEach(r => { const next = r.know ? r.cost(0) : 0, mx = maxAffordable(r);
-        const c = card({ emoji: r.emoji, name: r.name, on: want === r.id, desc: r.desc, badge: 'Cấp ' + r.L + ' → ' + (r.L + 1), cost: r.know ? { kind: r.kind, n: next } : null,
-          actions: [{ label: 'Mua 1', cls: 'ok', aria: 'Nâng cấp ' + r.name + ' một cấp', fn: () => buyUp(r, 1) }, { label: 'Tối đa' + (mx > 1 ? ' (' + mx + ')' : ''), aria: 'Nâng cấp ' + r.name + ' tối đa có thể', off: mx < 1, fn: () => buyUp(r, mx) }] });
-        if (!r.know) c.querySelector('.gdu-meta').append(el('span', 'gdu-sub', 'Giá do máy chủ tính')); list.append(c); if (want === r.id && !pend) { pend = true; setTimeout(() => c.scrollIntoView({ block: 'center' }), 60); } }); });
+    const HD = { bld: 'Công trình (trả bằng Xu 🪙)', wonder: 'Kỳ quan (trả bằng điểm 💰, tối đa 5 giai đoạn)', perm: 'Nâng cấp vĩnh viễn (trả bằng điểm 💰)' }, cp = capLine(); if (cp && rows.some(r => r.kind === 'pt')) list.append(cp);
+    ['bld', 'wonder', 'perm'].forEach(w => { const rs = rows.filter(r => r.what === w); if (!rs.length) return; list.append(el('h3', 'gdu-gh', HD[w]));
+      rs.forEach(r => { const maxed = !!r.maxed, next = r.know && !maxed ? r.cost(0) : 0, mx = maxAffordable(r), lv = r.unit === 'Giai đoạn' ? 'Giai đoạn ' : 'Cấp ';
+        const acts = maxed ? [{ label: '✔ Đã đạt tối đa', aria: r.name + ' đã đạt mức tối đa', off: true }]
+          : r.what === 'wonder' ? [{ label: '⬆️ Nâng 1 giai đoạn', cls: 'ok', aria: 'Nâng ' + r.name + ' một giai đoạn', fn: () => buyUp(r, 1) }]
+          : [{ label: 'Mua 1', cls: 'ok', aria: 'Nâng cấp ' + r.name + ' một cấp', fn: () => buyUp(r, 1) }, { label: 'Tối đa' + (mx > 1 ? ' (' + mx + ')' : ''), aria: 'Nâng cấp ' + r.name + ' tối đa có thể', off: mx < 1, fn: () => buyUp(r, mx) }];
+        const c = card({ emoji: r.emoji, name: r.name, on: want === r.id, desc: r.desc, badge: maxed ? 'Đã đạt tối đa · ' + lv.toLowerCase() + r.L + (r.lmax ? '/' + r.lmax : '') : lv + r.L + (r.lmax ? '/' + r.lmax : '') + ' → ' + (r.L + 1), cost: r.know && !maxed ? { kind: r.kind, n: next } : null, actions: acts });
+        if (!r.know && !maxed) c.querySelector('.gdu-meta').append(el('span', 'gdu-sub', 'Giá do máy chủ tính')); list.append(c); if (want === r.id && !pend) { pend = true; setTimeout(() => c.scrollIntoView({ block: 'center' }), 60); } }); });
     if (body.parentElement && !pend) body.parentElement.scrollTop = top;
   }
   draw(); let raf = 0; return { update() { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }, destroy() { cancelAnimationFrame(raf); } };
@@ -337,7 +397,7 @@ const prestige = guarded((body, g) => {
 
 /* ===== THỐNG KÊ, NHẬT KÝ, XẾP HẠNG, CHỤP ẢNH ===== */
 const STATS = [['Tổng thu hoạch', ['h', 'harv', 'harvest', 'harvested', 'th'], F], ['Điểm đã chi', ['sp', 'spent', 'pts', 'diem'], F], ['Xu đã kiếm', ['xu', 'xuTotal', 'earned'], F], ['Thời gian chơi', ['t', 'time', 'play', 'playMs', 'tm'], v => { v = +v || 0; const s = v > 1e7 ? v / 1000 : v; return s >= 3600 ? Math.floor(s / 3600) + ' giờ ' + Math.floor(s % 3600 / 60) + ' phút' : Math.floor(s / 60) + ' phút'; }], ['Cây trồng nhiều nhất', ['fav', 'favCrop', 'top'], v => { const c = G.cropInfo(v); return c ? c.emoji + ' ' + c.name : String(v); }]];
-function aesScore(st) { const d = G.getDerived() || {}; if (d.aes != null) return +d.aes; let a = 0; for (const k in st.d) { const i = G.decoInfo(st.d[k]); if (i) a += decoAes(i, i.tier || 0); } return Math.round(a); }
+function aesScore(st) { const d = G.getDerived() || {}; if (d.aes != null) return +d.aes; let a = 0; for (const k in st.d) { const i = G.decoInfo(st.d[k]); if (i) a += decoAes(i, i.tier || 0); } for (const w of G.wonders()) { const b = st.b[w.id]; if (b && isFinite(w.aes[(+b.l || 1) - 1])) a += w.aes[(+b.l || 1) - 1]; } return Math.round(a); }
 function logText(x) { if (x == null) return ''; if (typeof x === 'string') return x; if (Array.isArray(x)) return x.filter(v => typeof v !== 'number' || v < 1e11).join(' · '); return String(pk(x, ['m', 'msg', 'text', 't', 'detail'], '')) || JSON.stringify(x); }
 function shot() {
   const cv = $('.gd-canvas'); if (!cv) { say('Chưa có khu vườn để chụp.', true); return; }
@@ -351,11 +411,12 @@ const stats = guarded((body, g) => {
   function board() { bd.replaceChildren(el('p', 'gd-muted', 'Đang tải xếp hạng…'));
     if (!SG().api) { bd.replaceChildren(el('p', 'gd-muted', 'Chưa kết nối máy chủ.')); return; }
     SG().api('gardenBoard', {}).then(r => { loaded = true; bd.replaceChildren(); const rows = (r && r.board) || []; if (!rows.length) { bd.append(empty('Chưa có ai trên bảng vườn.')); return; }
-      const ol = el('ol', 'gdu-ol'); rows.forEach(x => { const li = el('li', x.me ? 'me' : ''), md = ['🥇', '🥈', '🥉'][x.rank - 1]; li.append(el('span', 'rk', md || x.rank), el('span', 'cd', String(x.who) + (x.me ? ' (bạn)' : '')), el('span', 'gdu-sub', 'Cấp ' + F(x.lv) + ' · mùa ' + ((+x.sn || 0) + 1)), el('b', '', F(x.aes) + ' ✨')); ol.append(li); }); bd.append(ol);
-      if (r.me && !rows.some(x => x.me)) bd.append(el('p', 'gd-muted', 'Bạn đứng hạng ' + F(r.me.rank) + (r.total ? ' / ' + F(r.total) : '') + '.')); bd.append(el('p', 'gd-muted', 'Xếp theo điểm thẩm mỹ rồi đến cấp vườn. Mã đã được che.')); },
+      const ol = el('ol', 'gdu-ol'); rows.forEach(x => { const li = el('li', x.me ? 'me' : ''), md = ['🥇', '🥈', '🥉'][x.rank - 1]; li.append(el('span', 'rk', md || x.rank), el('span', 'cd', String(x.who) + (x.me ? ' (bạn)' : '')), el('span', 'gdu-sub', 'Cấp ' + F(x.lv) + ' · mùa ' + ((+x.sn || 0) + 1) + (x.rep != null ? ' · Danh vọng ' + F(x.rep) + (x.rt ? ' (' + x.rt + ')' : '') : '')), el('b', '', F(x.aes) + ' ✨')); ol.append(li); }); bd.append(ol);
+      if (r.me && !rows.some(x => x.me)) bd.append(el('p', 'gd-muted', 'Bạn đứng hạng ' + F(r.me.rank) + (r.total ? ' / ' + F(r.total) : '') + (r.me.rep != null ? ' · Danh vọng ' + F(r.me.rep) + (r.me.rt ? ' (' + r.me.rt + ')' : '') : '') + '.')); bd.append(el('p', 'gd-muted', 'Thứ tự do máy chủ tính. Mã đã được che.')); },
       e => { bd.replaceChildren(el('p', 'gdu-note bad', friendly(e && e.code, e && e.message))); }); }
   function draw() {
     const st = g.getState(); if (!st) return; const top = body.parentElement ? body.parentElement.scrollTop : 0; box.replaceChildren(); const s = st.s || {};
+    const rb = repBox(), cl = capLine(); if (rb) box.append(rb); if (cl) box.append(cl);
     const sec = el('section', 'gdu-sec'); sec.append(el('h3', 'gdu-gh', '📊 Thống kê'));
     const gr = el('dl', 'gdu-kv'); const add = (k, v) => { const r = el('div'); r.append(el('dt', '', k), el('dd', '', v)); gr.append(r); };
     add('Cấp vườn', lvl()); add('Mùa', (st.sn | 0) + 1); add('Điểm thẩm mỹ', F(aesScore(st)));
@@ -374,7 +435,7 @@ function applyCalm() { const r = $('.gd-root'); if (r) r.classList.toggle('gd-ca
 function settings(body) {
   body.classList.add('gdu'); const nt = mkNote(), box = el('div', 'gdu-stack'); body.append(nt, box);
   const seg = (label, opts, cur, fn) => { const w = el('div', 'gdu-set'); w.append(el('b', '', label)); const g = el('div', 'gd-seg', null, { role: 'group', 'aria-label': label }); opts.forEach(([v, t]) => { const b = btn(String(v) === String(cur) ? 'on' : '', t, t, () => { fn(v); g.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); }); b.setAttribute('aria-pressed', String(v) === String(cur)); g.append(b); }); w.append(g); return w; };
-  const q = (G.scene && G.scene.quality) || 'mid';
+  const q = (G.scene && G.scene.quality) || 'mid', cl0 = capLine(); if (cl0) box.append(cl0);
   box.append(seg('Chất lượng đồ họa', [['auto', 'Tự động'], ['low', 'Thấp'], ['mid', 'Vừa'], ['high', 'Cao']], LS.get('sm_garden_q') || 'auto', v => G.setQuality(v)), el('p', 'gd-muted', 'Đang dùng: ' + ({ low: 'Thấp', mid: 'Vừa', high: 'Cao' }[q] || q) + '. Chọn Thấp nếu máy chậm hoặc nóng.'));
   box.append(seg('Âm thanh vườn', [['1', 'Bật'], ['0', 'Tắt']], LS.get(K_SND) === '0' ? '0' : '1', v => { LS.set(K_SND, v); if (v === '1') sfx('click'); }));
   box.append(seg('Giảm chuyển động', [['0', 'Bình thường'], ['1', 'Giảm']], cfg.calm ? '1' : '0', v => { cfg.calm = v === '1'; saveCfg(); applyCalm(); }), el('p', 'gd-muted', 'Luôn giảm sẵn nếu thiết bị của bạn đã bật “giảm chuyển động”.'));
@@ -387,9 +448,10 @@ function settings(body) {
 const GUIDE = [
   ['🌱', 'Chào mừng đến Khu vườn', 'Kéo ngón tay để di chuyển, chụm hai ngón (hoặc lăn chuột) để phóng to. Nút ◎ đưa bạn về giữa vườn.'],
   ['⛏️', 'Cuốc đất, chọn hạt', 'Chọn ⛏️ Cuốc đất rồi chạm hoặc kéo qua ô cỏ. Sau đó bấm 🌱 Hạt để chọn cây và chạm ô đất trống để trồng.'],
-  ['🪙', 'Xu và điểm khác nhau', 'Hạt giống và cuốc đất dùng Xu 🪙 kiếm từ vườn. Điểm 💰 của bạn chỉ dùng để mở rộng, xây và nâng cấp. Xu không đổi ngược thành điểm.'],
+  ['🪙', 'Xu và điểm khác nhau', 'Điểm 💰 kiếm từ làm bài, dùng để mua Kỳ quan, mở rộng đất và trang trí. Xu 🪙 kiếm từ trồng trọt, dùng mua hạt giống và cuốc đất. Hai thứ không đổi cho nhau.'],
   ['🧺', 'Chờ chín rồi thu hoạch', 'Mỗi cây có đồng hồ riêng. Cây chín thì bấm 🧺 Thu hoạch tất cả, hoặc chạm từng ô.'],
-  ['🛒', 'Cửa hàng và nâng cấp', 'Menu ☰ có Cửa hàng, Nâng cấp, Nhiệm vụ. Mọi khoản trừ điểm lớn đều hỏi lại bạn trước khi làm.'],
+  ['🛒', 'Cửa hàng và nâng cấp', 'Menu ☰ có Cửa hàng, Nâng cấp, Nhiệm vụ. Giá luôn hiện trước, và khoản trừ điểm lớn sẽ được hỏi lại. Bạn không cần mua hết mọi thứ.'],
+  ['🏛️', 'Danh vọng và Kỳ quan', 'Dùng điểm cho vườn thì Danh vọng 🏅 tăng dần. Danh vọng mở Kỳ quan lớn (5 giai đoạn), nền đất mới và trang trí bậc cao. Kỳ quan chưa mở sẽ ghi rõ cần Danh vọng mấy.'],
   ['🌟', 'Nhiệm vụ và Sang mùa mới', 'Nhận quà và nhiệm vụ mỗi ngày. Khi vườn đủ lớn, Sang mùa mới giúp bạn nhận Tinh hoa 🌸 để vườn lời hơn.']
 ];
 let gOpen = null;
@@ -412,6 +474,7 @@ function nextTodo(st) {
   if (soil && !planted) return { id: 'plant', t: '🌱 Chọn hạt rồi chạm ô đất trống để trồng.', b: 'Chọn hạt', fn: () => G.openPanel('shop', { tab: 'seed' }) };
   const pc = plotCost(st); if ((st.ch || []).length < 400 && bal() >= pc && pc > 0) return { id: 'expand', t: '🟩 Bạn đủ điểm để mở thêm một mảnh đất (khoảng ' + F(pc) + ' điểm). Cân nhắc nếu muốn.', b: 'Xem', fn: () => G.openPanel('shop', { tab: 'land' }) };
   if (lvl() >= 10 && Math.floor(Math.sqrt((+st.xs || 0) / 1500)) >= 1) return { id: 'prestige', t: '🌟 Vườn đã đủ điều kiện Sang mùa mới.', b: 'Xem', fn: () => G.openPanel('prestige') };
+  if (LS.get('sm_garden_hint_wd') !== '1' && G.rep().has && !Object.keys(st.b).some(k => /^wd_/.test(k)) && !Object.keys(st.wi || {}).length) return { id: 'wonder', t: '🏛️ Điểm kiếm từ làm bài dùng được cho Kỳ quan, đất và trang trí. Xem khi nào bạn muốn nhé.', b: 'Xem Kỳ quan', fn: () => G.openPanel('shop', { tab: 'wonder' }) };
   return null;
 }
 function hint() {
@@ -419,7 +482,7 @@ function hint() {
   if (!hintEl || !hintEl.isConnected) { hintEl = el('div', 'gd-hint', null, { role: 'status' }); host.append(hintEl); }
   const t = nextTodo(st); if (!t || t.id === hintOff) { hintEl.hidden = true; return; }
   if (hintEl.dataset.k === t.id + t.t) { hintEl.hidden = false; return; }
-  hintEl.dataset.k = t.id + t.t; hintEl.replaceChildren(el('span', 'gd-ht', t.t), btn('ok', t.b, t.b, () => { t.fn(); }), btn('x', '✖', 'Ẩn gợi ý', () => { hintOff = t.id; hintEl.hidden = true; })); hintEl.hidden = false;
+  hintEl.dataset.k = t.id + t.t; hintEl.replaceChildren(el('span', 'gd-ht', t.t), btn('ok', t.b, t.b, () => { if (t.id === 'wonder') LS.set('sm_garden_hint_wd', '1'); t.fn(); }), btn('x', '✖', 'Ẩn gợi ý', () => { hintOff = t.id; if (t.id === 'wonder') LS.set('sm_garden_hint_wd', '1'); hintEl.hidden = true; })); hintEl.hidden = false;
 }
 function dots() {
   const st = G.getState(); if (!st) return; const n = claimables(st), mb = $('.gd-toolbar .menu'); if (!mb) return;
@@ -453,6 +516,8 @@ function enhanceSheet() {
 G.registerPanel('shop', shop); G.registerPanel('upgrades', upgrades); G.registerPanel('quests', quests);
 G.registerPanel('prestige', prestige); G.registerPanel('stats', stats); G.registerPanel('settings', settings);
 
+if (G.setSpendGuard) G.setSpendGuard((cost, title, msg) => spend(cost, title, msg, 'Đồng ý'));
+G.on('rejected', e => { if (e && (e.code === 'garden_daily_cap' || e.code === 'garden_maxed')) setTimeout(() => G.refresh(), 400); });   // đồng bộ lại để dòng "đã dùng A/B" và trạng thái tối đa luôn đúng
 G.on('expand', e => { if (e && e.cost != null) expand(e.cx, e.cy, +e.cost || 0); });
 G.on('achievement', () => dots());
 G.on('state', () => { hint(); dots(); });

@@ -11,10 +11,10 @@
  *    trực tiếp trong sheet Config. Mặc định 0 = không giới hạn.
  * ===================================================================== */
 
-const GD_STATE_VER = 1;          // phiên bản cấu trúc state (migration)
-const GD_CATVER = 1;             // phiên bản danh mục (client cache theo số này)
+const GD_STATE_VER = 2;          // phiên bản cấu trúc state (migration)
+const GD_CATVER = 2;             // phiên bản danh mục (client cache theo số này)
 const GD_SHEET = 'Garden';
-const GD_HEADERS = ['code', 'state', 'v', 'updatedAt', 'lastReqId', 'lastResp', 'lvl', 'aes', 'sn', 'state2', 'state3', 'state4'];
+const GD_HEADERS = ['code', 'state', 'v', 'updatedAt', 'lastReqId', 'lastResp', 'lvl', 'aes', 'sn', 'state2', 'state3', 'state4', 'rep'];
 const GD_MAXN = 9e15;            // trần an toàn cho mọi số
 const GD_RAW_MAX = 40000;        // state ≤ 40.000 ký tự → lưu thô; lớn hơn → gzip + base64, chia ≤ 4 ô
 const GD_PART = 45000, GD_PARTS = 4;
@@ -74,15 +74,15 @@ const GD_BLDS = [
 const GD_BLD_BY = {}; GD_BLDS.forEach(function (b) { GD_BLD_BY[b.id] = b; });
 
 // nâng cấp vĩnh viễn (giữ qua Mùa mới) – mua bằng ĐIỂM, cấp không trần, hiệu ứng giảm dần: L/(L+k)
-const GD_PERMS = [
-  { id: 'spd', name: 'Phân bón siêu tốc', e: '⚡', base: 25, rate: 1.30, k: 25, max: 0.50, d: 'Rút ngắn thời gian lớn (tối đa -50%)' },
-  { id: 'yld', name: 'Hạt giống tinh tuyển', e: '🌾', base: 30, rate: 1.30, k: 30, max: 1.50, d: 'Tăng sản lượng thu hoạch (tối đa +150%)' },
-  { id: 'xp', name: 'Sách nhà nông', e: '📘', base: 25, rate: 1.28, k: 25, max: 1.00, d: 'Tăng XP (tối đa +100%)' },
-  { id: 'prd', name: 'Chăn nuôi hiện đại', e: '🐮', base: 35, rate: 1.30, k: 30, max: 1.50, d: 'Tăng sản vật công trình (tối đa +150%)' },
-  { id: 'sed', name: 'Thương lượng giá', e: '🤝', base: 20, rate: 1.28, k: 20, max: 0.50, d: 'Giảm giá hạt giống (tối đa -50%)' },
-  { id: 'aes', name: 'Mắt thẩm mỹ', e: '🎨', base: 40, rate: 1.32, k: 30, max: 0.20, d: 'Tăng thưởng từ Điểm thẩm mỹ (tối đa +20% thêm)' },
-  { id: 'dly', name: 'Quà quen thuộc', e: '🎁', base: 15, rate: 1.28, k: 20, max: 1.00, d: 'Tăng quà đăng nhập hằng ngày (tối đa +100%)' },
-  { id: 'bst', name: 'Thợ giỏi', e: '🛠️', base: 30, rate: 1.30, k: 20, max: 0.50, d: 'Giảm giá tăng tốc bằng điểm (tối đa -50%)' }
+const GD_PERMS = [   // lmax = cấp tối đa (hiệu ứng đạt 100% tại lmax; từ 99% trở lên → garden_maxed, không trừ điểm)
+  { id: 'spd', name: 'Phân bón siêu tốc', e: '⚡', base: 40, rate: 1.20, k: 25, lmax: 25, max: 0.50, d: 'Rút ngắn thời gian lớn (tối đa -50%)' },
+  { id: 'yld', name: 'Hạt giống tinh tuyển', e: '🌾', base: 50, rate: 1.20, k: 30, lmax: 25, max: 1.50, d: 'Tăng sản lượng thu hoạch (tối đa +150%)' },
+  { id: 'xp', name: 'Sách nhà nông', e: '📘', base: 40, rate: 1.20, k: 25, lmax: 25, max: 1.00, d: 'Tăng XP (tối đa +100%)' },
+  { id: 'prd', name: 'Chăn nuôi hiện đại', e: '🐮', base: 55, rate: 1.20, k: 30, lmax: 25, max: 1.50, d: 'Tăng sản vật công trình (tối đa +150%)' },
+  { id: 'sed', name: 'Thương lượng giá', e: '🤝', base: 35, rate: 1.20, k: 20, lmax: 25, max: 0.50, d: 'Giảm giá hạt giống (tối đa -50%)' },
+  { id: 'aes', name: 'Mắt thẩm mỹ', e: '🎨', base: 60, rate: 1.20, k: 30, lmax: 25, max: 0.20, d: 'Tăng thưởng từ Điểm thẩm mỹ (tối đa +20% thêm)' },
+  { id: 'dly', name: 'Quà quen thuộc', e: '🎁', base: 30, rate: 1.20, k: 20, lmax: 25, max: 1.00, d: 'Tăng quà đăng nhập hằng ngày (tối đa +100%)' },
+  { id: 'bst', name: 'Thợ giỏi', e: '🛠️', base: 45, rate: 1.20, k: 20, lmax: 25, max: 0.50, d: 'Giảm giá tăng tốc bằng điểm (tối đa -50%)' }
 ];
 const GD_PERM_BY = {}; GD_PERMS.forEach(function (p) { GD_PERM_BY[p.id] = p; });
 
@@ -126,6 +126,53 @@ const GD_ACH = [   // thành tựu theo công thức: mục tiêu bậc k = roun
   { id: 'bd', name: 'Thợ xây', d: 'Xây công trình', base: 2, mul: 1.8 }
 ];
 
+// Danh vọng vườn: suy ra từ TỔNG ĐIỂM ĐÃ CHI trong vườn (st.s.ps). Mốc bậc l = ceil(156.25 × l²)  (≈ 0.08 × √điểm)
+const GD_REP_MAX = 60, GD_REP_K = 156.25;
+const GD_REP_TITLES = [[0, 'Tập sự'], [1, 'Nông dân'], [3, 'Chủ vườn'], [6, 'Điền chủ'], [10, 'Nghệ nhân vườn'], [15, 'Kiến trúc sư vườn'], [20, 'Đại điền chủ'], [30, 'Danh nhân'], [40, 'Huyền thoại'], [50, 'Thần Nông']];
+
+// Kỳ quan: công trình lớn, mua bằng điểm. Anchor (x,y) = ô trên-trái, chiếm w×h ô. 5 giai đoạn, giá giai đoạn s = round(p × 1.8^(s-1)).
+// rep = Danh vọng tối thiểu để xây. Lưu trong st.b[id] = { x, y, l: giai đoạn 1..5, ct } (cùng cấu trúc công trình thường).
+const GD_WONDER_STAGES = 5, GD_WONDER_GROW = 1.8;
+function gdW_(id, name, e, w, h, p, rep, d) { return { id: id, name: name, e: e, w: w, h: h, p: p, rep: rep, d: d }; }
+const GD_WONDERS = [
+  gdW_('wd_phun', 'Đài phun nước lớn', '⛲', 2, 2, 300, 2, 'Đài phun nước giữa vườn'),
+  gdW_('wd_chua', 'Chùa một cột', '🛕', 2, 2, 500, 3, 'Ngôi chùa nhỏ giữa hồ sen'),
+  gdW_('wd_cauvong', 'Cổng cầu vồng', '🌈', 3, 2, 900, 4, 'Cầu vồng bắc ngang vườn'),
+  gdW_('wd_nhakinh', 'Nhà kính pha lê', '🔮', 3, 3, 1500, 6, 'Nhà kính trong suốt lấp lánh'),
+  gdW_('wd_dongho', 'Tháp đồng hồ', '🕰️', 2, 3, 2400, 8, 'Tháp đồng hồ cổ điển'),
+  gdW_('wd_thuongvien', 'Vườn thượng uyển', '🏯', 4, 3, 3800, 10, 'Khu vườn hoàng gia'),
+  gdW_('wd_gio', 'Cối xay gió khổng lồ', '🌬️', 3, 3, 6000, 13, 'Cối xay gió cao vút'),
+  gdW_('wd_khinhkhi', 'Khinh khí cầu vàng', '🎈', 2, 2, 9000, 16, 'Khinh khí cầu neo giữa vườn'),
+  gdW_('wd_laudai', 'Lâu đài cổ tích', '🏰', 4, 4, 14000, 20, 'Lâu đài như trong truyện'),
+  gdW_('wd_thienvan', 'Thiên văn đài', '🔭', 3, 3, 22000, 25, 'Ngắm sao mỗi đêm'),
+  gdW_('wd_congtroi', 'Cổng trời pha lê', '⛩️', 4, 3, 33000, 30, 'Cổng trời lấp lánh'),
+  gdW_('wd_thannong', 'Đền Thần Nông', '🏛️', 4, 4, 60000, 38, 'Ngôi đền của vị thần nông nghiệp')
+];
+const GD_WONDER_BY = {}; GD_WONDERS.forEach(function (w) { GD_WONDER_BY[w.id] = w; });
+function gdWonderCost_(w, s) { return gdCap_(Math.round(w.p * Math.pow(GD_WONDER_GROW, s - 1))); }          // giá (gốc) để LÊN giai đoạn s
+function gdWonderAes_(w, l) { if (l < 1) return 0; let c = 0; for (let s = 1; s <= l; s++) c += gdWonderCost_(w, s); return gdCap_(Math.round(1.6 * Math.pow(c, 0.68))); }
+
+// Nền đất (áp cho cả vườn). p = giá điểm gốc; c1/c2 = màu gợi ý cho frontend
+const GD_GROUNDS = [
+  { id: 'gr_nau', name: 'Đất nâu', e: '🟫', p: 50, c1: '#8d6e4a', c2: '#7a5c3a' },
+  { id: 'gr_non', name: 'Cỏ non', e: '🌱', p: 80, c1: '#9ccc65', c2: '#8bc34a' },
+  { id: 'gr_cat', name: 'Cát vàng', e: '🏖️', p: 120, c1: '#e6d39a', c2: '#dcc88a' },
+  { id: 'gr_soi', name: 'Sỏi trắng', e: '⚪', p: 180, c1: '#cfd8dc', c2: '#b0bec5' },
+  { id: 'gr_bazan', name: 'Đất đỏ bazan', e: '🟥', p: 260, c1: '#b4553a', c2: '#a14a31' },
+  { id: 'gr_lau', name: 'Đồng cỏ lau', e: '🌾', p: 380, c1: '#d7c97a', c2: '#c8b968' },
+  { id: 'gr_phien', name: 'Đá phiến', e: '⬛', p: 550, c1: '#78909c', c2: '#607d8b' },
+  { id: 'gr_thu', name: 'Lá thu vàng', e: '🍂', p: 800, c1: '#d9a441', c2: '#c4912f' },
+  { id: 'gr_tuyet', name: 'Tuyết trắng', e: '❄️', p: 1100, c1: '#f1f6fa', c2: '#dfe9f0' },
+  { id: 'gr_reu', name: 'Rêu xanh', e: '🍀', p: 1500, c1: '#4f8a4b', c2: '#437a40' },
+  { id: 'gr_anhdao', name: 'Cánh hoa anh đào', e: '🌸', p: 2000, c1: '#f4c6d4', c2: '#eeb3c6' },
+  { id: 'gr_bacthang', name: 'Ruộng bậc thang', e: '🌄', p: 2600, c1: '#7fb069', c2: '#6aa056' },
+  { id: 'gr_gachco', name: 'Gạch cổ', e: '🧱', p: 3200, c1: '#b5651d', c2: '#a05a1a' },
+  { id: 'gr_dung', name: 'Dung nham nguội', e: '🌋', p: 3900, c1: '#4a3b3b', c2: '#3b2e2e' },
+  { id: 'gr_cauvong', name: 'Đồng cỏ cầu vồng', e: '🌈', p: 4500, c1: '#a5d6a7', c2: '#ce93d8' },
+  { id: 'gr_ngan', name: 'Dải ngân hà', e: '🌌', p: 5000, c1: '#1a1f4d', c2: '#2d2a6e' }
+];
+const GD_GROUND_BY = {}; GD_GROUNDS.forEach(function (g) { GD_GROUND_BY[g.id] = g; });
+
 /* ---------------- Tiện ích ---------------- */
 function gdCap_(n) { n = Number(n); if (!isFinite(n)) return 0; return Math.max(0, Math.min(GD_MAXN, n)); }
 function gdDay_(now) { return Math.floor((now + 7 * 3600000) / 86400000); }       // ngày theo giờ Việt Nam
@@ -159,13 +206,41 @@ function gdDecoGet_(id) {                // id: "hoa3" hoặc "hoa3~2" (bậc 2)
   const mat = GD_MATS[(t - 1) % GD_MATS.length], adj = t > GD_MATS.length ? ' ' + GD_ADJS[(Math.floor((t - 1) / GD_MATS.length) - 1) % GD_ADJS.length] : '';
   return { id: id, n: base.n + ' ' + mat + adj, e: base.e, th: base.th, tier: t, cost: gdCap_(Math.round(base.cost * Math.pow(GD_TIER_COST, t))), aes: gdCap_(Math.round(base.aes * Math.pow(GD_TIER_AES, t))) };
 }
-function gdMaxTier_(st) { return Math.min(GD_TIER_MAX, st.sn + Math.floor(gdLevel_(st.xp).lv / 20)); }
-function gdAes_(st) { let a = 0; for (const k in st.d) { const d = gdDecoGet_(st.d[k]); if (d) a += d.aes; } return gdCap_(a); }
+function gdRepThr_(l) { return Math.ceil(GD_REP_K * l * l); }
+function gdRepTitle_(lv) { let t = GD_REP_TITLES[0][1]; GD_REP_TITLES.forEach(function (r) { if (lv >= r[0]) t = r[1]; }); return t; }
+function gdRep_(st, extra) {                 // Danh vọng từ tổng điểm đã chi (+ extra = điểm đang chi trong lô chưa ghi)
+  const ps = gdCap_(gdCap_(st.s && st.s.ps) + gdCap_(extra));
+  let lv = Math.min(GD_REP_MAX, Math.floor(Math.sqrt(ps / GD_REP_K)));
+  while (lv < GD_REP_MAX && gdRepThr_(lv + 1) <= ps) lv++;
+  while (lv > 0 && gdRepThr_(lv) > ps) lv--;
+  return { lv: lv, cur: ps, base: lv ? gdRepThr_(lv) : 0, next: lv >= GD_REP_MAX ? null : gdRepThr_(lv + 1), title: gdRepTitle_(lv) };
+}
+function gdMaxTier_(st, extra) { return Math.min(GD_TIER_MAX, st.sn + Math.floor(gdLevel_(st.xp).lv / 20) + gdRep_(st, extra).lv); }
+function gdAes_(st) {
+  let a = 0; for (const k in st.d) { const d = gdDecoGet_(st.d[k]); if (d) a += d.aes; }
+  for (const id in st.b) { const w = GD_WONDER_BY[id]; if (w) a += gdWonderAes_(w, st.b[id].l); }
+  return gdCap_(a);
+}
+function gdBpos_(st) {                       // ô bị công trình chiếm (kỳ quan chiếm w×h)
+  const bp = {};
+  Object.keys(st.b).forEach(function (id) {
+    const b = st.b[id], w = GD_WONDER_BY[id];
+    if (w) { for (let dx = 0; dx < w.w; dx++) for (let dy = 0; dy < w.h; dy++) bp[(b.x + dx) + ',' + (b.y + dy)] = id; }
+    else bp[b.x + ',' + b.y] = id;
+  });
+  return bp;
+}
+function gdPf_(p, L) {                       // tỉ lệ hiệu ứng nâng cấp vĩnh viễn: 0..1, đạt 1 tại lmax
+  L = Number(L) || 0; if (L <= 0) return 0;
+  const sat = function (l) { return l / (l + p.k); };
+  return Math.min(1, sat(L) / sat(p.lmax));
+}
+function gdPermMaxed_(p, L) { return gdPf_(p, L) >= 0.99; }
 
 function gdNew_(now) {
   const f = {}; [[2, 2], [3, 2], [4, 2], [2, 3], [3, 3], [4, 3]].forEach(function (p) { f[p[0] + ',' + p[1]] = 0; });
   return { ver: GD_STATE_VER, sn: 0, xu: 60, es: 0, xp: 0, ch: ['0,0'], f: f, b: {}, d: {}, iv: {}, up: {},
-    q: { d: 0, l: [], p: {}, c: [] }, dl: { d: 0, s: 0 }, ac: {}, ds: { d: 0, s: 0 }, lg: [[now, 'Chào mừng đến Khu vườn của bạn!']],
+    q: { d: 0, l: [], p: {}, c: [] }, dl: { d: 0, s: 0 }, ac: {}, ds: { d: 0, s: 0 }, lg: [[now, 'Chào mừng đến Khu vườn của bạn!']], gr: '', go: [], wi: {},
     s: { hv: 0, pl: 0, co: 0, xe: 0, bd: 0, cb: 0, dp: 0, ps: 0, pr: 0, dd: 0 }, xs: 0, cr: now };
 }
 function gdMigrate_(st) {                 // thêm trường thiếu; đổi phiên bản khi danh mục/cấu trúc thay đổi
@@ -173,7 +248,10 @@ function gdMigrate_(st) {                 // thêm trường thiếu; đổi phi
   Object.keys(n).forEach(function (k) { if (st[k] === undefined) st[k] = n[k]; });
   Object.keys(n.s).forEach(function (k) { if (st.s[k] === undefined) st.s[k] = 0; });
   if (!st.q.p) st.q.p = {}; if (!st.q.c) st.q.c = []; if (!st.q.l) st.q.l = [];
-  // (v1 → v2…: viết các bước nâng cấp ở đây theo st.ver)
+  // v1 → v2: thêm nền đất (gr, go) & kho kỳ quan (wi) – đã được điền mặc định ở vòng lặp trên; chuẩn hoá kiểu dữ liệu
+  if (typeof st.gr !== 'string' || (st.gr && !GD_GROUND_BY[st.gr])) st.gr = '';
+  if (!Array.isArray(st.go)) st.go = [];
+  if (!st.wi || typeof st.wi !== 'object' || Array.isArray(st.wi)) st.wi = {};
   st.ver = GD_STATE_VER;
   return st;
 }
@@ -202,9 +280,10 @@ function gdLoad_(sh, code) {
 }
 function gdRowArr_(code, st, v, now, rid, resp) {
   const p = gdPack_(st);
-  return [code, p[0], v, new Date(now).toISOString(), rid, resp, gdLevel_(st.xp).lv, Math.round(gdAes_(st)), st.sn, p[1], p[2], p[3]];
+  return [code, p[0], v, new Date(now).toISOString(), rid, resp, gdLevel_(st.xp).lv, Math.round(gdAes_(st)), st.sn, p[1], p[2], p[3], gdRep_(st).lv];
 }
-function gdSave_(sh, L, st, v, now, rid, resp) { sh.getRange(L.row, 1, 1, 12).setValues([gdRowArr_(L.code, st, v, now, rid, resp)]); }
+function gdEnsureCols_(sh) { if (typeof sh.getMaxColumns === 'function' && sh.getMaxColumns() < 13) sh.insertColumnsAfter(sh.getMaxColumns(), 13 - sh.getMaxColumns()); }
+function gdSave_(sh, L, st, v, now, rid, resp) { gdEnsureCols_(sh); sh.getRange(L.row, 1, 1, 13).setValues([gdRowArr_(L.code, st, v, now, rid, resp)]); }
 function gdCreate_(sh, code, now) {
   const st = gdNew_(now);
   appendRows_(sh, [gdRowArr_(code, st, 1, now, '', '')]);
@@ -214,22 +293,23 @@ function gdCreate_(sh, code, now) {
 /* ---------------- Hiệu ứng & công thức ---------------- */
 function gdEff_(st) {
   const L = function (id) { return Number(st.up[id]) || 0; }, bl = function (id) { return st.b[id] ? st.b[id].l : 0; };
-  const A = gdAes_(st), mult = 1 + 0.03 * st.es;
-  const aesBonus = (0.10 + 0.20 * gdSat_(L('aes'), 30)) * A / (A + 400);
+  const A = gdAes_(st), mult = 1 + 0.03 * st.es, pf = function (id) { return gdPf_(GD_PERM_BY[id], L(id)); };
+  const aesBonus = (0.10 + 0.20 * pf('aes')) * A / (A + 400);
   return {
     A: A, mult: mult, aesBonus: aesBonus,
-    speed: (1 - 0.35 * gdSat_(bl('gieng'), 15)) * (1 - 0.5 * gdSat_(L('spd'), 25)),
-    yield: (1 + 1.5 * gdSat_(L('yld'), 30)) * (1 + 0.4 * gdSat_(bl('nhakinh'), 15)) * (1 + aesBonus) * mult,
-    xp: 1 + 1.0 * gdSat_(L('xp'), 25),
-    prod: (1 + 1.5 * gdSat_(L('prd'), 30)) * (1 + aesBonus) * mult,
-    seed: Math.max(0.25, (1 - 0.3 * gdSat_(bl('kho'), 15)) * (1 - 0.5 * gdSat_(L('sed'), 20))),
-    boost: 1 - 0.5 * gdSat_(L('bst'), 20),
-    daily: 1 + 1.0 * gdSat_(L('dly'), 20)
+    speed: (1 - 0.35 * gdSat_(bl('gieng'), 15)) * (1 - 0.5 * pf('spd')),
+    yield: (1 + 1.5 * pf('yld')) * (1 + 0.4 * gdSat_(bl('nhakinh'), 15)) * (1 + aesBonus) * mult,
+    xp: 1 + 1.0 * pf('xp'),
+    prod: (1 + 1.5 * pf('prd')) * (1 + aesBonus) * mult,
+    seed: Math.max(0.25, (1 - 0.3 * gdSat_(bl('kho'), 15)) * (1 - 0.5 * pf('sed'))),
+    boost: 1 - 0.5 * pf('bst'),
+    daily: 1 + 1.0 * pf('dly')
   };
 }
-function gdPermCost_(id, L) { return gdCap_(Math.round(GD_PERM_BY[id].base * Math.pow(GD_PERM_BY[id].rate, L))); }
+function gdPermCost_(id, L) { const v = Math.round(GD_PERM_BY[id].base * Math.pow(GD_PERM_BY[id].rate, L)); return isFinite(v) ? gdCap_(v) : GD_MAXN; }
 function gdBldUpCost_(b, l) { return gdCap_(Math.round(b.ux * Math.pow(1.32, l))); }
-function gdChunkCost_(nOwned) { return gdCap_(Math.round(40 * Math.pow(1.3, Math.max(0, nOwned - 1)))); }
+const GD_CHUNK_BASE = 40, GD_CHUNK_GROW = 1.18;   // mềm hơn bản cũ (1.3): ~5.000 điểm → ~18 mảnh, ~30.000 điểm → ~30 mảnh
+function gdChunkCost_(nOwned) { const v = Math.round(GD_CHUNK_BASE * Math.pow(GD_CHUNK_GROW, Math.max(0, nOwned - 1))); return isFinite(v) ? gdCap_(v) : GD_MAXN; }
 function gdTillCost_(nFarm) { return gdCap_(Math.round(15 * Math.pow(1.05, nFarm))); }
 function gdRate_(b, lvl, eff) { return b.r * (1 + 0.7 * (lvl - 1)) * eff.prod; }                       // Xu/giờ
 function gdPending_(b, bs, now, eff) {
@@ -388,6 +468,7 @@ function gdOpBuyPlot_(ctx, o) {
   return { chunk: key, cost: cost };
 }
 function gdOpBuild_(ctx, o) {
+  if (GD_WONDER_BY[String(o.id || '')]) return gdWonderPlace_(ctx, o);
   const st = ctx.st, bd = GD_BLD_BY[String(o.id || '')];
   if (!bd) throw gdErr_('bad_request', 'Công trình không tồn tại.');
   if (st.b[bd.id]) throw gdErr_('already', bd.name + ' đã được xây.');
@@ -410,18 +491,19 @@ function gdOpUpgrade_(ctx, o) {
     gdLog_(st, ctx.now, bd.name + ' lên cấp ' + bs.l);
     return { id: bd.id, level: bs.l, cost: cost, settledXu: settled };
   }
+  if (what === 'wonder') return gdWonderUp_(ctx, o);
   if (what === 'perm') {
     const p = GD_PERM_BY[String(o.id || '')];
     if (!p) throw gdErr_('bad_request', 'Nâng cấp không tồn tại.');
     const L = Number(st.up[p.id]) || 0;
-    if (L >= 1e6) throw gdErr_('limit', 'Nâng cấp đã ở cấp quá cao.');
+    if (gdPermMaxed_(p, L)) throw gdErr_('maxed', p.name + ' đã đạt mức tối đa, không cần nâng thêm.');
     const cost = gdSpend_(ctx, gdPermCost_(p.id, L), 'upgrade ' + p.id + '→' + (L + 1));
     const settled = p.id === 'prd' ? gdSettle_(ctx) : 0;
     st.up[p.id] = L + 1; ctx.eff = null;
     gdLog_(st, ctx.now, p.name + ' cấp ' + (L + 1));
     return { id: p.id, level: L + 1, cost: cost, settledXu: settled };
   }
-  throw gdErr_('bad_request', 'Loại nâng cấp không hợp lệ (bld hoặc perm).');
+  throw gdErr_('bad_request', 'Loại nâng cấp không hợp lệ (bld, perm hoặc wonder).');
 }
 function gdOpDecorate_(ctx, o) {
   const st = ctx.st, act = String(o.act || '');
@@ -433,7 +515,8 @@ function gdOpDecorate_(ctx, o) {
     let cost = 0;
     if ((st.iv[d.id] || 0) > 0) { st.iv[d.id]--; if (!st.iv[d.id]) delete st.iv[d.id]; }
     else {
-      if (d.tier > gdMaxTier_(st)) throw gdErr_('locked', 'Bậc ' + d.tier + ' chưa mở (đang mở đến bậc ' + gdMaxTier_(st) + '; thêm bậc khi lên cấp vườn hoặc sang Mùa mới).');
+      const mt = gdMaxTier_(st, ctx.spend);
+      if (d.tier > mt) throw gdErr_('locked', 'Bậc ' + d.tier + ' chưa mở (đang mở đến bậc ' + mt + '; thêm bậc khi tăng Danh vọng vườn, lên cấp vườn hoặc sang Mùa mới).');
       cost = gdSpend_(ctx, d.cost, 'decorate ' + d.id);
     }
     st.d[key] = d.id; st.s.dp = gdCap_(st.s.dp + 1); ctx.eff = null;
@@ -457,6 +540,70 @@ function gdOpDecorate_(ctx, o) {
     return { act: act, id: id, cost: 0 };
   }
   throw gdErr_('bad_request', 'act phải là place, move hoặc remove.');
+}
+/* ---- Kỳ quan ---- */
+function gdWonderCells_(ctx, w, x, y, ignoreId) {           // trả danh sách ô; ném lỗi nếu ngoài đất hoặc bị chiếm
+  const keys = [];
+  for (let dx = 0; dx < w.w; dx++) for (let dy = 0; dy < w.h; dy++) {
+    const k = gdKey_(ctx, x + dx, y + dy);
+    if ((ctx.st.f[k] !== undefined || ctx.st.d[k] !== undefined) || (ctx.bpos[k] && ctx.bpos[k] !== ignoreId)) throw gdErr_('cell_busy', 'Ô ' + k + ' đang có vật khác (' + w.name + ' cần ' + w.w + '×' + w.h + ' ô trống).');
+    keys.push(k);
+  }
+  return keys;
+}
+function gdWonderPlace_(ctx, o) {                           // mua giai đoạn 1 (hoặc đặt lại từ kho sau Mùa mới, miễn phí)
+  const st = ctx.st, w = GD_WONDER_BY[String(o.id || '')];
+  if (!w) throw gdErr_('bad_request', 'Kỳ quan không tồn tại.');
+  if (st.b[w.id]) throw gdErr_('already', w.name + ' đã được xây.');
+  const x = gdInt_(o.x, GD_COORD), y = gdInt_(o.y, GD_COORD), inv = Number(st.wi[w.id]) || 0;
+  if (!inv) { const r = gdRep_(st, ctx.spend); if (r.lv < w.rep) throw gdErr_('locked', w.name + ' cần Danh vọng vườn ' + w.rep + ' (bạn đang ' + r.lv + ').'); }
+  const keys = gdWonderCells_(ctx, w, x, y, null);
+  let cost = 0, l = inv;
+  if (!inv) { cost = gdSpend_(ctx, gdWonderCost_(w, 1), 'wonder ' + w.id + '→1'); l = 1; st.s.bd = gdCap_(st.s.bd + 1); }
+  else delete st.wi[w.id];
+  st.b[w.id] = { x: x, y: y, l: l, ct: ctx.now }; keys.forEach(function (k) { ctx.bpos[k] = w.id; }); ctx.eff = null;
+  gdLog_(st, ctx.now, (inv ? 'Đặt lại ' : 'Xây ') + w.name);
+  return { id: w.id, level: l, cost: cost, fromStore: !!inv };
+}
+function gdWonderUp_(ctx, o) {                              // nâng giai đoạn l → l+1 bằng điểm
+  const st = ctx.st, w = GD_WONDER_BY[String(o.id || '')], b = w && st.b[w.id];
+  if (!w) throw gdErr_('bad_request', 'Kỳ quan không tồn tại.');
+  if (!b) throw gdErr_('bad_request', 'Bạn chưa đặt ' + w.name + ' trong vườn.');
+  if (b.l >= GD_WONDER_STAGES) throw gdErr_('maxed', w.name + ' đã đạt giai đoạn cuối.');
+  const cost = gdSpend_(ctx, gdWonderCost_(w, b.l + 1), 'wonder ' + w.id + '→' + (b.l + 1));
+  b.l++; ctx.eff = null; gdLog_(st, ctx.now, w.name + ' giai đoạn ' + b.l);
+  return { id: w.id, level: b.l, cost: cost };
+}
+function gdOpWonder_(ctx, o) {                              // act: place | up | move | store
+  const act = String(o.act || ''), st = ctx.st;
+  if (act === 'place') return gdWonderPlace_(ctx, o);
+  if (act === 'up') return gdWonderUp_(ctx, o);
+  const w = GD_WONDER_BY[String(o.id || '')], b = w && st.b[w.id];
+  if (!w) throw gdErr_('bad_request', 'Kỳ quan không tồn tại.');
+  if (!b) throw gdErr_('bad_request', 'Bạn chưa đặt ' + w.name + ' trong vườn.');
+  if (act === 'move') {
+    const x = gdInt_(o.x, GD_COORD), y = gdInt_(o.y, GD_COORD), keys = gdWonderCells_(ctx, w, x, y, w.id);
+    Object.keys(ctx.bpos).forEach(function (k) { if (ctx.bpos[k] === w.id) delete ctx.bpos[k]; });
+    b.x = x; b.y = y; keys.forEach(function (k) { ctx.bpos[k] = w.id; });
+    return { id: w.id, level: b.l, cost: 0 };
+  }
+  if (act === 'store') {
+    st.wi[w.id] = b.l; delete st.b[w.id];
+    Object.keys(ctx.bpos).forEach(function (k) { if (ctx.bpos[k] === w.id) delete ctx.bpos[k]; }); ctx.eff = null;
+    return { id: w.id, level: b.l, cost: 0 };
+  }
+  throw gdErr_('bad_request', 'act phải là place, up, move hoặc store.');
+}
+/* ---- Nền đất ---- */
+function gdOpGround_(ctx, o) {
+  const st = ctx.st, id = String(o.id || '');
+  if (id === 'default' || id === '') { st.gr = ''; return { id: 'default', cost: 0 }; }
+  const g = GD_GROUND_BY[id]; if (!g) throw gdErr_('bad_request', 'Nền đất không tồn tại.');
+  if (st.go.indexOf(id) >= 0) { st.gr = id; return { id: id, cost: 0, owned: true }; }
+  if (st.go.length >= 60) throw gdErr_('limit', 'Quá nhiều nền đất.');
+  const cost = gdSpend_(ctx, g.p, 'ground ' + id);
+  st.go.push(id); st.gr = id; gdLog_(st, ctx.now, 'Đổi nền đất: ' + g.name);
+  return { id: id, cost: cost, owned: true };
 }
 function gdOpCollect_(ctx, o) {
   const st = ctx.st; let ids;
@@ -512,14 +659,15 @@ function gdOpPrestige_(ctx, o) {
   const K = 8 + 4 * (st.sn + 1);
   owned.sort(function (a, b) { return (gdDecoGet_(b) ? gdDecoGet_(b).aes : 0) - (gdDecoGet_(a) ? gdDecoGet_(a).aes : 0); });
   const keep = owned.slice(0, K), iv = {}; keep.forEach(function (id) { iv[id] = (iv[id] || 0) + 1; });
-  const fresh = gdNew_(st.cr);
+  const fresh = gdNew_(st.cr), wk = [];
+  Object.keys(st.b).forEach(function (id) { if (GD_WONDER_BY[id]) { st.wi[id] = st.b[id].l; wk.push(id); } });   // kỳ quan (mua bằng điểm) không bao giờ mất: vào kho, đặt lại miễn phí
   st.sn += 1; st.es = gdCap_(st.es + gain); st.xu = 60 + 40 * st.sn; st.xs = 0;
   st.ch = fresh.ch; st.f = fresh.f; st.b = {}; st.d = {}; st.iv = iv; st.s.pr = gdCap_(st.s.pr + 1);
   ctx.chs = { '0,0': 1 }; ctx.bpos = {}; ctx.eff = null;
   gdLog_(st, ctx.now, 'Sang Mùa ' + (st.sn + 1) + ' (+' + gain + ' Tinh hoa)');
-  return { season: st.sn + 1, es: gain, keptDecos: keep.length, lostDecos: owned.length - keep.length };
+  return { season: st.sn + 1, es: gain, keptDecos: keep.length, lostDecos: owned.length - keep.length, keptWonders: wk.length };
 }
-const GD_OPS = { plant: gdOpPlant_, harvest: gdOpHarvest_, harvestAll: gdOpHarvestAll_, till: gdOpTill_, buyPlot: gdOpBuyPlot_, build: gdOpBuild_, upgrade: gdOpUpgrade_, decorate: gdOpDecorate_, collect: gdOpCollect_, boost: gdOpBoost_, claimQuest: gdOpClaimQuest_, claimDaily: gdOpClaimDaily_, prestige: gdOpPrestige_ };
+const GD_OPS = { plant: gdOpPlant_, harvest: gdOpHarvest_, harvestAll: gdOpHarvestAll_, till: gdOpTill_, buyPlot: gdOpBuyPlot_, build: gdOpBuild_, upgrade: gdOpUpgrade_, decorate: gdOpDecorate_, collect: gdOpCollect_, boost: gdOpBoost_, claimQuest: gdOpClaimQuest_, claimDaily: gdOpClaimDaily_, prestige: gdOpPrestige_, wonder: gdOpWonder_, ground: gdOpGround_ };
 
 /* ---------------- Thành tựu & cấp độ ---------------- */
 function gdStat_(st, id) { switch (id) { case 'ch': return st.s.cb; case 'de': return st.s.dp; case 'sn': return st.sn; default: return st.s[id] || 0; } }
@@ -555,9 +703,15 @@ function gdDerived_(st, now, balance) {
     bld[id] = { l: bs.l, x: bs.x, y: bs.y, upCost: gdBldUpCost_(bd, bs.l), rateH: bd.r ? Math.round(gdRate_(bd, bs.l, e) * 100) / 100 : 0, pending: bd.r ? gdPending_(bd, bs, now, e) : 0, full: bd.r ? (now - bs.ct >= GD_OFFLINE_H * 3600000) : false };
   });
   const frontier = {}; st.ch.forEach(function (k) { const p = gdSplit_(k); [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) { const n = (p[0] + d[0]) + ',' + (p[1] + d[1]); if (!chs[n] && Math.abs(p[0] + d[0]) <= GD_CCOORD && Math.abs(p[1] + d[1]) <= GD_CCOORD) frontier[n] = 1; }); });
-  const perms = {}; GD_PERMS.forEach(function (p) { const L = Number(st.up[p.id]) || 0; perms[p.id] = { l: L, cost: gdPts_(gdPermCost_(p.id, L)), eff: Math.round(p.max * gdSat_(L, p.k) * 10000) / 10000 }; });
+  const perms = {}; GD_PERMS.forEach(function (p) { const L = Number(st.up[p.id]) || 0; const mx = gdPermMaxed_(p, L); perms[p.id] = { l: L, lmax: p.lmax, maxed: mx, cost: mx ? null : gdPts_(gdPermCost_(p.id, L)), eff: Math.round(p.max * gdPf_(p, L) * 10000) / 10000 }; });
   const ach = GD_ACH.map(function (a) { const k = st.ac[a.id] || 0; return { id: a.id, tier: k, val: gdStat_(st, a.id), next: gdAchTarget_(a, k), xu: gdCap_(Math.round(100 * Math.pow(1.8, k))) }; });
-  const ds = st.ds.d === day ? st.ds.s : 0, gain = gdPrestigeGain_(st);
+  const ds = st.ds.d === day ? st.ds.s : 0, gain = gdPrestigeGain_(st), rp = gdRep_(st);
+  const wd = GD_WONDERS.map(function (w) {
+    const b = st.b[w.id], l = b ? b.l : (Number(st.wi[w.id]) || 0);
+    return { id: w.id, l: l, placed: !!b, stored: !b && l > 0, x: b ? b.x : null, y: b ? b.y : null, locked: !b && !l && rp.lv < w.rep, needRep: w.rep, aes: gdWonderAes_(w, l),
+      next: l >= GD_WONDER_STAGES ? null : gdPts_(gdWonderCost_(w, l + 1)), maxed: l >= GD_WONDER_STAGES };
+  });
+  const gcost = {}; GD_GROUNDS.forEach(function (g) { if (st.go.indexOf(g.id) < 0) gcost[g.id] = gdPts_(g.p); });
   return {
     lv: li.lv, xpInto: li.into, xpNeed: li.need, aes: Math.round(e.A), aesBonus: Math.round(e.aesBonus * 10000) / 10000,
     mult: e.mult, eff: { speed: e.speed, yield: e.yield, xp: e.xp, prod: e.prod, seed: e.seed, boost: e.boost, daily: e.daily },
@@ -568,7 +722,8 @@ function gdDerived_(st, now, balance) {
     quests: ql.map(function (q, i) { const pr = today ? gdQProg_(st, q) : 0; return { id: 'q' + i, text: gdQText_(q), prog: Math.min(Math.floor(pr), q[2]), target: q[2], xu: q[3], xp: q[4], es: q[5], claimed: today && st.q.c.indexOf('q' + i) >= 0, done: pr >= q[2] }; }),
     daily: { canClaim: st.dl.d !== day, streak: (st.dl.d === day || st.dl.d === day - 1) ? st.dl.s : 0, last: st.dl.d },
     prestige: { can: li.lv >= 10 && gain >= 1, gain: gain, needLv: 10, multAfter: 1 + 0.03 * (st.es + gain), keep: 8 + 4 * (st.sn + 1), season: st.sn + 1 },
-    spend: { today: ds, cap: cap }, catVer: GD_CATVER
+    spend: { today: ds, cap: cap, remaining: cap > 0 ? Math.max(0, cap - ds) : null },
+    rep: rp, wd: wd, gr: { cur: st.gr, owned: st.go, cost: gcost }, wi: st.wi, catVer: GD_CATVER
   };
 }
 
@@ -578,14 +733,18 @@ function gdInfo_(p) {
   return {
     catVer: GD_CATVER,
     crops: GD_CROPS, buildings: GD_BLDS, perms: GD_PERMS,
+    wonders: GD_WONDERS.map(function (w) { const c = [], a = []; for (let l = 1; l <= GD_WONDER_STAGES; l++) { c.push(gdWonderCost_(w, l)); a.push(gdWonderAes_(w, l)); } return { id: w.id, name: w.name, e: w.e, w: w.w, h: w.h, rep: w.rep, d: w.d, cost: c, aes: a }; }),
+    grounds: GD_GROUNDS,
+    repCurve: { max: GD_REP_MAX, k: GD_REP_K, thresholds: (function () { const t = []; for (let l = 0; l <= GD_REP_MAX; l++) t.push(l ? gdRepThr_(l) : 0); return t; })(), titles: GD_REP_TITLES, stages: GD_WONDER_STAGES, stageGrow: GD_WONDER_GROW,
+      note: 'Danh vọng = bậc lớn nhất l sao cho tổng điểm đã chi ≥ ceil(156.25×l²) (≈ 0.08×√điểm). Mở bậc trang trí = Mùa + floor(cấp vườn/20) + Danh vọng.' },
     themes: GD_THEMES.map(function (t) { return { id: t.id, name: t.name, e: t.e }; }),
     decos: GD_DECOS.map(function (d) { return [d.id, d.n, d.e, d.th, d.cost, d.aes]; }),
     tiers: { mats: GD_MATS, adjs: GD_ADJS, costMul: GD_TIER_COST, aesMul: GD_TIER_AES, max: GD_TIER_MAX, note: 'id bậc t = "<id>~<t>"; tên = tên + vật liệu[(t-1)%10] (+ tính từ nếu t>10); giá = round(giá×2.6^t); thẩm mỹ = round(aes×2.2^t); mở đến bậc = Mùa + floor(cấp/20)' },
     ach: GD_ACH, climate: GD_CLIMATE,
-    consts: { chunk: GD_CH, chunkBase: 40, chunkGrow: 1.3, tillBase: 15, tillGrow: 1.05, offlineHours: GD_OFFLINE_H, boostSecPerPt: 300, maxOps: GD_MAX_OPS, maxCellsOp: GD_MAX_CELLS_OP, maxFarm: GD_MAX_FARM, maxDeco: GD_MAX_DECO, maxChunks: GD_MAX_CHUNKS, bldUpGrow: 1.32, bldRateGrow: 0.7, essMult: 0.03, prestigeLv: 10, prestigeDiv: 1500, startXu: 60, levelBase: 60, levelGrow: 1.2, levelReward: 30, questXuBase: 60, dailyBase: 50 },
+    consts: { chunk: GD_CH, chunkBase: GD_CHUNK_BASE, chunkGrow: GD_CHUNK_GROW, tillBase: 15, tillGrow: 1.05, offlineHours: GD_OFFLINE_H, boostSecPerPt: 300, maxOps: GD_MAX_OPS, maxCellsOp: GD_MAX_CELLS_OP, maxFarm: GD_MAX_FARM, maxDeco: GD_MAX_DECO, maxChunks: GD_MAX_CHUNKS, bldUpGrow: 1.32, bldRateGrow: 0.7, essMult: 0.03, prestigeLv: 10, prestigeDiv: 1500, startXu: 60, levelBase: 60, levelGrow: 1.2, levelReward: 30, questXuBase: 60, dailyBase: 50 },
     formulas: {
-      level: 'cần(l)=round(60×1.2^(l-1)) XP', chunk: 'giá mảnh thứ n (điểm)=round(40×1.3^(n-1)) × gardenCostPct/100, n = số mảnh đang có',
-      till: 'cuốc ô = round(15×1.05^số ô đất) Xu', perm: 'giá cấp L→L+1 (điểm)=round(base×rate^L); hiệu ứng = max×L/(L+k)',
+      level: 'cần(l)=round(60×1.2^(l-1)) XP', chunk: 'giá mảnh tiếp theo (điểm)=round(40×1.18^(n-1)) × gardenCostPct/100, n = số mảnh đang có',
+      till: 'cuốc ô = round(15×1.05^số ô đất) Xu', perm: 'giá cấp L→L+1 (điểm)=round(base×rate^L); hiệu ứng = max×[L/(L+k)]/[lmax/(lmax+k)], đạt 100% tại lmax; ≥99% → garden_maxed', wonder: 'giá giai đoạn s = round(p×1.8^(s-1)); 5 giai đoạn; cần Danh vọng ≥ rep', ground: 'mua 1 lần, đổi lại miễn phí',
       bld: 'nâng cấp công trình L→L+1 = round(ux×1.32^L) Xu; sản vật/giờ = r×(1+0.7×(L-1))×hệ số', prestige: 'Tinh hoa = floor(sqrt(Xu kiếm trong mùa/1500)); hệ số = 1+0.03×Tinh hoa'
     }
   };
@@ -620,7 +779,7 @@ function gdAct_(params, student) {
     const st = L.st, day = gdDay_(now), ctx = { st: st, now: now, day: day, cs: gdClimate_(day), code: code, eff: null, spend: 0, notes: [], balance: bal0, cells: 0, chs: {}, bpos: {}, lv: 0,
       cap: Math.max(0, cfgNum_('gardenDailySpendCap', 0)), spentToday: st.ds.d === day ? st.ds.s : 0 };
     st.ch.forEach(function (k) { ctx.chs[k] = 1; });
-    Object.keys(st.b).forEach(function (id) { ctx.bpos[st.b[id].x + ',' + st.b[id].y] = id; });
+    ctx.bpos = gdBpos_(st);
     gdRoll_(st, day);
     const lvBefore = gdLevel_(st.xp).lv; ctx.lv = lvBefore;
     const results = [];
@@ -664,13 +823,14 @@ function gdBoard_(params, student) {
     const sh = gdSh_(), n = sh.getLastRow(); list = [];
     if (n >= 2) {
       const codes = sh.getRange(2, 1, n - 1, 1).getValues(), m = sh.getRange(2, 7, n - 1, 3).getValues();
-      for (let i = 0; i < codes.length; i++) if (codes[i][0]) list.push([String(codes[i][0]), Number(m[i][0]) || 1, Number(m[i][1]) || 0, Number(m[i][2]) || 0]);
+      let rp = null; try { if (typeof sh.getMaxColumns !== 'function' || sh.getMaxColumns() >= 13) rp = sh.getRange(2, 13, n - 1, 1).getValues(); } catch (e) { rp = null; }
+      for (let i = 0; i < codes.length; i++) if (codes[i][0]) list.push([String(codes[i][0]), Number(m[i][0]) || 1, Number(m[i][1]) || 0, Number(m[i][2]) || 0, rp ? (Number(rp[i][0]) || 0) : 0]);
       list.sort(function (a, b) { return (b[2] - a[2]) || (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1); });
     }
     cput_('gdboard', list, 60);
   }
-  let me = null; for (let i = 0; i < list.length; i++) if (list[i][0] === student.code) { me = { rank: i + 1, lv: list[i][1], aes: list[i][2], sn: list[i][3] }; break; }
-  return { board: list.slice(0, 20).map(function (r, i) { return { rank: i + 1, who: maskCode_(r[0]), lv: r[1], aes: r[2], sn: r[3], me: r[0] === student.code }; }), me: me, total: list.length, serverTime: Date.now() };
+  let me = null; for (let i = 0; i < list.length; i++) if (list[i][0] === student.code) { me = { rank: i + 1, lv: list[i][1], aes: list[i][2], sn: list[i][3], rep: list[i][4] || 0, rt: gdRepTitle_(list[i][4] || 0) }; break; }
+  return { board: list.slice(0, 20).map(function (r, i) { return { rank: i + 1, who: maskCode_(r[0]), lv: r[1], aes: r[2], sn: r[3], rep: r[4] || 0, rt: gdRepTitle_(r[4] || 0), me: r[0] === student.code }; }), me: me, total: list.length, serverTime: Date.now() };
 }
 
 /* ---------------- Đăng ký với route() ---------------- */
