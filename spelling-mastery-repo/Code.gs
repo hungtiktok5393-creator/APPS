@@ -20,7 +20,7 @@ const RESULT_HEADERS = ['submissionId', 'assignmentId', 'assignmentName', 'submi
 const STATUSES = ['partial', 'timeout', 'stopped', 'done'];
 const SHEET_TESTS = 'Tests';
 const SHEET_TRES = 'TestResults';
-const VERSION = 13;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
+const VERSION = 14;                       // ping trả về số này để ứng dụng biết Apps Script đã được cập nhật chưa
 const NCHUNK = 20;
 const TESTS_HEADERS = ['id', 'name', 'createdAt', 'n'].concat(Array.from({ length: NCHUNK }, function (_, i) { return 'c' + i; }));   // đề test / bộ từ lớn: cắt tối đa 20 mảnh x 45.000 ký tự
 const TRES_HEADERS = ['submissionId', 'testId', 'testName', 'submittedAt', 'name', 'cls', 'score', 'maxScore', 'totalMs', 'late', 'items', 'userAgent'];
@@ -395,7 +395,7 @@ const STUDENT_HEADERS = ['code', 'createdAt', 'note', 'active', 'balance', 'tota
 const LEDGER_HEADERS = ['timestamp', 'code', 'delta', 'reason', 'refId', 'balanceAfter', 'detail'];
 const CONFIG_HEADERS = ['key', 'value'];
 const CLAIM_HEADERS = ['submissionId', 'timestamp'];
-const LEDGER_REASONS = ['vocab', 'test', 'game', 'teacher_adjust', 'garden'];
+const LEDGER_REASONS = ['vocab', 'test', 'game', 'teacher_adjust', 'garden', 'pet'];   // 'pet' = game Thú cưng (Pet.gs) – không tính vào báo cáo phụ huynh
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // bỏ 0 O 1 I L
 const CODE_LEN = 6;
 const CONFIG_DEFAULTS = {
@@ -403,10 +403,11 @@ const CONFIG_DEFAULTS = {
   gamesEnabled: true, maxBet: 200, maxBetPct: 25, dailyLossLimit: 300,
   game_slots_enabled: true, game_wheel_enabled: true, game_hilo_enabled: true, game_mines_enabled: true, game_crash_enabled: true,
   game_dice_enabled: true, game_plinko_enabled: true, game_scratch_enabled: true, game_keno_enabled: true, game_coin_enabled: true,
-  gardenEnabled: true, gardenCostPct: 100
+  gardenEnabled: true, gardenCostPct: 100,
+  petEnabled: true, petDailyMin: 25, petDailySpendCap: 0
 };
-const GAME_ACTIONS = {}, GARDEN_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
-let _gamesReg = false, _gardenReg = false, _cfg = null, _tk = null;
+const GAME_ACTIONS = {}, GARDEN_ACTIONS = {}, PET_ACTIONS = {};          // Games.gs điền qua registerGameActions_(reg). Hàm (params, student) hoặc {teacher:true, fn:(params)}
+let _gamesReg = false, _gardenReg = false, _petReg = false, _cfg = null, _tk = null;
 
 /* ---------- Tiện ích dùng chung (Games.gs gọi được) ---------- */
 function jsonOut_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -972,6 +973,7 @@ function familyReport_(codes) {
       const c = String(v[i][1]); if (!set[c]) continue;
       const dl = Number(v[i][2]) || 0, rs = String(v[i][3]), L = R[c].ledger;
       if (rs === 'vocab' || rs === 'test') { if (isOwn(String(v[i][4]), c)) L.study += dl; }   // chỉ điểm từ bài giao riêng else if (rs === 'game') L.game += dl; else if (rs === 'garden') L.garden += dl; else if (rs === 'teacher_adjust') L.teacher += dl;
+      // reason 'pet' (game Thú cưng) cố ý KHÔNG tính vào bất kỳ mục nào của báo cáo phụ huynh
     }
     scanned += end - st + 1; end = st - 1;
   }
@@ -1009,6 +1011,7 @@ function route(action, params, method) {
     action = String(action || '').slice(0, 40); params = params || {}; method = method || 'POST';
     if (!_gamesReg) { _gamesReg = true; if (typeof registerGameActions_ === 'function') registerGameActions_(GAME_ACTIONS); }
     if (!_gardenReg) { _gardenReg = true; if (typeof registerGardenActions_ === 'function') registerGardenActions_(GARDEN_ACTIONS); }   // Garden.gs: reg.<action> = function (params, student) {...}
+    if (!_petReg) { _petReg = true; if (typeof registerPetActions_ === 'function') registerPetActions_(PET_ACTIONS); }                  // Pet.gs: petInfo / petGet / petAct / petBoard
     const post = method === 'POST', own = Object.prototype.hasOwnProperty;
     _auth = post ? { token: params.token, password: params.password } : {};   // mật khẩu / token của học sinh cho requireStudent_ (GET không nhận mật khẩu)
     if (own.call(PUBLIC_ACTIONS, action)) return PUBLIC_ACTIONS[action](params);
@@ -1027,6 +1030,11 @@ function route(action, params, method) {
         const f = GARDEN_ACTIONS[action], s = requireStudent_(params.code);
         if (!cfgBool_('gardenEnabled', true)) throw apiError_('garden_disabled', 'Khu vườn đang tắt.');
         return okWrap_((typeof f === 'function' ? f : f.fn)(params, s));
+      }
+      if (own.call(PET_ACTIONS, action)) {
+        const f = PET_ACTIONS[action], s = requireStudent_(params.code);
+        if (!cfgBool_('petEnabled', true)) throw apiError_('pet_disabled', 'Nhà thú cưng đang tắt.');
+        return okWrap_(f(params, s));
       }
       return legacyPost_(action, params);
     }

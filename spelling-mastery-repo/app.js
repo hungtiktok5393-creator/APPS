@@ -2594,7 +2594,7 @@ function openAdjust(code) {
 }
 
 /* ---------- Sổ điểm ---------- */
-const LEDGER_REASON = { vocab: 'Từ vựng', test: 'Bài test', game: 'Trò chơi', teacher_adjust: 'Giáo viên chỉnh' };
+const LEDGER_REASON = { vocab: 'Từ vựng', test: 'Bài test', game: 'Trò chơi', garden: 'Khu vườn', pet: 'Thú cưng', teacher_adjust: 'Giáo viên chỉnh' };
 const LEDGER_KEY = { requested: 'yêu cầu', correct: 'đúng', peeks: 'xem lại', game: 'game', bet: 'cược', note: 'ghi chú', reason: 'lý do' };
 function ledgerDetail(x) {
   let d = x.detail;
@@ -2643,10 +2643,12 @@ const CFG_NUM = [
 const CFG_ADV = [
   { k: 'maxBetPct', label: 'Cược tối đa theo % số dư', min: 1, max: 100, def: 25, hint: 'Mỗi lần cược không quá tỉ lệ này của số dư.' },
   { k: 'maxSubmitPoints', label: 'Trần điểm mỗi lần nộp', min: 1, max: 1000000, def: 5000, hint: 'Chống số liệu bất thường từ máy học sinh.' },
-  { k: 'gardenCostPct', label: 'Giá điểm trong vườn (% so với mặc định)', min: 10, max: 500, def: 100, hint: '100 = giá mặc định; 50 = rẻ một nửa; 200 = đắt gấp đôi.' }];
+  { k: 'gardenCostPct', label: 'Giá điểm trong vườn (% so với mặc định)', min: 10, max: 500, def: 100, hint: '100 = giá mặc định; 50 = rẻ một nửa; 200 = đắt gấp đôi.' },
+  { k: 'petDailySpendCap', label: 'Trần chi điểm Thú cưng mỗi ngày (0 = không giới hạn)', min: 0, max: 1000000, def: 0, hint: 'Giới hạn số điểm một học sinh được chi cho thú cưng trong một ngày.' }];
+const CFG_PET = [{ k: 'petDailyMin', label: 'Thú cưng: điểm chăm sóc tối thiểu mỗi ngày', min: 1, max: 100000, def: 25, hint: 'Hết ngày mà học sinh chi chưa đủ số điểm này cho đồ ăn + chăm sóc thì thú cưng mất.' }];
 const CFG_GAMES = [['slots', '🎰 Máy xèng (Slots)'], ['wheel', '🎡 Vòng quay'], ['hilo', '🃏 Cao – Thấp (Hi-Lo)'], ['mines', '💣 Dò mìn (Mines)'], ['crash', '🚀 Crash'], ['dice', '🎲 Xúc xắc'], ['plinko', '🔻 Plinko'], ['scratch', '🎟️ Thẻ cào'], ['keno', '🔢 Keno mini'], ['coin', '🪙 Tung xu']];
-const CFG_BOOL = [{ k: 'gamesEnabled', label: 'Bật khu trò chơi' }].concat(CFG_GAMES.map(([g, t]) => ({ k: 'game_' + g + '_enabled', label: t }))).concat([{ k: 'gardenEnabled', label: 'Bật Khu vườn' }]);
-const CFG_ALL = CFG_NUM.concat(CFG_ADV);
+const CFG_BOOL = [{ k: 'gamesEnabled', label: 'Bật khu trò chơi' }].concat(CFG_GAMES.map(([g, t]) => ({ k: 'game_' + g + '_enabled', label: t }))).concat([{ k: 'gardenEnabled', label: 'Bật Khu vườn' }, { k: 'petEnabled', label: 'Bật Thú cưng (không tính vào báo cáo phụ huynh)' }]);
+const CFG_ALL = CFG_NUM.concat(CFG_ADV, CFG_PET);
 const cfgBool = (v, d) => v == null || v === '' ? d : (v === true || /^(true|1|yes)$/i.test(String(v)));
 const cfgNum = (v, d) => { if (v == null || v === '') return d; const n = Number(v); return isFinite(n) ? n : d; };
 const Cfg = {
@@ -2736,6 +2738,7 @@ function ConfigPanel() {
         boolField(CFG_BOOL[0]), h('p', { class: 'hint', text: 'Tắt khu trò chơi = học sinh không chơi được trò nào (các công tắc bên dưới giữ nguyên để bật lại sau).' }),
         h('p', { class: 'muted small-text', text: 'Bật/tắt từng trò:' }), gamesBox,
         boolField(CFG_BOOL.find(f => f.k === 'gardenEnabled')),
+        boolField(CFG_BOOL.find(f => f.k === 'petEnabled')), h('div', { class: 't-grid' }, CFG_PET.map(numField)),
         h('details', { class: 'box' }, h('summary', { text: 'Nâng cao' }), h('div', { class: 't-grid', style: 'margin-top:.6rem' }, CFG_ADV.map(numField))),
         h('div', { class: 'row wrap' }, saveBtn, revBtn,
           h('button', { type: 'button', class: 'btn', disabled: Cfg.saving, onclick: () => { CFG_ALL.forEach(f => { Cfg.form[f.k] = String(Cfg.defaults[f.k]); }); CFG_BOOL.forEach(f => { Cfg.form[f.k] = !!Cfg.defaults[f.k]; }); Cfg.notify(); toast('Đã điền giá trị mặc định – bấm “Lưu thay đổi” để áp dụng.'); } }, 'Đặt về mặc định'),

@@ -63,3 +63,9 @@ main{max-width:760px;padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px
 .earn-cta[hidden]{display:none}
 .earn-acts{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem}
 .earn-acts .btn{min-height:48px;text-decoration:none}
+/* Nhắc chăm thú cưng (thẻ số dư) + chấm trên tab */
+.st-petalert{display:block;margin:.4rem 0 .6rem;padding:.55rem .8rem;border-radius:12px;font-weight:700;text-decoration:none;color:var(--text);background:color-mix(in srgb,#e11d48 12%,var(--surface));border:2px solid color-mix(in srgb,#e11d48 60%,transparent);animation:st-pa 1.8s ease-in-out infinite}
+.st-petalert[hidden]{display:none}
+@keyframes st-pa{50%{box-shadow:0 0 0 4px color-mix(in srgb,#e11d48 18%,transparent)}}
+.home-count.pet-dot{background:#e11d48;color:#fff;border-color:#e11d48;font-weight:900}
+@media (prefers-reduced-motion:reduce){.st-petalert{animation:none}}
