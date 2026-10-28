@@ -1,7 +1,7 @@
 /* Trang học sinh – dùng biến màu của style.css (sáng/tối tự theo hệ thống) */
 main{max-width:760px;padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px))}
 .st-login{max-width:420px;margin:2rem auto}
-.st-login .btn{width:100%;margin-top:.5rem}
+.st-login .btn.primary{width:100%;margin-top:.5rem}
 .st-hero{background:color-mix(in srgb,var(--primary) 9%,var(--surface));margin-bottom:1rem}
 .st-label{margin:0}
 .st-bal{margin:.1rem 0;font-size:clamp(3.4rem,17vw,6rem);line-height:1;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums;color:var(--primary)}

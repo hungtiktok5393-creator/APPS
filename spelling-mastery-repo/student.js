@@ -6,12 +6,12 @@
  * Giả định (không có trong API_SPEC): action getActiveGame {code} → {active:{game,...}} ; lỗi/không có thì bỏ qua. */
 'use strict';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzha0yUSz_D1VWCFweO4GEftqkq3crJiNA90EOWjmRZUcChUnllN6oplgr9ut6b1IHlgQ/exec';
-const VER = '20261027n', BREAK_EVERY = 20;
+const VER = '20261028a', BREAK_EVERY = 20;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {} } };
 const GAMES = [['slots', '🎰', 'Máy quay'], ['wheel', '🎡', 'Vòng quay'], ['hilo', '🃏', 'Cao–Thấp'], ['mines', '💣', 'Dò mìn'], ['crash', '🚀', 'Crash'], ['dice', '🎲', 'Xúc xắc'], ['plinko', '🔻', 'Plinko'], ['scratch', '🎟️', 'Thẻ cào'], ['keno', '🔢', 'Keno mini'], ['coin', '🪙', 'Tung xu']];
 const REASON = { vocab: ['📘', 'Từ vựng'], test: ['📝', 'Bài test'], game: ['🎮', 'Trò chơi'], garden: ['🌱', 'Khu vườn (cũ)'], pet: ['🐾', 'Thú cưng'], city: ['🏙️', 'Nông trại & Thành phố'], teacher_adjust: ['👩‍🏫', 'Giáo viên chỉnh'] };
-const ERR = { invalid_code: 'Mã không đúng. Kiểm tra lại với giáo viên.', code_disabled: 'Mã này đã bị khóa.', auth_required: 'Mã này có mật khẩu. Hãy nhập mật khẩu giáo viên đã cho bạn.', wrong_password: 'Mật khẩu không đúng. Kiểm tra lại (phân biệt chữ hoa / thường).', locked: 'Nhập sai mật khẩu quá nhiều lần. Đợi 10 phút rồi thử lại.', rate_limited: 'Bạn thao tác quá nhanh, chờ một giây.', busy: 'Máy chủ đang bận, thử lại sau.', games_disabled: 'Giáo viên đang tắt khu trò chơi.', unauthorized: 'Không có quyền.' };
+const ERR = { invalid_code: 'Mã không đúng. Kiểm tra lại với giáo viên.', code_disabled: 'Mã này đã bị khóa.', auth_required: 'Mã này có mật khẩu. Hãy nhập mật khẩu giáo viên đã cho bạn.', wrong_password: 'Mật khẩu không đúng. Kiểm tra lại (phân biệt chữ hoa / thường).', locked: 'Nhập sai mật khẩu quá nhiều lần. Đợi 45 giây rồi thử lại.', rate_limited: 'Bạn thao tác quá nhanh, chờ một giây.', busy: 'Máy chủ đang bận, thử lại sau.', games_disabled: 'Giáo viên đang tắt khu trò chơi.', unauthorized: 'Không có quyền.' };
 const S = { code: '', tok: '', bal: 0, earned: 0, ledger: [], cfg: { maxBet: 200, maxBetPct: 25, dailyLossLimit: 300, gamesEnabled: true }, game: null, tab: '', filter: 'all', rounds: 0, pnl: 0, sinceBreak: 0, todayNet: 0, lock: null, reg: {}, rules: {}, resume: null, cfgAt: 0, last: 0, fast: false };
 S.fast = LS.get('sm_fast') === '1';
 const url = () => SCRIPT_URL || LS.get('sm_script_url') || '';

@@ -603,7 +603,7 @@ const codeErrorMsg = r => ({
   not_assigned: 'Bài này không được giao cho mã học sinh của bạn. Hãy kiểm tra lại mã hoặc hỏi giáo viên.',
   auth_required: 'Mã này có mật khẩu. Hãy nhập mật khẩu giáo viên đã cho bạn.',
   wrong_password: 'Mật khẩu không đúng. Hãy kiểm tra lại (phân biệt chữ hoa / thường) hoặc hỏi giáo viên.',
-  locked: 'Nhập sai mật khẩu quá nhiều lần. Hãy đợi 10 phút rồi thử lại.'
+  locked: 'Nhập sai mật khẩu quá nhiều lần. Hãy đợi 45 giây rồi thử lại.'
 })[r && r.error] || (r && r.message) || 'Không kiểm tra được mã học sinh. Hãy thử lại.';
 /** Khung "điểm bài này + số dư mới" (tự cập nhật theo hàng đợi gửi). est = điểm dự kiến tính trên máy */
 function pointsPanel(psid, code, est) {
@@ -1969,6 +1969,14 @@ const tsOf = v => {
 };
 const nfmt = n => (Number(n) || 0).toLocaleString('vi-VN');
 const studentBase = () => new URL('hoc-sinh.html', location.href).href;
+const hubBase = () => new URL('vao.html', location.href).href;   // trang chung: học sinh + phụ huynh tự chọn
+/** Ô link chung (một link cho cả học sinh lẫn phụ huynh) */
+function hubLinkBox(id) {
+  const inp = h('input', { type: 'text', id, readonly: true, value: hubBase(), 'aria-label': 'Link chung cho học sinh và phụ huynh', onfocus: e => e.target.select() });
+  return [h('label', { for: id, text: '⭐ Link chung (gửi một link cho cả học sinh lẫn phụ huynh)' }),
+    h('div', { class: 't-copy' }, inp, h('button', { type: 'button', class: 'btn', onclick: async () => toast(await copyText(inp.value, inp) ? 'Đã sao chép link chung.' : 'Không sao chép được – hãy chọn và copy thủ công.') }, '📋 Sao chép')),
+    h('p', { class: 'hint', text: 'Mở link này, học sinh bấm “Tôi là học sinh”, phụ huynh bấm “Tôi là phụ huynh” rồi đăng nhập bằng mã của mình.' })];
+}
 const studentLink = code => studentBase() + '?code=' + encodeURIComponent(code);
 /* ---------- "Giao cho": tất cả mã học sinh hoặc chỉ một số mã (bài hiện trong tab "Bài được giao" của trang học sinh) ---------- */
 const splitCodes = v => { const seen = new Set(); String(v || '').split(/[,;\r\n]+/).map(normCode).forEach(c => { if (c.length >= 3) seen.add(c); }); return [...seen]; };
@@ -2144,7 +2152,7 @@ function StudentsPanel() {
         h('div', { class: 'row wrap', style: 'justify-content:space-between;align-items:center' }, h('h2', { text: 'Học sinh' }), keyState()),
         h('label', { for: 'stu-link', text: 'Link trang học sinh (xem điểm, bảng xếp hạng, chơi game)' }),
         h('div', { class: 't-copy' }, linkIn, h('button', { type: 'button', class: 'btn', onclick: async () => toast(await copyText(linkIn.value, linkIn) ? 'Đã sao chép link trang học sinh.' : 'Không sao chép được – hãy chọn và copy thủ công.') }, '📋 Sao chép')),
-        h('p', { class: 'hint', text: 'Gửi link này cho học sinh. Nút 🔗 ở từng dòng sao chép link đã gắn sẵn mã của học sinh đó.' })),
+        h('p', { class: 'hint', text: 'Gửi link này cho học sinh. Nút 🔗 ở từng dòng sao chép link đã gắn sẵn mã của học sinh đó.' }), ...hubLinkBox('hub-link-s')),
       bar);
     linkIn.id = 'stu-link';
   }
@@ -2310,7 +2318,7 @@ function ParentsPanel() {
         h('div', { class: 'row wrap', style: 'justify-content:space-between;align-items:center' }, h('h2', { text: 'Phụ huynh' }), keyState()),
         h('label', { for: 'par-link', text: 'Link trang phụ huynh' }),
         h('div', { class: 't-copy' }, linkIn, h('button', { type: 'button', class: 'btn', onclick: async () => toast(await copyText(linkIn.value, linkIn) ? 'Đã sao chép link trang phụ huynh.' : 'Không sao chép được.') }, '📋 Sao chép')),
-        h('p', { class: 'hint', text: 'Phụ huynh đăng nhập MỘT lần bằng mã + mật khẩu và xem được tất cả các con. Trang phụ huynh CHỈ hiện bài giao riêng (bài có chọn mã học sinh); bài giao cho tất cả học sinh là bài tự chọn, phụ huynh không thấy. Một phụ huynh gắn được tối đa 20 mã học sinh.' }), verBox),
+        h('p', { class: 'hint', text: 'Phụ huynh đăng nhập MỘT lần bằng mã + mật khẩu và xem được tất cả các con. Trang phụ huynh CHỈ hiện bài giao riêng (bài có chọn mã học sinh); bài giao cho tất cả học sinh là bài tự chọn, phụ huynh không thấy. Một phụ huynh gắn được tối đa 20 mã học sinh.' }), ...hubLinkBox('hub-link-p'), verBox),
       h('div', { class: 't-bar' }, qIn,
         h('button', { type: 'button', class: 'btn', onclick: () => Par.load() }, '↻ Tải lại'),
         h('button', { type: 'button', class: 'btn primary', onclick: () => openParent(null) }, '＋ Thêm phụ huynh'),
