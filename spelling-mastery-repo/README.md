@@ -222,7 +222,7 @@ Văn bản có dòng `@TEST` / `@SECTION` / `@Q` được đọc ở chế độ
 
 **Mật khẩu học sinh**
 - Giáo viên đặt tự do (tối đa 32 ký tự, phân biệt hoa/thường): khi tạo mã (dòng `MÃ | ghi chú | mật khẩu`, hoặc tích "Tự tạo mật khẩu 4 chữ số"), nút 🔑 ở từng dòng, hoặc **🔑 Mật khẩu hàng loạt**. Ô trống = mã không cần mật khẩu.
-- Cần mã + mật khẩu để vào **trang học sinh** và **làm bài được giao**. Đăng nhập đúng → máy nhớ (token), lần sau vào thẳng. Đổi mật khẩu → mọi máy phải đăng nhập lại. Sai 6 lần / 10 phút → khóa 10 phút.
+- Cần mã + mật khẩu để vào **trang học sinh** và **làm bài được giao**. Đăng nhập đúng → máy nhớ (token), lần sau vào thẳng. Đổi mật khẩu → mọi máy phải đăng nhập lại. Sai 6 lần liên tiếp → khóa 45 giây.
 - Máy chủ kiểm tra token ở mọi thao tác của học sinh (hồ sơ, bài giao, nộp bài, cộng điểm, trò chơi, thành phố, thú cưng) – không chỉ ở giao diện.
 - Mật khẩu hiện trong bảng học sinh, CSV và thẻ in.
 - **Mã học sinh không còn bị che** ở bất kỳ đâu (bảng xếp hạng, thành phố).

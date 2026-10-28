@@ -508,7 +508,7 @@ function requireStudent_(code, rlAction) {
 /* ---------- v11: MẬT KHẨU (học sinh / phụ huynh) ----------
  * Giáo viên đặt mật khẩu tự do (lưu trong sheet, chỉ giáo viên đọc được). Ô trống = không cần mật khẩu.
  * Đăng nhập đúng → máy chủ trả token = HMAC(loại|mã|mật khẩu, khóa bí mật). Các lần gọi sau gửi token thay cho mật khẩu.
- * Đổi mật khẩu → mọi token cũ tự hết hiệu lực. Sai mật khẩu 6 lần trong 10 phút → khóa 10 phút. */
+ * Đổi mật khẩu → mọi token cũ tự hết hiệu lực. Sai mật khẩu 6 lần liên tiếp → khóa 45 giây. */
 let _auth = {};
 const PW_MAX = 32;
 function pwStr_(v) { return String(v == null ? '' : v).trim().slice(0, PW_MAX); }
@@ -529,9 +529,9 @@ function requireAuth_(kind, code, pw, a) {
   if (typeof a.token === 'string' && a.token && a.token === tokOf_(kind, code, pw)) return true;
   const given = typeof a.password === 'string' || typeof a.password === 'number' ? String(a.password).trim() : '';
   if (!given) throw apiError_('auth_required', 'Cần nhập mật khẩu.');
-  if (fails >= 6) throw apiError_('locked', 'Nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau 10 phút.');
+  if (fails >= 6) throw apiError_('locked', 'Nhập sai mật khẩu quá nhiều lần. Hãy đợi 45 giây rồi thử lại.');
   if (given === pw) { if (fails) c.remove(fk); return true; }
-  c.put(fk, String(fails + 1), 600);
+  c.put(fk, String(fails + 1), 45);   // sai đến lần 6 → khóa 45 giây (tính từ lần sai cuối)
   throw apiError_('wrong_password', 'Mật khẩu không đúng.');
 }
 /** Đổi số dư (luôn trong khoá). Số dư không xuống dưới 0 → delta ghi vào Ledger là delta thực áp dụng. totalEarned chỉ tăng với reason vocab|test. */

@@ -12,7 +12,7 @@ const store = {
 const url = () => SCRIPT_URL || (store.get('sm_script_url_p') || '');
 const ERR = {
   invalid_code: 'Mã phụ huynh không đúng. Kiểm tra lại với thầy Hưng.', code_disabled: 'Tài khoản phụ huynh này đang bị khóa.',
-  wrong_password: 'Mật khẩu không đúng (phân biệt chữ hoa / thường).', auth_required: 'Hãy nhập mật khẩu.', locked: 'Nhập sai quá nhiều lần. Hãy thử lại sau 10 phút.',
+  wrong_password: 'Mật khẩu không đúng (phân biệt chữ hoa / thường).', auth_required: 'Hãy nhập mật khẩu.', locked: 'Nhập sai quá nhiều lần. Hãy đợi 45 giây rồi thử lại.',
   rate_limited: 'Thao tác hơi nhanh, đợi một giây rồi thử lại.', busy: 'Máy chủ đang bận, thử lại sau ít phút.'
 };
 const nf = n => Number(n || 0).toLocaleString('vi-VN');
