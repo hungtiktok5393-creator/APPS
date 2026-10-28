@@ -1,7 +1,7 @@
 {
  "app": "spelling-mastery",
  "version": 3,
- "exportedAt": "2026-10-26T09:12:53.856Z",
+ "exportedAt": "2026-10-28T23:27:36.475Z",
  "settings": {
   "theme": "dark",
   "sfx": true,
@@ -12,7 +12,7 @@
   {
    "id": "34f1cc6b-fee8-4874-98e9-a25d96bea57f",
    "name": "Bộ từ PET",
-   "updatedAt": 1793002988657,
+   "updatedAt": 1793070851483,
    "n": 1330,
    "bytes": 62696
   },
@@ -161,9 +161,9 @@
   {
    "id": "66c96f63-8711-427e-9191-0abc3b968001",
    "name": "READING AND WRITING",
-   "updatedAt": 1792829980481,
+   "updatedAt": 1793167946110,
    "n": 32,
-   "bytes": 18827
+   "bytes": 18825
   },
   {
    "id": "115ddcdd-0412-4778-b70f-061a5967fc96",
